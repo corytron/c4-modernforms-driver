@@ -154,7 +154,7 @@ object such as `{"1.0": "<name>"}`), which
 [`tools/changelog.py`](../tools/changelog.py) and the Release workflow read.
 The file starts empty, `{}`: the Release workflow refuses every version whose
 X.Y it does not name, in its first step, so nothing is released before the
-owner has approved the 1.0 name. The driver files carry the build number,
+owner has approved the 1.0 name (approved 2026-10-27, #6: 1.0 is "Arrakis"). The driver files carry the build number,
 the commit count, as `Driver Version` (Control4 needs an integer there); it is
 named in the release's `manifest.json`, in the release notes (step 4 below)
 and in `deploy/house.yaml` (`build:`); the README names no build and links to

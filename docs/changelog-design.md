@@ -73,8 +73,8 @@ Every X.Y has its own codename from Dune, Denis Villeneuve's films (2021,
 release (X.Y with Y of 1 or more) a decidedly less important one, and every
 build and prerelease of X.Y keeps it. One file,
 [`.github/codenames.json`](../.github/codenames.json), names them, and the
-tool takes every codename from it. It starts empty, `{}`: no version has a
-name yet. Filled in, it reads like this (the names here only show the form):
+tool takes every codename from it. It started empty, `{}`; since
+2026-10-27 (#6) 1.0 is "Arrakis". Filled in, it reads like this (the names here only show the form):
 
 ```json
 {
