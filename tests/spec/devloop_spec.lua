@@ -1,0 +1,2346 @@
+-- common/devloop.lua, the dev loop's driver side (docs/dev-loop.md): the
+-- polling device against a scripted dev server, the forwarded trees (dormant
+-- in this project: devloop.TREES is empty unless a spec sets it), the
+-- forwarded device's side, the signed commands, the log capture and the
+-- signing itself. Ported from the owner's Hue project's spec of the same
+-- module, with its trees made generic.
+
+local fake = require("helpers.fake_c4")
+
+-- Globals a bundle's driver.lua or a test defines; cleared after each test.
+local DRIVER_GLOBALS = { "OnDriverInit", "OnDriverLateInit", "OnDriverDestroyed", "ExecuteCommand",
+	"OnPropertyChanged", "DEVLOOP_TEST_MARK", "DEVLOOP_TEST_CALLS" }
+
+-- A driver.lua that records its entry points in DEVLOOP_TEST_CALLS.
+local DRIVER_SRC = [[
+DEVLOOP_TEST_MARK = "loaded"
+table.insert(DEVLOOP_TEST_CALLS, "chunk")
+function OnDriverInit(reason) table.insert(DEVLOOP_TEST_CALLS, "init:" .. tostring(reason)) end
+function OnDriverLateInit(reason) table.insert(DEVLOOP_TEST_CALLS, "late:" .. tostring(reason)) end
+function OnDriverDestroyed() table.insert(DEVLOOP_TEST_CALLS, "destroyed") end
+]]
+
+-- The tree a modernforms_fan.c4z device polls for, and the two forwarded
+-- trees the forwarding specs make up (light.c4z and remote.c4z devices bound
+-- to the polling one), each driver.lua distinguishable from the others.
+local OWN = "modernforms_fan"
+local LIGHT_SRC = "DEVLOOP_TEST_MARK = 'light loaded'"
+local REMOTE_SRC = "DEVLOOP_TEST_MARK = 'remote loaded'"
+
+-- The dev key a dev package carries as common/devkey.lua (tools/build.sh
+-- --dev), installed here through package.preload; another build's key; and
+-- what the Python side computes for them (tools/tests/test_devserver.py pins
+-- the same three values, so the two implementations cannot drift apart).
+local TEST_KEY = string.rep("0123456789abcdef", 4)
+local OTHER_KEY = string.rep("fedcba9876543210", 4)
+local DOMAIN = "c4-mf-devloop/1\n"
+local TEST_FINGERPRINT = "65e6f64bca3f7c66"
+local SHARED_PAYLOAD = '{"files":{"driver.lua":"return 1"},"tree":"modernforms_fan","version":"v1"}'
+local SHARED_BUNDLE_MAC = "2875a8b6811c6a3d87faeee51472f3778ac89442057e0ee38f69d1a27828f625"
+
+-- Modules a reload can clear (common.* and the bundles' directories); the
+-- other specs' instances are saved around each test.
+local function is_driver_module(name)
+	return name:match("^common%.") or name:match("^fan%.") or name:match("^light%.") or name:match("^remote%.")
+		or name:match("^mf%.") or name == "util"
+end
+
+-- A fresh common.devloop whose package carries `key` (nil: none at all).
+local function load_devloop(key)
+	package.loaded["common.devkey"] = nil
+	package.preload["common.devkey"] = key and function() return key end or nil
+	package.loaded["common.devloop"] = nil
+	rawset(_G, "__DEVLOOP", nil)
+	return require("common.devloop")
+end
+
+local function forget_key()
+	package.preload["common.devkey"] = nil
+	package.loaded["common.devkey"] = nil
+end
+
+-- How many entries of `list` contain `text`.
+local function count_containing(list, text)
+	local n = 0
+	for _, line in ipairs(list) do
+		if tostring(line):find(text, 1, true) then n = n + 1 end
+	end
+	return n
+end
+
+-- Whether `text` occurs in any key or string value anywhere inside `value`.
+local function holds(value, text, seen)
+	if type(value) == "string" then return value:find(text, 1, true) ~= nil end
+	if type(value) ~= "table" then return false end
+	seen = seen or {}
+	if seen[value] then return false end
+	seen[value] = true
+	for k, v in pairs(value) do
+		if holds(k, text, seen) or holds(v, text, seen) then return true end
+	end
+	return false
+end
+
+describe("common.devloop", function()
+	local devloop, c4, server, printed, real_print, saved_modules, sent
+	local HOST = "devvm:8081"
+	local MANIFEST = "GET /manifest?tree=" .. OWN
+	local BUNDLE = "GET /bundle?tree=" .. OWN
+
+	-- An idle tick's requests: its own tree's manifest, then the commands
+	-- (recorded without their nonce).
+	local POLL = { MANIFEST, "GET /commands?after=0" }
+
+	local function state()
+		return rawget(_G, "__DEVLOOP")
+	end
+
+	local function calls()
+		return rawget(_G, "DEVLOOP_TEST_CALLS")
+	end
+
+	local function json(value)
+		return c4:JsonEncode(value)
+	end
+
+	-- The MAC a server holding `key` puts on `payload` under `label`.
+	local function mac(key, label, payload)
+		return devloop.hmac_sha256(key, DOMAIN .. label .. "\n" .. payload)
+	end
+
+	-- `list` followed by the extra items.
+	local function plus(list, ...)
+		local out = {}
+		for _, item in ipairs(list) do out[#out + 1] = item end
+		for i = 1, select("#", ...) do out[#out + 1] = (select(i, ...)) end
+		return out
+	end
+
+	-- The scripted dev server: what it serves, how it signs, what it received.
+	local function new_server()
+		return {
+			version = "v1",      -- the polled tree, OWN
+			files = { ["driver.lua"] = DRIVER_SRC },
+			light_version = "L1", -- the forwarded trees: <tree>_version and <tree>_files
+			light_files = { ["driver.lua"] = LIGHT_SRC, ["light/state.lua"] = "return {}" },
+			remote_version = "R1",
+			remote_files = { ["driver.lua"] = REMOTE_SRC },
+			serves = { [OWN] = true, light = true, remote = true }, -- a tree not here is a 400
+			only = nil,          -- what a request naming no tree gets; nil: a 400, as from several trees
+			key = TEST_KEY,      -- what it signs with
+			keys = {},           -- what = key: another key for a tree or for "commands"
+			unsigned = {},       -- what = true: plain JSON there, as an unsigned server would send
+			tamper = {},         -- what = function(payload) -> payload changed after signing
+			swap = {},           -- tree = other tree: that tree's (correctly signed) bundle served instead
+			echo_nonce = nil,    -- a nonce to answer with instead of the one asked for (a replay)
+			all_commands = false, -- true: every queued command whatever `after` says
+			commands = {},
+			requests = {},       -- "METHOD /path" in order, without the nonce
+			nonces = {},         -- the nonce of every GET /commands
+			payloads = {},       -- tree = the last bundle payload served for it
+			reports = {},        -- decoded POST /report bodies
+			logs = {},           -- decoded POST /log bodies
+			manifest_error = nil,
+			log_error = nil,
+		}
+	end
+
+	-- What the server answers for `what` (a tree or "commands"): the
+	-- envelope, or plain JSON when told to be unsigned.
+	local function served(what, label, payload)
+		if server.unsigned[what] then return payload end
+		local body = mac(server.keys[what] or server.key, label, payload) .. "\n" .. payload
+		if server.tamper[what] then
+			body = body:sub(1, 65) .. server.tamper[what](payload)
+		end
+		return body
+	end
+
+	local function version_of(tree)
+		if tree == OWN then return server.version end
+		return server[tree .. "_version"]
+	end
+
+	local function files_of(tree)
+		if tree == OWN then return server.files end
+		return server[tree .. "_files"]
+	end
+
+	local function route(t)
+		local path = t.url:match("^http://[^/]+(/.*)$")
+		table.insert(server.requests, t.method .. " " .. (path:gsub("&nonce=%x+", "")))
+		local base = path:match("^[^?]+")
+		if base == "/manifest" or base == "/bundle" then
+			if base == "/manifest" and server.manifest_error then
+				return t:done(server.manifest_error, "Failed to connect")
+			end
+			local tree = path:match("tree=([%w_]+)") or server.only
+			if not tree or not server.serves[tree] then
+				return t:respond(400, json({ error = "unknown tree" }))
+			end
+			if base == "/manifest" then
+				return t:respond(200, json({ version = version_of(tree), tree = tree, files = {}, server_time = 1 }))
+			end
+			local source = server.swap[tree] or tree
+			local payload = json({ version = version_of(source), tree = source, files = files_of(source) })
+			server.payloads[tree] = payload
+			return t:respond(200, served(tree, "bundle", payload))
+		elseif base == "/commands" then
+			local after = tonumber(path:match("after=(%d+)"))
+			local nonce = path:match("nonce=(%x+)")
+			table.insert(server.nonces, nonce)
+			local pending = {}
+			for _, cmd in ipairs(server.commands) do
+				if server.all_commands or cmd.id > after then table.insert(pending, cmd) end
+			end
+			return t:respond(200, served("commands", "commands",
+				json({ nonce = server.echo_nonce or nonce, commands = pending })))
+		elseif base == "/report" then
+			table.insert(server.reports, c4:JsonDecode(t.data))
+			return t:respond(204, "")
+		elseif base == "/log" then
+			if server.log_error then
+				return t:done(server.log_error, "Failed to connect")
+			end
+			table.insert(server.logs, c4:JsonDecode(t.data))
+			return t:respond(204, "")
+		end
+		t:respond(404, "unknown")
+	end
+
+	-- Answer every unanswered transfer, including those the answers start,
+	-- until the chain is idle. Returns how many were answered.
+	local function serve()
+		local n = 0
+		while true do
+			local pending
+			for _, t in ipairs(c4.transfers) do
+				if not t.served then pending = t; break end
+			end
+			if not pending then return n end
+			pending.served = true
+			route(pending)
+			n = n + 1
+		end
+	end
+
+	local function tick()
+		c4.fire_timers()
+		return serve()
+	end
+
+	local function events()
+		local out = {}
+		for _, r in ipairs(server.reports) do out[#out + 1] = r.event end
+		return out
+	end
+
+	local function last_report()
+		return server.reports[#server.reports]
+	end
+
+	-- Start the loop and bring it to the server's versions.
+	local function start_synced()
+		devloop.start(HOST)
+		serve()
+		tick()
+		server.requests, server.reports, server.logs, sent = {}, {}, {}, {}
+	end
+
+	-- What the polling device has bound on its forward binding; tests
+	-- override per case.
+	local function bind_devices(devices, binding)
+		c4.GetBoundConsumerDevices = function(_, device_id, asked)
+			assert.equal(15, device_id, "the polling device's own id")
+			assert.equal(binding or 1, asked)
+			return devices
+		end
+	end
+
+	-- What C4:GetDevices reports for a bound device: the driver file it runs.
+	-- A bound device the project does not know is one GetDevices omits.
+	local function project_device(id, driver_file)
+		fake.project.devices[id] = { name = "Device " .. tostring(id), room_id = 7, c4i = driver_file,
+			driver_name = driver_file }
+	end
+
+	-- The ids DEV_RELOAD went to for `tree`, sorted.
+	local function sent_to(tree)
+		local ids = {}
+		for _, msg in ipairs(sent) do
+			if msg.command == "DEV_RELOAD" and msg.params.tree == tree then ids[#ids + 1] = msg.device_id end
+		end
+		table.sort(ids)
+		return ids
+	end
+
+	-- A forwarded DEV_RELOAD's files, after checking that it carries the
+	-- server's payload unchanged with a MAC this build's key accepts.
+	local function forwarded_files(msg)
+		assert.is_string(msg.params.bundle, "the signed payload travels as JSON text")
+		assert.is_nil(devloop.check_signature("bundle", msg.params.bundle, msg.params.mac))
+		assert.equal(mac(TEST_KEY, "bundle", msg.params.bundle), msg.params.mac)
+		assert.is_nil(msg.params.files, "no unsigned form")
+		local payload = c4:JsonDecode(msg.params.bundle)
+		assert.equal(msg.params.tree, payload.tree)
+		assert.equal(msg.params.version, payload.version)
+		return payload.files
+	end
+
+	-- A comma-separated DeviceIds filter as a sorted list.
+	local function csv_sorted(text)
+		local out = {}
+		for id in tostring(text):gmatch("[^,]+") do out[#out + 1] = id end
+		table.sort(out)
+		return out
+	end
+
+	-- How many printed lines are exactly this devloop message.
+	local function times_said(msg)
+		local n = 0
+		for _, line in ipairs(printed) do
+			if line == "devloop: " .. msg then n = n + 1 end
+		end
+		return n
+	end
+
+	-- The message was printed exactly once; the order among a tick's lines is incidental.
+	local function assert_said(msg)
+		assert.equal(1, times_said(msg), "printed once: devloop: " .. msg)
+	end
+
+	-- How many printed lines contain `text`.
+	local function printed_count(text)
+		return count_containing(printed, text)
+	end
+
+	-- The lines in the loop's buffer, not yet shipped.
+	local function buffered()
+		local out = {}
+		for _, entry in ipairs(state().log) do out[#out + 1] = entry.line end
+		return out
+	end
+
+	-- A fresh module instance (a Director restart), the old one stopped and
+	-- its bundle loader removed.
+	local function reload_module(key)
+		local S = state()
+		devloop.stop()
+		for i = #package.loaders, 1, -1 do
+			if S and package.loaders[i] == S.loader then table.remove(package.loaders, i) end
+		end
+		devloop = load_devloop(key)
+	end
+
+	-- Every line the server got, every report as JSON and every printed line.
+	local function everything_said()
+		local out = {}
+		for _, line in ipairs(printed) do out[#out + 1] = line end
+		for _, body in ipairs(server.logs) do
+			for _, entry in ipairs(body.lines) do out[#out + 1] = entry.line end
+		end
+		for _, r in ipairs(server.reports) do out[#out + 1] = json(r) end
+		return out
+	end
+
+	before_each(function()
+		c4 = fake.install_c4({ ["Status"] = "Idle", ["Debug Mode"] = "Off" })
+		c4.driver_file = OWN .. ".c4z"
+		c4.device_id = 15
+		-- Stubbed here rather than in the fake: SendToDevice is recorded with all
+		-- five arguments, and GetBoundConsumerDevices answers "nothing bound"
+		-- unless a test binds devices.
+		sent = {}
+		c4.SendToDevice = function(_, device_id, command, params, allow_empty, log_command)
+			table.insert(sent, { device_id = device_id, command = command, params = params,
+				allow_empty = allow_empty, log_command = log_command, nargs = select("#", device_id, command, params,
+					allow_empty, log_command) })
+		end
+		bind_devices(nil)
+		real_print = print
+		printed = {}
+		rawset(_G, "print", function(...)
+			local parts = {}
+			for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+			table.insert(printed, table.concat(parts, "\t"))
+		end)
+		rawset(_G, "DEVLOOP_TEST_CALLS", {})
+		-- A reload clears common.* and the bundles' modules; keep the other specs' instances.
+		saved_modules = {}
+		for name, mod in pairs(package.loaded) do
+			if is_driver_module(name) then saved_modules[name] = mod end
+		end
+		devloop = load_devloop(TEST_KEY)
+		server = new_server()
+	end)
+
+	after_each(function()
+		local S = state()
+		devloop.stop()
+		for i = #package.loaders, 1, -1 do
+			if package.loaders[i] == S.loader then table.remove(package.loaders, i) end
+		end
+		rawset(_G, "print", real_print)
+		for _, name in ipairs(DRIVER_GLOBALS) do rawset(_G, name, nil) end
+		for name in pairs(package.loaded) do
+			if is_driver_module(name) or name == "somelib" then package.loaded[name] = nil end
+		end
+		for name, mod in pairs(saved_modules) do package.loaded[name] = mod end
+		forget_key()
+	end)
+
+	describe("start", function()
+		it("arms one repeating 3000 ms timer and posts the startup report at once", function()
+			assert.is_true(devloop.start(HOST))
+			assert.same({ { 3000, true } }, c4.calls_to("SetTimer"))
+			assert.is_true(devloop.running())
+			assert.equal(1, serve())
+			assert.same({ "POST /report" }, server.requests)
+			local r = server.reports[1]
+			assert.equal("startup", r.event)
+			assert.is_nil(r.version)
+			assert.is_nil(r.forwarded, "nothing forwarded yet")
+			assert.equal(OWN, r.tree, "the tree it polls for, from its driver file")
+			assert.equal(15, r.device_id)
+			assert.equal("Idle", r.properties.Status)
+			assert.equal("Lua 5.1", r.sandbox._VERSION)
+			assert.equal("function", r.sandbox.loadstring)
+			assert.equal("function", r.sandbox.setfenv)
+			assert.equal("table", r.sandbox.package)
+			assert.equal("table", r.sandbox["package.loaders"])
+			assert.equal("table", r.sandbox.C4)
+			assert.equal("1", r.sandbox.driver_version)
+			assert.equal(OWN .. ".c4z", r.sandbox.driver_file, "what C4:GetDriverFileName answered")
+			assert.equal("nil", r.sandbox.jit)
+			assert.equal("nil", r.sandbox.bit)
+			assert.equal("Lua (no C4:HMAC)", r.sandbox.hmac, "the fake runtime has no C4:HMAC")
+			assert.equal(TEST_FINGERPRINT, r.key_fingerprint)
+			assert.same({ "devloop: started against http://devvm:8081" }, printed)
+		end)
+
+		it("is a no-op for the same host and restarts for a different one", function()
+			devloop.start(HOST)
+			devloop.start(HOST)
+			assert.equal(1, #c4.calls_to("SetTimer"))
+			assert.equal(1, #c4.transfers)
+
+			devloop.start("other:9090")
+			assert.equal(2, #c4.calls_to("SetTimer"))
+			assert.equal(1, #c4.active_timers())
+			assert.equal("http://other:9090/report", c4.last_transfer().url)
+		end)
+
+		it("with an empty host stops the loop", function()
+			devloop.start(HOST)
+			assert.is_false(devloop.start(""))
+			assert.is_false(devloop.running())
+			assert.equal(0, #c4.active_timers())
+		end)
+
+		it("sends plain HTTP with short timeouts and never reads persistent storage", function()
+			devloop.start(HOST)
+			local t = c4.last_transfer()
+			assert.is_false(t.options.fail_on_error)
+			assert.equal(10, t.options.timeout)
+			assert.equal(3, t.options.connect_timeout)
+			assert.equal("application/json", t.headers["Content-Type"])
+			serve()
+			tick()
+			assert.equal(0, #c4.calls_to("PersistGetValue"))
+		end)
+
+		it("keeps the key out of the shared state, the reports and the log", function()
+			start_synced()
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			rawset(_G, "ExecuteCommand", function() end)
+			print("a line")
+			tick()
+			c4.now_ms = c4.now_ms + devloop.HEARTBEAT_MS
+			tick()
+			assert.is_false(holds(state(), TEST_KEY), "not anywhere in _G.__DEVLOOP")
+			assert.is_false(holds(Properties, TEST_KEY))
+			assert.equal(0, count_containing(everything_said(), TEST_KEY))
+			assert.truthy(#server.reports > 0 and #server.logs > 0)
+		end)
+	end)
+
+	describe("tick", function()
+		it("fetches its own tree's manifest and, at a new version, the bundle, then commands and the log", function()
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.equal("http://devvm:8081/manifest?tree=modernforms_fan", c4.transfers[2].url)
+			assert.same({ "POST /report", MANIFEST, BUNDLE, "POST /report", "GET /commands?after=0", "POST /log" },
+				server.requests)
+			assert.same({ "startup", "reload" }, events(), "the reload report is fresh: no heartbeat is due")
+		end)
+
+		it("at an unchanged version only polls the manifest and the commands", function()
+			start_synced()
+			tick()
+			assert.same(POLL, server.requests)
+		end)
+
+		it("skips a tick while the previous chain is still in flight", function()
+			devloop.start(HOST)
+			serve()
+			c4.fire_timers()
+			c4.fire_timers()
+			assert.equal(2, #c4.transfers, "one manifest request, not two")
+			serve()
+			assert.same({ "startup", "reload" }, events())
+			assert.equal(6, #c4.transfers, "one chain: manifest, bundle, report, commands, log")
+		end)
+
+		it("abandons a chain stuck for STUCK_TICKS ticks and starts a new one", function()
+			devloop.start(HOST)
+			serve()
+			for _ = 1, devloop.STUCK_TICKS + 1 do c4.fire_timers() end
+			assert.equal(3, #c4.transfers)
+			-- The stale manifest reply is ignored; the fresh one drives the chain.
+			c4.transfers[2].served = true
+			route(c4.transfers[2])
+			assert.equal(3, #c4.transfers)
+			serve()
+			assert.same({ "startup", "reload" }, events())
+		end)
+
+		it("posts a heartbeat when idle for 30 s, not sooner, naming the device and its tree", function()
+			start_synced()
+			tick()
+			assert.same({}, events())
+			c4.now_ms = c4.now_ms + devloop.HEARTBEAT_MS
+			tick()
+			assert.same({ "heartbeat" }, events())
+			assert.equal("Idle", last_report().properties.Status)
+			assert.equal("v1", last_report().version)
+			assert.equal(OWN, last_report().tree)
+			assert.equal(15, last_report().device_id)
+			assert.equal(TEST_FINGERPRINT, last_report().key_fingerprint, "every report names the key")
+			tick()
+			assert.same({ "heartbeat" }, events())
+		end)
+
+		it("says once when the server lacks its tree, still runs the commands and loads the tree once it is there",
+			function()
+				server.serves[OWN] = nil
+				devloop.start(HOST)
+				serve()
+				local seen = {}
+				rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+				server.commands = { { id = 1, type = "execute", command = "A" } }
+				tick()
+				assert_said("server has no modernforms_fan tree (HTTP 400); this device is not updated")
+				assert.same({ "A" }, seen, "the server answers: the commands still run")
+				assert.is_nil(devloop.version())
+				assert.equal(0, printed_count("unreachable"))
+				tick()
+				assert_said("server has no modernforms_fan tree (HTTP 400); this device is not updated")
+
+				server.serves[OWN] = true
+				tick()
+				assert.equal("v1", devloop.version())
+				assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			end)
+
+		it("takes the server's only tree when its driver file names none", function()
+			c4.driver_file = "Fan Driver (copy).c4i"
+			server.only = OWN
+			devloop.start(HOST)
+			assert_said("the driver file name (Fan Driver (copy).c4i) names no tree; asking the server for its "
+				.. "only one")
+			serve()
+			assert.is_nil(server.reports[1].tree, "not known at startup")
+			tick()
+			assert.same({ "POST /report", "GET /manifest", BUNDLE, "POST /report", "GET /commands?after=0",
+				"POST /log" }, server.requests)
+			assert_said("polling for the modernforms_fan tree, the server's only one")
+			assert.equal("v1", devloop.version())
+			assert.equal(OWN, last_report().tree)
+			server.requests = {}
+			tick()
+			assert.same(POLL, server.requests, "from now on it names the tree")
+		end)
+
+		it("updates nothing without a tree of its own while the server serves several, and still runs commands",
+			function()
+				c4.driver_file = "odd"
+				devloop.start(HOST)
+				serve()
+				local seen = {}
+				rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+				server.commands = { { id = 1, type = "execute", command = "A" } }
+				tick()
+				tick()
+				assert_said("the server names no single tree to poll for (HTTP 400); this device is not updated")
+				assert.is_nil(devloop.version())
+				assert.same({ "A" }, seen)
+				assert.equal(0, count_containing(server.requests, "/bundle"))
+			end)
+	end)
+
+	describe("reload", function()
+		it("runs the sequence in order and reports the new version", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "old destroyed") end)
+			package.loaded["fan.x"] = { old = true }
+			server.files["fan/x.lua"] = "return { new = true }"
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({ "old destroyed", "chunk", "init:DIT_UPDATING", "late:DIT_UPDATING" }, calls())
+			assert.is_nil(package.loaded["fan.x"])
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.equal("v1", devloop.version())
+			local r = server.reports[2]
+			assert.equal("reload", r.event)
+			assert.equal("v1", r.version)
+			assert.is_nil(r.error)
+		end)
+
+		it("clears common.* and the modules of either bundle's directories and files, and nothing else", function()
+			start_synced() -- v1: driver.lua only
+			server.version = "v2"
+			server.files = { ["driver.lua"] = DRIVER_SRC, ["fan/http.lua"] = "return {}", ["util.lua"] = "return {}" }
+			for _, name in ipairs({ "fan.old", "common.x", "util", "somelib", "fan_tools" }) do
+				package.loaded[name] = { stale = true }
+			end
+			tick()
+			assert.equal("v2", devloop.version())
+			assert.is_nil(package.loaded["fan.old"], "fan/ is in the bundle: every fan.* module is the driver's")
+			assert.is_nil(package.loaded["common.x"])
+			assert.is_nil(package.loaded["util"], "a top-level file of the bundle")
+			assert.same({ stale = true }, package.loaded["somelib"], "a module no bundle brought")
+			assert.same({ stale = true }, package.loaded["fan_tools"])
+			assert.equal(devloop, package.loaded["common.devloop"], "never cleared")
+
+			-- v3 has no fan/ any more: the old bundle's fan.* modules still go.
+			server.version = "v3"
+			server.files = { ["driver.lua"] = DRIVER_SRC, ["mf/x.lua"] = "return {}" }
+			package.loaded["fan.http"] = { stale = true }
+			package.loaded["util"] = { stale = true }
+			tick()
+			assert.equal("v3", devloop.version())
+			assert.is_nil(package.loaded["fan.http"])
+			assert.is_nil(package.loaded["util"])
+			package.loaded["somelib"], package.loaded["fan_tools"] = nil, nil
+		end)
+
+		it("serves modules from the bundle and falls through for the rest", function()
+			server.files["fan/x.lua"] = "return { from_bundle = true }"
+			server.files["driver.lua"] = DRIVER_SRC .. "\nDEVLOOP_TEST_MARK = require('fan.x')"
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.is_true(rawget(_G, "DEVLOOP_TEST_MARK").from_bundle)
+			assert.is_true(require("fan.x").from_bundle)
+			assert.is_function(require("common.log").always, "not in the bundle: loaded from disk")
+			assert.equal(state().loader, package.loaders[1])
+		end)
+
+		it("replaces its loader on the next reload instead of stacking", function()
+			start_synced()
+			local count = #package.loaders
+			server.version = "v2"
+			tick()
+			assert.equal("v2", devloop.version())
+			assert.equal(count, #package.loaders)
+			assert.equal(state().loader, package.loaders[1])
+		end)
+
+		it("reports reload_failed on a syntax error, keeps polling and recovers", function()
+			start_synced()
+			server.version, server.files["driver.lua"] = "v2", "function ("
+			tick()
+			assert.same({ "reload_failed" }, events())
+			assert.truthy(last_report().error:find("driver.lua", 1, true))
+			assert.equal("v2", devloop.version())
+			assert.equal(1, #c4.active_timers())
+
+			-- The same broken version is not retried; a new one is.
+			server.reports = {}
+			tick()
+			assert.same({}, events())
+			server.version, server.files["driver.lua"] = "v3", DRIVER_SRC
+			tick()
+			assert.same({ "reload" }, events())
+			assert.equal("v3", devloop.version())
+		end)
+
+		it("reports reload_failed when an entry point raises", function()
+			start_synced()
+			server.version = "v2"
+			server.files["driver.lua"] = DRIVER_SRC .. "\nfunction OnDriverLateInit() error('boom') end"
+			tick()
+			assert.equal("reload_failed", last_report().event)
+			assert.truthy(last_report().error:find("OnDriverLateInit failed", 1, true))
+			assert.truthy(last_report().error:find("boom", 1, true))
+		end)
+
+		it("still loads the new code when OnDriverDestroyed raises, and says so", function()
+			start_synced()
+			rawset(_G, "OnDriverDestroyed", function() error("stuck") end)
+			server.version = "v2"
+			tick()
+			assert.equal("reload", last_report().event)
+			assert.truthy(last_report().error:find("OnDriverDestroyed failed", 1, true))
+			assert.equal("v2", devloop.version())
+		end)
+
+		it("captures output from a freshly required common.log", function()
+			start_synced()
+			local log = require("common.log")
+			log.always("from the new log")
+			tick()
+			assert.equal("from the new log", server.logs[1].lines[1].line)
+		end)
+
+		it("keeps the key it was loaded with, whatever the bundle carries", function()
+			start_synced()
+			-- A bundle that brings its own common/devkey.lua (the server never
+			-- serves one) cannot change what the loop verifies with.
+			server.version = "v2"
+			server.files["common/devkey.lua"] = "return '" .. OTHER_KEY .. "'"
+			server.files["driver.lua"] = DRIVER_SRC .. "\nrequire('common.devkey')"
+			tick()
+			assert.equal("v2", devloop.version())
+			assert.equal(TEST_FINGERPRINT, devloop.key_fingerprint())
+			server.version, server.key = "v3", OTHER_KEY
+			tick()
+			assert.equal("v2", devloop.version(), "a bundle signed with the other key is still refused")
+		end)
+	end)
+
+	describe("signed bundles (polling side)", function()
+		it("refuses an unsigned bundle with one line and a refused report, and keeps the running code", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "destroyed") end)
+			server.unsigned[OWN] = true
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({}, calls(), "nothing torn down, nothing compiled")
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(devloop.version())
+			assert_said("modernforms_fan bundle v1 refused: not signed")
+			assert.same({ "startup", "refused" }, events())
+			local r = server.reports[2]
+			assert.equal(OWN, r.refused_tree)
+			assert.equal("v1", r.refused_version)
+			assert.equal("not signed", r.error)
+			assert.equal(OWN, r.tree)
+			assert.is_nil(r.version, "still the .c4z's own code")
+			-- The rest of the tick goes on: the commands and the log.
+			assert.same({ "POST /report", MANIFEST, BUNDLE, "POST /report", "GET /commands?after=0", "POST /log" },
+				server.requests)
+		end)
+
+		it("refuses a bundle whose file was changed after signing", function()
+			start_synced()
+			server.version = "v2"
+			server.files["driver.lua"] = DRIVER_SRC .. "\nDEVLOOP_TEST_MARK = 'genuine'"
+			server.tamper[OWN] = function(payload) return (payload:gsub("genuine", "planted")) end
+			tick()
+			assert.equal("v1", devloop.version())
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert_said("modernforms_fan bundle v2 refused: signature mismatch")
+			assert.equal("refused", server.reports[1].event)
+		end)
+
+		it("refuses a bundle signed with another key", function()
+			start_synced()
+			server.version, server.keys[OWN] = "v2", OTHER_KEY
+			tick()
+			assert.equal("v1", devloop.version())
+			assert_said("modernforms_fan bundle v2 refused: signature mismatch")
+		end)
+
+		it("refuses a correctly signed bundle of another tree", function()
+			server.swap[OWN] = "light"
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.is_nil(devloop.version())
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert_said("modernforms_fan bundle v1 refused: signed for the light tree")
+		end)
+
+		it("refuses a body that is not an envelope, and a MAC that is not 64 hex characters", function()
+			assert.equal("not signed", devloop.check_signature("bundle", "{}", nil))
+			assert.equal("not signed", devloop.check_signature("bundle", "{}", "abc"))
+			assert.equal("not signed", devloop.check_signature("bundle", "{}", string.rep("g", 64)))
+			assert.equal("not signed", devloop.check_signature("bundle", nil, string.rep("a", 64)))
+			assert.equal("signature mismatch", devloop.check_signature("bundle", "{}", string.rep("a", 64)))
+			local good = mac(TEST_KEY, "bundle", "{}")
+			assert.is_nil(devloop.check_signature("bundle", "{}", good))
+			assert.is_nil(devloop.check_signature("bundle", "{}", good:upper()), "hex in either case")
+			assert.equal("signature mismatch", devloop.check_signature("commands", "{}", good),
+				"a MAC made for one label is no good for another")
+			assert.same({ "{}", good }, { devloop.split_envelope(good .. "\n{}") })
+			assert.same({ "{}" }, { devloop.split_envelope("{}") })
+		end)
+
+		it("does not accept what the Hue project's loop signs, whatever key signed it", function()
+			local hue_mac = devloop.hmac_sha256(TEST_KEY, "c4-hue-devloop/1\nbundle\n{}")
+			assert.equal("signature mismatch", devloop.check_signature("bundle", "{}", hue_mac))
+		end)
+
+		it("does not fetch a refused version again for a minute, then retries it silently", function()
+			server.unsigned[OWN] = true
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert_said("modernforms_fan bundle v1 refused: not signed")
+			server.requests, server.reports = {}, {}
+			tick()
+			assert.same(POLL, server.requests, "no GET /bundle within REFUSED_RETRY_MS, and nothing new to say")
+
+			c4.now_ms = c4.now_ms + devloop.REFUSED_RETRY_MS
+			server.requests, server.reports = {}, {}
+			tick()
+			assert.equal(BUNDLE, server.requests[2])
+			assert.same({ "heartbeat" }, events(), "a refusal said before is not reported again")
+			assert_said("modernforms_fan bundle v1 refused: not signed")
+
+			-- Signed again (the server restarted with its key): the next retry loads it.
+			server.unsigned[OWN] = nil
+			c4.now_ms = c4.now_ms + devloop.REFUSED_RETRY_MS
+			tick()
+			assert.equal("v1", devloop.version())
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(state().refused[OWN])
+		end)
+
+		it("fetches a new version at once, even right after a refusal", function()
+			start_synced()
+			server.version, server.unsigned[OWN] = "v2", true
+			tick()
+			assert_said("modernforms_fan bundle v2 refused: not signed")
+			server.version, server.unsigned[OWN] = "v3", nil
+			server.requests = {}
+			tick()
+			assert.equal(BUNDLE, server.requests[2])
+			assert.equal("v3", devloop.version())
+		end)
+
+		it("retries a refused version at once after a reload command", function()
+			server.unsigned[OWN] = true
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.is_nil(devloop.version())
+			server.unsigned[OWN] = nil
+			server.commands = { { id = 1, type = "reload" } }
+			server.reports = {}
+			tick()
+			assert.equal("v1", devloop.version())
+			assert.same({ "reload", "command_done" }, events())
+			assert.is_nil(last_report().error)
+		end)
+
+		it("never says or reports the MAC it expected", function()
+			start_synced()
+			server.version, server.keys[OWN] = "v2", OTHER_KEY
+			tick()
+			c4.now_ms = c4.now_ms + devloop.HEARTBEAT_MS
+			tick()
+			local expected = mac(TEST_KEY, "bundle", server.payloads[OWN])
+			assert.equal(64, #expected)
+			assert.equal(0, count_containing(everything_said(), expected))
+			assert.equal(0, count_containing(everything_said(), expected:sub(1, 16)))
+		end)
+	end)
+
+	-- Dormant in this project (devloop.TREES is empty): what a polling device
+	-- does once a driver lists the trees of its bound child devices.
+	describe("forwarded trees (polling side)", function()
+		-- An idle tick with both forwarded trees.
+		local FPOLL = { MANIFEST, "GET /manifest?tree=light", "GET /manifest?tree=remote", "GET /commands?after=0" }
+
+		before_each(function()
+			devloop.TREES = { "light", "remote" }
+		end)
+
+		it("forwards nothing and asks for no other tree while TREES is empty", function()
+			devloop.TREES = {}
+			project_device(2001, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			start_synced()
+			tick()
+			assert.same(POLL, server.requests)
+			assert.same({}, sent)
+			assert.is_nil(devloop.tree_version("light"))
+		end)
+
+		it("forwards a new light version to every bound light device as DEV_RELOAD", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.equal(2, #sent)
+			table.sort(sent, function(a, b) return a.device_id < b.device_id end)
+			assert.equal(2001, sent[1].device_id)
+			assert.equal(2002, sent[2].device_id)
+			for _, msg in ipairs(sent) do
+				assert.equal("DEV_RELOAD", msg.command)
+				assert.equal("light", msg.params.tree)
+				assert.equal("L1", msg.params.version)
+				assert.same(server.light_files, forwarded_files(msg))
+				assert.equal(server.payloads.light, msg.params.bundle, "the server's payload, unchanged")
+				assert.is_false(msg.allow_empty, "allowEmptyValues")
+				assert.is_false(msg.log_command, "logCommand: the bundle must not land in Director's log")
+			end
+			assert.equal("L1", devloop.tree_version("light"))
+			assert.equal("L1", devloop.light_version(), "the Hue loop's name for it")
+			assert.equal("R1", devloop.tree_version("remote"), "the remote tree was fetched too")
+			assert.equal("v1", devloop.version(), "the polling device's own version is untouched")
+			assert.same({ "chunk", "init:DIT_UPDATING", "late:DIT_UPDATING" }, calls(), "it did not reload again")
+			assert_said("light version L1 forwarded to 2 light device(s)")
+			assert_said("remote version R1: no bound remote devices")
+		end)
+
+		it("does not re-forward an unchanged version and forwards again when it changes", function()
+			project_device(2001, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			start_synced()
+			tick()
+			assert.same({}, sent)
+			assert.same(FPOLL, server.requests)
+
+			server.light_version, server.light_files["driver.lua"] = "L2", LIGHT_SRC .. " .. ' 2'"
+			server.requests = {}
+			tick()
+			assert.equal(1, #sent)
+			assert.equal("L2", sent[1].params.version)
+			assert.same(server.light_files, forwarded_files(sent[1]))
+			assert.is_false(sent[1].log_command)
+			assert.equal("L2", devloop.tree_version("light"))
+			assert.same({ MANIFEST, "GET /manifest?tree=light", "GET /bundle?tree=light", "GET /manifest?tree=remote",
+				"GET /commands?after=0", "POST /log", "POST /report" }, server.requests)
+		end)
+
+		it("reports the forwarded versions in the heartbeat right after a forward, and in later reports", function()
+			project_device(2001, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			start_synced()
+			assert.equal("L1", devloop.tree_version("light"))
+			server.light_version = "L2"
+			tick()
+			assert.same({ "heartbeat" }, events(), "a forward makes a heartbeat due at once")
+			assert.same({ light = "L2", remote = "R1" }, last_report().forwarded)
+			assert.equal("v1", last_report().version)
+
+			server.reports = {}
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			rawset(_G, "ExecuteCommand", function() end)
+			tick()
+			assert.equal("command_done", last_report().event)
+			assert.equal("L2", last_report().forwarded.light)
+		end)
+
+		it("remembers the version when nothing is bound, says so once, and catches up devices bound later", function()
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({}, sent)
+			assert.equal("L1", devloop.tree_version("light"))
+			assert_said("light version L1: no bound light devices")
+			assert_said("remote version R1: no bound remote devices")
+			local said = #printed
+			tick()
+			tick()
+			assert.equal(said, #printed)
+			assert.equal(0, #c4.calls_to("SendToDevice"))
+
+			-- Devices are bound while the loop runs; the version has not
+			-- changed, yet every one of them must get it on the next tick.
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			server.requests = {}
+			tick()
+			assert.equal(2, #sent)
+			for _, msg in ipairs(sent) do
+				assert.equal("DEV_RELOAD", msg.command)
+				assert.equal("light", msg.params.tree)
+				assert.equal("L1", msg.params.version)
+				assert.same(server.light_files, forwarded_files(msg))
+			end
+			assert_said("light version L1 forwarded to 2 newly bound light device(s)")
+			assert.same(plus(FPOLL, "POST /log"), server.requests, "the held bundles are used; no second fetch")
+		end)
+
+		it("forwards the current version to a device bound after the first forward, without a refetch", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			start_synced()
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			tick()
+			assert.equal(1, #sent)
+			assert.equal(2002, sent[1].device_id)
+			assert.equal("DEV_RELOAD", sent[1].command)
+			assert.equal("L1", sent[1].params.version)
+			assert.same(server.light_files, forwarded_files(sent[1]))
+			assert.is_false(sent[1].allow_empty)
+			assert.is_false(sent[1].log_command)
+			assert.same(plus(FPOLL, "POST /log"), server.requests,
+				"no GET /bundle?tree=light and no heartbeat: the version did not change")
+			assert_said("light version L1 forwarded to 1 newly bound light device(s)")
+			assert.same({ [2001] = "L1", [2002] = "L1" }, state().trees.light.forwarded)
+		end)
+
+		it("sends nothing while the bound set and the version are unchanged", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			start_synced()
+			local said = #printed
+			tick()
+			tick()
+			assert.same({}, sent)
+			assert.equal(said, #printed)
+			assert.same(plus(FPOLL, unpack(FPOLL)), server.requests)
+			assert.same({ [2001] = "L1", [2002] = "L1" }, state().trees.light.forwarded)
+			assert.same({}, state().trees.remote.forwarded)
+		end)
+
+		it("re-forwards a new version to every bound device, caught-up ones included", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			start_synced()
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			tick()
+			assert.equal(1, #sent, "2002 caught up with L1")
+			sent = {}
+			server.light_version, server.light_files["driver.lua"] = "L2", LIGHT_SRC .. " .. ' 2'"
+			server.requests = {}
+			tick()
+			assert.equal(2, #sent)
+			table.sort(sent, function(a, b) return a.device_id < b.device_id end)
+			assert.same({ 2001, 2002 }, { sent[1].device_id, sent[2].device_id })
+			for _, msg in ipairs(sent) do
+				assert.equal("L2", msg.params.version)
+				assert.same(server.light_files, forwarded_files(msg))
+			end
+			assert_said("light version L2 forwarded to 2 light device(s)")
+			assert.same({ [2001] = "L2", [2002] = "L2" }, state().trees.light.forwarded)
+			assert.same({ MANIFEST, "GET /manifest?tree=light", "GET /bundle?tree=light", "GET /manifest?tree=remote",
+				"GET /commands?after=0", "POST /log", "POST /report" }, server.requests,
+				"fetched once for the new version; a heartbeat is due at once")
+		end)
+
+		it("forgets a device that is no longer bound, and forwards again if it comes back", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			start_synced()
+			assert.same({ [2001] = "L1", [2002] = "L1" }, state().trees.light.forwarded)
+			bind_devices({ [2001] = "A" })
+			tick()
+			assert.same({}, sent)
+			assert.same({ [2001] = "L1" }, state().trees.light.forwarded)
+
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			tick()
+			assert.equal(1, #sent)
+			assert.equal(2002, sent[1].device_id)
+			assert.equal("L1", sent[1].params.version)
+			assert.same({ [2001] = "L1", [2002] = "L1" }, state().trees.light.forwarded)
+
+			bind_devices(nil)
+			tick()
+			assert.same({}, state().trees.light.forwarded, "nothing bound: the table empties")
+		end)
+
+		it("tells the trees' devices apart by driverFileName, looked up once per new id", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "remote.c4z")
+			bind_devices({ [2001] = "Light", [2002] = "Remote", [2003] = "C" })   -- 2003: GetDevices omits it
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.equal(2, #sent)
+			assert.same({ 2001 }, sent_to("light"), "an unknown driver file gets nothing")
+			assert.same({ 2002 }, sent_to("remote"))
+			for _, msg in ipairs(sent) do
+				assert.equal("DEV_RELOAD", msg.command)
+				if msg.params.tree == "remote" then
+					assert.equal("R1", msg.params.version)
+					assert.same(server.remote_files, forwarded_files(msg))
+				else
+					assert.equal("L1", msg.params.version)
+					assert.same(server.light_files, forwarded_files(msg))
+				end
+				assert.is_false(msg.allow_empty)
+				assert.is_false(msg.log_command)
+			end
+			assert_said("light version L1 forwarded to 1 light device(s)")
+			assert_said("remote version R1 forwarded to 1 remote device(s)")
+			assert.same({ [2001] = "L1" }, state().trees.light.forwarded)
+			assert.same({ [2002] = "R1" }, state().trees.remote.forwarded)
+
+			local lookups = c4.calls_to("GetDevices")
+			assert.equal(1, #lookups, "one GetDevices for both trees")
+			assert.same({ "2001", "2002", "2003" }, csv_sorted(lookups[1][1].DeviceIds))
+			assert.same({ [2001] = "light.c4z", [2002] = "remote.c4z", [2003] = false }, state().driver_files)
+
+			-- Held: the next tick asks nothing and sends nothing.
+			sent = {}
+			tick()
+			assert.same({}, sent)
+			assert.equal(1, #c4.calls_to("GetDevices"))
+
+			-- A remote device bound later is looked up alone and gets the held remote bundle.
+			project_device(2004, "remote.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B", [2003] = "C", [2004] = "D" })
+			server.requests = {}
+			tick()
+			assert.equal(1, #sent)
+			assert.equal(2004, sent[1].device_id)
+			assert.equal("remote", sent[1].params.tree)
+			assert.equal("R1", sent[1].params.version)
+			assert.same(server.remote_files, forwarded_files(sent[1]))
+			lookups = c4.calls_to("GetDevices")
+			assert.equal(2, #lookups)
+			assert.equal("2004", lookups[2][1].DeviceIds)
+			assert_said("remote version R1 forwarded to 1 newly bound remote device(s)")
+			assert.same(plus(FPOLL, "POST /log"), server.requests, "no refetch of either bundle")
+		end)
+
+		it("sends a new remote version only to the remote devices and reports it at once", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "remote.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			start_synced()
+			assert.equal("R1", devloop.tree_version("remote"))
+			assert.same({ [2001] = "L1" }, state().trees.light.forwarded)
+			assert.same({ [2002] = "R1" }, state().trees.remote.forwarded)
+
+			server.remote_version, server.remote_files["driver.lua"] = "R2", REMOTE_SRC .. " .. ' 2'"
+			tick()
+			assert.equal(1, #sent)
+			assert.equal(2002, sent[1].device_id)
+			assert.equal("DEV_RELOAD", sent[1].command)
+			assert.equal("remote", sent[1].params.tree)
+			assert.equal("R2", sent[1].params.version)
+			assert.same(server.remote_files, forwarded_files(sent[1]))
+			assert.is_false(sent[1].log_command)
+			assert.equal("R2", devloop.tree_version("remote"))
+			assert.equal("L1", devloop.tree_version("light"), "the light tree is untouched")
+			assert.same({ [2002] = "R2" }, state().trees.remote.forwarded)
+			assert.same({ MANIFEST, "GET /manifest?tree=light", "GET /manifest?tree=remote",
+				"GET /bundle?tree=remote", "GET /commands?after=0", "POST /log", "POST /report" }, server.requests,
+				"fetched once for the new version; a heartbeat is due at once")
+			assert.same({ "heartbeat" }, events())
+			assert.same({ light = "L1", remote = "R2" }, last_report().forwarded)
+			assert.equal("v1", last_report().version)
+			assert_said("remote version R2 forwarded to 1 remote device(s)")
+		end)
+
+		it("forwards nothing to a device whose driver file cannot be read", function()
+			c4.GetDevices = function() error("not available") end
+			bind_devices({ [2001] = "A" })
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({}, sent)
+			assert.same({ [2001] = false }, state().driver_files)
+			assert_said("light version L1: no bound light devices")
+			assert_said("remote version R1: no bound remote devices")
+		end)
+
+		it("asks for the devices bound on FORWARD_BINDING", function()
+			devloop.FORWARD_BINDING = 3
+			project_device(2001, "light.c4z")
+			bind_devices({ [2001] = "A" }, 3)
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({ 2001 }, sent_to("light"))
+		end)
+
+		it("never forwards its own tree and skips a name that is no tree", function()
+			devloop.TREES = { OWN, "bad name", 7, "light" }
+			start_synced()
+			tick()
+			assert.same({ MANIFEST, "GET /manifest?tree=light", "GET /commands?after=0" }, server.requests)
+		end)
+
+		it("says once when the server lacks a forwarded tree, keeps polling for it and picks it up later", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "remote.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			server.serves.remote = nil
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({ 2001 }, sent_to("light"))
+			assert.same({}, sent_to("remote"))
+			assert.equal("L1", devloop.tree_version("light"))
+			assert.is_nil(devloop.tree_version("remote"))
+			assert_said("server has no remote tree (HTTP 400); remote devices are not updated")
+
+			server.requests = {}
+			tick()
+			assert.same(FPOLL, server.requests, "the remote manifest is still polled")
+			assert_said("server has no remote tree (HTTP 400); remote devices are not updated")
+			assert.equal(1, #sent)
+
+			server.serves.remote = true
+			server.requests = {}
+			tick()
+			assert.same({ 2002 }, sent_to("remote"))
+			assert.equal("R1", sent[2].params.version)
+			assert.same(server.remote_files, forwarded_files(sent[2]))
+			assert.equal("R1", devloop.tree_version("remote"))
+			assert.same({ MANIFEST, "GET /manifest?tree=light", "GET /manifest?tree=remote",
+				"GET /bundle?tree=remote", "GET /commands?after=0", "POST /log", "POST /report" }, server.requests)
+			assert_said("remote version R1 forwarded to 1 remote device(s)")
+		end)
+
+		it("keeps the loop going when SendToDevice raises", function()
+			project_device(2001, "light.c4z")
+			project_device(2002, "light.c4z")
+			bind_devices({ [2001] = "A", [2002] = "B" })
+			c4.SendToDevice = function(_, device_id)
+				if device_id == 2002 then error("device gone") end
+				table.insert(sent, { device_id = device_id })
+			end
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.equal(1, #sent)
+			assert.equal("L1", devloop.tree_version("light"))
+			assert_said("light version L1 forwarded to 1 light device(s), 1 failed")
+			assert.equal("GET /commands?after=0", server.requests[9])
+			assert.same({ [2001] = "L1", [2002] = "L1" }, state().trees.light.forwarded,
+				"a failed send is recorded too, so it is not retried at this version")
+			tick()
+			assert.equal(1, #sent)
+		end)
+
+		it("forwards nothing from a light bundle that does not verify, says so once and reports it", function()
+			project_device(2001, "light.c4z")
+			bind_devices({ [2001] = "A" })
+			server.keys.light = OTHER_KEY
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({}, sent)
+			assert.is_nil(devloop.tree_version("light"))
+			assert_said("light bundle L1 refused: signature mismatch")
+			assert.equal(1, #c4.calls_to("SetTimer"))
+			local refused
+			for _, r in ipairs(server.reports) do
+				if r.event == "refused" then refused = r end
+			end
+			assert.equal("light", refused.refused_tree)
+			assert.equal("L1", refused.refused_version)
+
+			-- Within REFUSED_RETRY_MS it is not fetched again; a new, good version goes out at once.
+			server.requests = {}
+			tick()
+			assert.same(FPOLL, server.requests)
+			server.light_version, server.keys.light = "L2", nil
+			tick()
+			assert.same({ 2001 }, sent_to("light"))
+			assert.equal("L2", sent[1].params.version)
+			assert.same(server.light_files, forwarded_files(sent[1]))
+		end)
+
+		it("forwards nothing from an unsigned remote bundle or one signed for the light tree", function()
+			project_device(2002, "remote.c4z")
+			bind_devices({ [2002] = "B" })
+			server.unsigned.remote = true
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({}, sent)
+			assert_said("remote bundle R1 refused: not signed")
+
+			server.unsigned.remote, server.swap.remote = nil, "light"
+			server.remote_version = "R2"
+			tick()
+			assert.same({}, sent)
+			assert_said("remote bundle R2 refused: signed for the light tree")
+		end)
+	end)
+
+	describe("own_tree", function()
+		it("reads this driver's tree off its driver file name", function()
+			assert.equal(OWN, devloop.own_tree())
+			c4.driver_file = "light.c4z"
+			assert.equal("light", devloop.own_tree())
+			c4.driver_file = "/control4/drivers/modernforms_fan.c4z"
+			assert.equal(OWN, devloop.own_tree(), "a path before the name is ignored")
+			c4.driver_file = "modernforms_fan.C4Z"
+			assert.equal(OWN, devloop.own_tree())
+			for _, odd in ipairs({ "other.c4i", "bad name.c4z", ".c4z", "modernforms_fan", "" }) do
+				c4.driver_file = odd
+				assert.is_nil(devloop.own_tree(), odd)
+			end
+			c4.driver_file = nil
+			assert.is_nil(devloop.own_tree())
+			c4.GetDriverFileName = function() error("not on this OS") end
+			assert.is_nil(devloop.own_tree())
+		end)
+	end)
+
+	describe("apply_forwarded (forwarded device side)", function()
+		-- What a polling device forwards: the server's signed payload for
+		-- `signed_tree` (default `tree`) and its MAC, with `tree` as the
+		-- unsigned hint (none when `tree` is nil).
+		local function signed_params(version, files, tree, opts)
+			opts = opts or {}
+			local payload = json({ version = version, tree = opts.signed_tree or tree or "light", files = files })
+			return { tree = tree, version = version, bundle = payload, mac = mac(opts.key or TEST_KEY, "bundle", payload) }
+		end
+
+		local function forwarded(version, files, tree, opts)
+			return devloop.apply_forwarded(signed_params(version, files, tree, opts))
+		end
+
+		before_each(function()
+			c4.driver_file = "light.c4z"   -- the receiver is a light device unless a spec says otherwise
+		end)
+
+		it("reloads from the forwarded bundle without start() ever being called", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "old destroyed") end)
+			package.loaded["light.x"] = { old = true }
+			package.loaded["common.dispatch"] = { old = true }
+			assert.same({ true, "L1" }, { forwarded("L1", { ["driver.lua"] = DRIVER_SRC, ["light/state.lua"] = "" },
+				"light") })
+			assert.same({ "old destroyed", "chunk", "init:DIT_UPDATING", "late:DIT_UPDATING" }, calls())
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(package.loaded["light.x"])
+			assert.is_nil(package.loaded["common.dispatch"])
+			assert.equal(devloop, package.loaded["common.devloop"], "never cleared")
+			assert.equal("L1", devloop.version())
+			assert.is_false(devloop.running())
+			assert.equal(0, #c4.transfers, "a forwarded device never contacts the server")
+			assert.equal("devloop: light reload complete: version L1", printed[#printed])
+		end)
+
+		it("serves the tree's modules from the forwarded bundle", function()
+			assert.is_true(forwarded("L1", {
+				["driver.lua"] = "DEVLOOP_TEST_MARK = require('light.state')",
+				["light/state.lua"] = "return { from_bundle = true }",
+			}, "light"))
+			assert.is_true(rawget(_G, "DEVLOOP_TEST_MARK").from_bundle)
+			assert.equal(state().loader, package.loaders[1])
+		end)
+
+		it("skips a bundle for another tree and leaves the running code alone", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "destroyed") end)
+			assert.same({ false, "skipped" }, { forwarded("R1", { ["driver.lua"] = REMOTE_SRC }, "remote") })
+			assert.equal("devloop: light reload skipped: DEV_RELOAD carries the remote tree", printed[#printed])
+			assert.same({}, calls(), "nothing was torn down")
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(devloop.version())
+
+			-- Its own tree is applied, named or not.
+			assert.is_true(forwarded("L1", { ["driver.lua"] = DRIVER_SRC }, "light"))
+			assert.equal("L1", devloop.version())
+			assert.is_true(forwarded("L2", { ["driver.lua"] = DRIVER_SRC }, nil, { signed_tree = "light" }))
+			assert.equal("L2", devloop.version())
+			assert.equal("devloop: light reload complete: version L2", printed[#printed])
+		end)
+
+		it("on a remote device applies the remote tree and skips the light tree", function()
+			c4.driver_file = "remote.c4z"
+			assert.is_false(forwarded("L1", { ["driver.lua"] = LIGHT_SRC }, "light"))
+			assert.equal("devloop: remote reload skipped: DEV_RELOAD carries the light tree", printed[#printed])
+			assert.is_nil(devloop.version())
+
+			assert.is_true(forwarded("R1", {
+				["driver.lua"] = "DEVLOOP_TEST_MARK = require('remote.x')",
+				["remote/x.lua"] = "return 'remote loaded'",
+			}, "remote"))
+			assert.equal("remote loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.equal("R1", devloop.version())
+			assert.equal("devloop: remote reload complete: version R1", printed[#printed])
+		end)
+
+		it("refuses every bundle while its own driver file names no tree", function()
+			c4.driver_file = "other.c4i"
+			assert.same({ false, "refused", "this driver's tree is unknown" },
+				{ forwarded("L1", { ["driver.lua"] = DRIVER_SRC }, "light") })
+			assert.equal("devloop: device reload refused: this driver's tree is unknown", printed[#printed])
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(devloop.version())
+		end)
+
+		it("prints the failure for a broken bundle and stays usable", function()
+			assert.same({ false, "failed" }, { forwarded("L2", { ["driver.lua"] = "function (" }, "light") })
+			assert.truthy(printed[#printed]:find("^devloop: light reload failed: "))
+			assert.truthy(printed[#printed]:find("driver.lua", 1, true))
+			assert.equal("L2", devloop.version())
+
+			assert.is_false(forwarded("L3", { ["driver.lua"] = "error('boom')" }, "light"))
+			assert.truthy(printed[#printed]:find("boom", 1, true))
+
+			assert.is_true(forwarded("L4", { ["driver.lua"] = DRIVER_SRC }, "light"))
+			assert.equal("L4", devloop.version())
+			assert.equal("devloop: light reload complete: version L4", printed[#printed])
+		end)
+
+		it("fails cleanly on a signed payload that does not decode", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "destroyed") end)
+			local payload = "not json"
+			assert.same({ false, "failed" }, { devloop.apply_forwarded({ tree = "light", version = "L1", bundle = payload,
+				mac = mac(TEST_KEY, "bundle", payload) }) })
+			assert.equal("devloop: light reload failed: the signed bundle does not decode", printed[#printed])
+			assert.same({}, calls(), "nothing was torn down")
+			assert.is_nil(devloop.version())
+		end)
+
+		it("refuses an unsigned form, a bundle without a MAC and no params at all", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "destroyed") end)
+			assert.same({ false, "refused", "not signed" }, { devloop.apply_forwarded({ tree = "light", version = "L1",
+				files = json({ ["driver.lua"] = DRIVER_SRC }) }) })
+			assert.equal("devloop: light reload refused: not signed", printed[#printed])
+			local unsigned = signed_params("L1", { ["driver.lua"] = DRIVER_SRC }, "light")
+			unsigned.mac = nil
+			assert.is_false(devloop.apply_forwarded(unsigned))
+			assert.is_false(devloop.apply_forwarded(nil))
+			assert.same({}, calls(), "nothing was torn down")
+			assert.is_nil(devloop.version())
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+		end)
+
+		it("refuses a DEV_RELOAD whose bundle was changed after signing, tearing nothing down", function()
+			rawset(_G, "OnDriverDestroyed", function() table.insert(calls(), "destroyed") end)
+			local params = signed_params("L1", { ["driver.lua"] = DRIVER_SRC }, "light")
+			params.bundle = params.bundle:gsub("loaded", "owned")
+			assert.same({ false, "refused", "signature mismatch" }, { devloop.apply_forwarded(params) })
+			assert.equal("devloop: light reload refused: signature mismatch", printed[#printed])
+			assert.same({}, calls())
+			assert.is_nil(devloop.version())
+		end)
+
+		it("refuses a bundle signed with another key, as any other driver in the project would send", function()
+			assert.same({ false, "refused", "signature mismatch" },
+				{ forwarded("L1", { ["driver.lua"] = DRIVER_SRC }, "light", { key = OTHER_KEY }) })
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(devloop.version())
+		end)
+
+		it("goes by the signed tree, not the tree param", function()
+			assert.same({ false, "refused", "signed for the remote tree" },
+				{ forwarded("R1", { ["driver.lua"] = REMOTE_SRC }, "light", { signed_tree = "remote" }) })
+			assert.equal("devloop: light reload refused: signed for the remote tree", printed[#printed])
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+		end)
+
+		it("refuses the polling driver's own bundle, wherever it comes from", function()
+			assert.same({ false, "refused", "signed for the modernforms_fan tree" },
+				{ forwarded("v1", { ["driver.lua"] = DRIVER_SRC }, "light", { signed_tree = OWN }) })
+			assert.is_false(forwarded("v1", { ["driver.lua"] = DRIVER_SRC }, nil, { signed_tree = OWN }))
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+		end)
+
+		it("refuses every DEV_RELOAD while the device polls the server itself", function()
+			c4.driver_file = OWN .. ".c4z"
+			devloop.start(HOST)
+			assert.same({ false, "refused", "this device polls the dev server itself" },
+				{ forwarded("v9", { ["driver.lua"] = DRIVER_SRC }, OWN) })
+			assert.equal("devloop: modernforms_fan reload refused: this device polls the dev server itself",
+				printed[#printed])
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.is_nil(devloop.version())
+		end)
+
+		it("loads at the signed version, whatever the version param says", function()
+			local params = signed_params("L7", { ["driver.lua"] = DRIVER_SRC }, "light")
+			params.version = "L9"
+			assert.same({ true, "L7" }, { devloop.apply_forwarded(params) })
+			assert.equal("L7", devloop.version())
+		end)
+
+		it("never says the MAC it expected", function()
+			local params = signed_params("L1", { ["driver.lua"] = DRIVER_SRC }, "light", { key = OTHER_KEY })
+			devloop.apply_forwarded(params)
+			local expected = mac(TEST_KEY, "bundle", params.bundle)
+			assert.equal("devloop: light reload refused: signature mismatch", printed[#printed])
+			assert.equal(0, count_containing(printed, expected:sub(1, 16)))
+			assert.equal(0, count_containing(buffered(), expected:sub(1, 16)))
+		end)
+
+		it("works as a dispatch command handler", function()
+			package.loaded["common.dispatch"] = nil
+			local dispatch = require("common.dispatch")
+			dispatch.commands["DEV_RELOAD"] = devloop.apply_forwarded
+			dispatch.execute_command("DEV_RELOAD", signed_params("L1", { ["driver.lua"] = DRIVER_SRC }, "light"))
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+			assert.equal("L1", devloop.version())
+		end)
+
+		it("through the device's handler, a refusal is said as a refusal and nothing reloads", function()
+			local lines = {}
+			local log = {
+				debug = function() end,
+				always = function(fmt, ...) lines[#lines + 1] = "always " .. string.format(fmt, ...) end,
+				warn = function(fmt, ...) lines[#lines + 1] = "warn " .. string.format(fmt, ...) end,
+			}
+			local handler = devloop.reload_handler(log, "light")
+			handler(signed_params("L1", { ["driver.lua"] = DRIVER_SRC }, "light", { key = OTHER_KEY }))
+			assert.same({ "warn light reload refused (signature mismatch); see this device's Lua output" }, lines)
+			assert.is_nil(rawget(_G, "DEVLOOP_TEST_MARK"))
+
+			handler(signed_params("L2", { ["driver.lua"] = DRIVER_SRC }, "light"))
+			assert.equal("always light reloaded to version L2", lines[2])
+			assert.equal("loaded", rawget(_G, "DEVLOOP_TEST_MARK"))
+		end)
+	end)
+
+	-- The two pieces a forwarded device driver would take from this module:
+	-- its DEV_LOG sink and its DEV_RELOAD handler. Dormant in this project.
+	describe("forward_logs (forwarded device side)", function()
+		local log, seen, parent, source
+
+		-- A stand-in for the driver's common.log: only the sink matters here.
+		before_each(function()
+			seen = {}
+			log = { sink = function(line) seen[#seen + 1] = line end }
+			parent, source = 15, "light 1"
+		end)
+
+		local function install()
+			return devloop.forward_logs(log, "Fan Test", function() return parent end, function() return source end)
+		end
+
+		it("forwards its own non-debug lines as DEV_LOG, feeding the previous sink first", function()
+			install()
+			log.sink("[WARN] Fan Test: something odd")
+			log.sink("Fan Test: diagnostic")
+			log.sink("[DEBUG] Fan Test: noise")
+			log.sink("[WARN] Other Driver: another driver's line")
+			log.sink("plain print output")
+			assert.same({ "[WARN] Fan Test: something odd", "Fan Test: diagnostic", "[DEBUG] Fan Test: noise",
+				"[WARN] Other Driver: another driver's line", "plain print output" }, seen,
+				"everything still reaches the sink")
+			assert.same({
+				{ device_id = 15, command = "DEV_LOG", params = { source = "light 1", line = "[WARN] Fan Test: something odd" },
+					allow_empty = false, log_command = false, nargs = 5 },
+				{ device_id = 15, command = "DEV_LOG", params = { source = "light 1", line = "Fan Test: diagnostic" },
+					allow_empty = false, log_command = false, nargs = 5 },
+			}, sent)
+		end)
+
+		it("omits the source while the device has none", function()
+			install()
+			source = nil
+			log.sink("[WARN] Fan Test: no source yet")
+			assert.same({ line = "[WARN] Fan Test: no source yet" }, sent[1].params)
+		end)
+
+		it("keeps the newest LOG_BUFFER lines while the polling device is unknown and sends them on flush, in order",
+			function()
+				local flush = install()
+				parent = nil
+				for i = 1, devloop.LOG_BUFFER + 5 do
+					log.sink(string.format("[INFO] Fan Test: line %d", i))
+				end
+				assert.same({}, sent, "nowhere to send yet")
+				parent = 15
+				flush()
+				assert.equal(devloop.LOG_BUFFER, #sent)
+				assert.equal("[INFO] Fan Test: line 6", sent[1].params.line)
+				assert.equal("[INFO] Fan Test: line 35", sent[#sent].params.line)
+				flush()
+				assert.equal(devloop.LOG_BUFFER, #sent, "the buffer is spent")
+			end)
+
+		it("says a failing send once per streak through the print captured at install, never through the sink",
+			function()
+				install()
+				local later = {}
+				rawset(_G, "print", function(...) later[#later + 1] = table.concat({ ... }, " ") end)
+				c4.SendToDevice = function() error("Director says no") end
+				log.sink("[WARN] Fan Test: one")
+				log.sink("[WARN] Fan Test: two")
+				assert.same({}, later, "not the print of the moment")
+				assert.equal(1, #printed)
+				assert.truthy(printed[1]:find("^%[WARN%] Fan Test: log forwarding to the polling device failed: "
+					.. ".*Director says no"))
+				assert.same({ "[WARN] Fan Test: one", "[WARN] Fan Test: two" }, seen, "the sink saw only the lines")
+
+				c4.SendToDevice = function(_, device_id, command, params) table.insert(sent, { device_id = device_id,
+					command = command, params = params }) end
+				log.sink("[WARN] Fan Test: three")
+				c4.SendToDevice = function() error("again") end
+				log.sink("[WARN] Fan Test: four")
+				assert.equal(2, #printed, "a new streak is said again")
+			end)
+	end)
+
+	describe("reload_handler (forwarded device side)", function()
+		local log, lines, got
+
+		before_each(function()
+			lines = {}
+			local function keep(level)
+				return function(fmt, ...) lines[#lines + 1] = level .. " " .. string.format(fmt, ...) end
+			end
+			log = { debug = keep("debug"), always = keep("always"), warn = keep("warn") }
+			got = nil
+			devloop.apply_forwarded = function(params)
+				got = params
+				if params.ok == true then return true, params.signed_version end
+				return false, params.outcome, params.why
+			end
+		end)
+
+		it("applies its own tree's bundle and logs the version always", function()
+			local handler = devloop.reload_handler(log, "light")
+			handler({ tree = "light", version = "L1", bundle = "{}", ok = true })
+			assert.same({ tree = "light", version = "L1", bundle = "{}", ok = true }, got)
+			assert.same({ "always light reloaded to version L1" }, lines)
+		end)
+
+		it("names the version it loaded, the signed one, over the version param", function()
+			local handler = devloop.reload_handler(log, "light")
+			handler({ tree = "light", version = "hint", bundle = "{}", ok = true, signed_version = "L3" })
+			assert.same({ "always light reloaded to version L3" }, lines)
+		end)
+
+		it("takes a bundle without a tree as its own and warns when the reload fails", function()
+			local handler = devloop.reload_handler(log, "remote")
+			handler({ version = "R2", bundle = "{}" })
+			assert.equal("R2", got.version)
+			assert.same({ "warn remote reload failed; see this device's Lua output" }, lines)
+			handler(nil)
+			assert.same({}, got, "nil params read as none")
+		end)
+
+		it("says a refusal as a refusal, with the reason", function()
+			local handler = devloop.reload_handler(log, "remote")
+			handler({ tree = "remote", version = "R2", bundle = "{}", outcome = "refused", why = "not signed" })
+			assert.same({ "warn remote reload refused (not signed); see this device's Lua output" }, lines)
+		end)
+
+		it("ignores another tree's bundle at debug level without touching the dev loop", function()
+			local handler = devloop.reload_handler(log, "remote")
+			handler({ tree = "light", version = "L1", bundle = "{}" })
+			assert.is_nil(got)
+			assert.same({ "debug DEV_RELOAD for the light tree ignored" }, lines)
+		end)
+	end)
+
+	describe("commands", function()
+		it("execute goes through ExecuteCommand and reports command_done", function()
+			start_synced()
+			local seen
+			rawset(_G, "ExecuteCommand", function(command, params) seen = { command, params } end)
+			server.commands = { { id = 7, type = "execute", command = "Fan Off", params = { Speed = "0" } } }
+			tick()
+			assert.same({ "Fan Off", { Speed = "0" } }, seen)
+			local r = last_report()
+			assert.equal("command_done", r.event)
+			assert.equal(7, r.command_id)
+			assert.equal("Idle", r.properties.Status)
+			assert.is_number(r.elapsed_ms)
+			assert.is_nil(r.error)
+		end)
+
+		-- The driver's development commands are not in its dispatch table
+		-- (ExecuteCommand has no sender); only a signed command runs them.
+		it("execute runs the driver's signed handler of that name instead of ExecuteCommand", function()
+			start_synced()
+			local seen, through_entry = {}, {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(through_entry, command) end)
+			devloop.set_signed_commands({ Fan_Request = function(params) table.insert(seen, params) end })
+			server.commands = {
+				{ id = 1, type = "execute", command = "Fan Request", params = { Body = "{}" } },
+				{ id = 2, type = "execute", command = "LUA_ACTION", params = { ACTION = "Fan  Request", Method = "POST" } },
+				{ id = 3, type = "execute", command = "Fan Off", params = {} },
+			}
+			tick()
+			assert.same({ { Body = "{}" }, { Method = "POST" } }, seen,
+				"named as common/dispatch.lua names commands; LUA_ACTION unwrapped and its ACTION dropped")
+			assert.same({ "Fan Off" }, through_entry, "anything else goes to ExecuteCommand")
+			assert.same({ "command_done", "command_done", "command_done" }, events())
+		end)
+
+		it("finds the signed handlers the running code set, a reload's included", function()
+			start_synced()
+			devloop.set_signed_commands({ Probe_Call = function() table.insert(calls(), "probe v1") end })
+			server.commands = { { id = 1, type = "execute", command = "Probe Call" } }
+			tick()
+			server.version = "v2"
+			server.files["driver.lua"] = DRIVER_SRC .. "\nrequire('common.devloop').set_signed_commands("
+				.. "{ Probe_Call = function() table.insert(DEVLOOP_TEST_CALLS, 'probe v2') end })"
+			server.commands = { { id = 2, type = "execute", command = "Probe Call" } }
+			tick()
+			local probes = {}
+			for _, call in ipairs(calls()) do
+				if call:find("^probe") then probes[#probes + 1] = call end
+			end
+			assert.same({ "probe v1", "probe v2" }, probes)
+		end)
+
+		it("reports a failing signed handler, says so and runs the next command", function()
+			start_synced()
+			local ran = {}
+			devloop.set_signed_commands({
+				Probe_Call = function() error("probe broke") end,
+				Fan_Request = function() table.insert(ran, "Fan Request") end,
+			})
+			server.commands = { { id = 1, type = "execute", command = "Probe Call" },
+				{ id = 2, type = "execute", command = "Fan Request" } }
+			tick()
+			assert.truthy(server.reports[1].error:find("probe broke", 1, true))
+			assert.equal(1, printed_count("devloop: signed command Probe_Call failed: "))
+			assert.same({ "Fan Request" }, ran)
+			assert.is_nil(server.reports[2].error)
+		end)
+
+		it("runs no signed handler from a command list that does not verify", function()
+			start_synced()
+			local seen = {}
+			devloop.set_signed_commands({ Probe_Call = function() table.insert(seen, "probe") end })
+			server.unsigned.commands = true
+			server.commands = { { id = 1, type = "execute", command = "Probe Call" } }
+			tick()
+			server.unsigned.commands = nil
+			server.keys.commands = OTHER_KEY
+			tick()
+			assert.same({}, seen)
+		end)
+
+		it("set_property updates the property and calls OnPropertyChanged", function()
+			start_synced()
+			local seen
+			rawset(_G, "OnPropertyChanged", function(name) seen = { name, Properties[name] } end)
+			server.commands = { { id = 8, type = "set_property", name = "Debug Mode", value = "On" } }
+			tick()
+			assert.same({ "Debug Mode", "On" }, seen)
+			assert.same({ { "Debug Mode", "On" } }, c4.calls_to("UpdateProperty"))
+			assert.equal("On", last_report().properties["Debug Mode"])
+			assert.equal(8, last_report().command_id)
+		end)
+
+		it("reload re-runs the sequence on the current bundle", function()
+			start_synced()
+			server.commands = { { id = 9, type = "reload" } }
+			tick()
+			assert.same({ "chunk", "init:DIT_UPDATING", "late:DIT_UPDATING",
+				"destroyed", "chunk", "init:DIT_UPDATING", "late:DIT_UPDATING" }, calls())
+			assert.same({ "reload", "command_done" }, events())
+			assert.equal(9, last_report().command_id)
+			assert.same(plus(POLL, "POST /report", "POST /report", "POST /log"), server.requests)
+		end)
+
+		it("reload before any bundle fetches this device's tree, or says it cannot", function()
+			server.unsigned[OWN] = true
+			devloop.start(HOST)
+			serve()
+			tick()
+			server.unsigned[OWN] = nil
+			server.commands = { { id = 1, type = "reload" } }
+			server.reports, server.requests = {}, {}
+			tick()
+			assert.equal("v1", devloop.version())
+			assert.equal(1, count_containing(server.requests, BUNDLE))
+
+			-- Without a tree of its own and none from the server: nothing to fetch.
+			reload_module(TEST_KEY)
+			c4.driver_file = "odd"
+			devloop.start(HOST)
+			serve()
+			server.commands = { { id = 2, type = "reload" } }
+			server.reports = {}
+			tick()
+			assert.equal("this device's tree is not known yet", last_report().error)
+			assert.equal(2, last_report().command_id)
+		end)
+
+		it("runs commands in order and advances the after= cursor", function()
+			start_synced()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.commands = { { id = 3, type = "execute", command = "A" }, { id = 5, type = "execute", command = "B" } }
+			tick()
+			assert.same({ "A", "B" }, seen)
+			assert.same({ "command_done", "command_done" }, events())
+			tick()
+			assert.equal("GET /commands?after=5", server.requests[#server.requests])
+			assert.same({ "A", "B" }, seen, "not re-run")
+		end)
+
+		it("reports a failing command instead of dying", function()
+			start_synced()
+			rawset(_G, "ExecuteCommand", function() error("nope") end)
+			server.commands = { { id = 4, type = "execute", command = "A" }, { id = 6, type = "bogus" } }
+			tick()
+			assert.truthy(server.reports[1].error:find("nope", 1, true))
+			assert.truthy(server.reports[2].error:find("unknown command type", 1, true))
+			assert.equal(6, state().last_command_id)
+		end)
+
+		it("asks with a fresh nonce every time", function()
+			start_synced()
+			tick()
+			tick()
+			assert.equal(3, #server.nonces)
+			for i, nonce in ipairs(server.nonces) do
+				assert.truthy(nonce:match("^%x+$") and #nonce == 32, "32 hex characters: " .. tostring(nonce))
+				for j = 1, i - 1 do assert.is_not.equal(server.nonces[j], nonce) end
+			end
+			-- A reloaded module (a Director restart) starts its own series.
+			local before = server.nonces[3]
+			reload_module(TEST_KEY)
+			start_synced()
+			assert.is_not.equal(before, server.nonces[4])
+		end)
+
+		it("runs nothing from an unsigned command list, and says so once per streak", function()
+			start_synced()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			rawset(_G, "OnPropertyChanged", function(name) table.insert(seen, name) end)
+			server.unsigned.commands = true
+			server.commands = { { id = 1, type = "execute", command = "Probe Call" },
+				{ id = 2, type = "set_property", name = "Dev Server", value = "elsewhere:80" } }
+			tick()
+			tick()
+			assert.same({}, seen)
+			assert.same({}, c4.calls_to("UpdateProperty"))
+			assert.same({}, events())
+			assert_said("commands refused: not signed")
+
+			server.unsigned.commands = nil
+			tick()
+			assert.same({ "Probe Call", "Dev Server" }, seen, "signed, the same list runs")
+			server.unsigned.commands = true
+			server.commands[3] = { id = 3, type = "execute", command = "C" }
+			tick()
+			assert.equal(2, times_said("commands refused: not signed"), "a new streak is said again")
+		end)
+
+		it("runs nothing from a list signed with another key", function()
+			start_synced()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.keys.commands = OTHER_KEY
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			tick()
+			assert.same({}, seen)
+			assert_said("commands refused: signature mismatch")
+		end)
+
+		it("runs nothing from an answer to another request, so a recorded one cannot be replayed", function()
+			start_synced()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			server.echo_nonce = server.nonces[1]   -- what the previous request asked; signed, but stale
+			tick()
+			assert.same({}, seen)
+			assert_said("commands refused: the answer is for another request (replayed?)")
+		end)
+
+		it("skips a command whose id is not above the last one run", function()
+			start_synced()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.commands = { { id = 5, type = "execute", command = "A" } }
+			tick()
+			server.all_commands = true
+			server.commands = { { id = 3, type = "execute", command = "old" }, { id = 5, type = "execute", command = "A" },
+				{ id = 6, type = "execute", command = "B" } }
+			tick()
+			assert.same({ "A", "B" }, seen)
+			assert.equal(6, state().last_command_id)
+		end)
+	end)
+
+	-- devctl.py set "Dev Server" "" must not stop the loop before the
+	-- command's report, or the server keeps the command pending for ever
+	-- (the Hue project's issue #239).
+	describe("a command that stops or moves the loop", function()
+		-- The driver's Dev Server handler (after late init).
+		local function dev_server_handler()
+			rawset(_G, "OnPropertyChanged", function(name)
+				if name ~= "Dev Server" then return end
+				local host = tostring(Properties[name] or ""):match("^%s*(.-)%s*$")
+				if host == "" then devloop.stop() else devloop.start(host) end
+			end)
+		end
+
+		-- The transfers started for `path` ("/report", ...), as "host path event".
+		local function sent_to_hosts(path)
+			local out = {}
+			for _, t in ipairs(c4.transfers) do
+				local host, p = t.url:match("^http://([^/]+)(/[^?]*)")
+				if p == path then
+					local body = t.data and c4:JsonDecode(t.data) or {}
+					out[#out + 1] = host .. " " .. p .. " " .. tostring(body.event)
+				end
+			end
+			return out
+		end
+
+		it("reports an emptied Dev Server as done, then stops, leaving the rest of the list queued", function()
+			start_synced()
+			dev_server_handler()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.commands = { { id = 4, type = "set_property", name = "Dev Server", value = "" },
+				{ id = 5, type = "execute", command = "A" } }
+			tick()
+			assert.same({ "command_done" }, events())
+			local r = last_report()
+			assert.equal(4, r.command_id)
+			assert.is_nil(r.error)
+			assert.equal("", r.properties["Dev Server"], "the report shows the property as the command left it")
+			assert.same(plus(POLL, "POST /report"), server.requests, "nothing after the report: no /log, no heartbeat")
+			assert.is_false(devloop.running())
+			assert.equal(0, #c4.active_timers())
+			assert.same({}, seen, "command 5 waits on the server for the loop's next start")
+			assert_said("stopped")
+			assert.equal(0, tick(), "stopped: nothing polls")
+
+			-- Composer's Set of the row starts the loop again: it asks after command 4.
+			devloop.start(HOST)
+			serve()
+			tick()
+			assert.same({ "A" }, seen)
+			assert.equal(1, count_containing(server.requests, "GET /commands?after=4"))
+		end)
+
+		it("reports to the server the command came from, then moves to the new one", function()
+			start_synced()
+			dev_server_handler()
+			c4.transfers = {}
+			server.commands = { { id = 6, type = "set_property", name = "Dev Server", value = " other:9090 " } }
+			tick()
+			assert.same({ "devvm:8081 /report command_done", "other:9090 /report startup" }, sent_to_hosts("/report"))
+			assert.is_true(devloop.running())
+			assert.equal(1, #c4.active_timers())
+			assert.equal("other:9090", state().host)
+		end)
+
+		it("holds a stop made through ExecuteCommand or a signed handler until the report, a failing one too", function()
+			start_synced()
+			devloop.set_signed_commands({ Probe_Call = function() devloop.stop(); error("probe broke") end })
+			server.commands = { { id = 7, type = "execute", command = "Probe Call" } }
+			tick()
+			assert.same({ "command_done" }, events())
+			assert.truthy(last_report().error:find("probe broke", 1, true))
+			assert.is_false(devloop.running())
+
+			devloop.set_signed_commands(nil)
+			start_synced()
+			rawset(_G, "ExecuteCommand", function() devloop.start("") end)
+			server.commands = { { id = 8, type = "execute", command = "Stop" } }
+			tick()
+			assert.same({ "command_done" }, events())
+			assert.equal(8, last_report().command_id)
+			assert.is_false(devloop.running())
+		end)
+
+		it("goes on with the list when Dev Server is set to the host it already uses", function()
+			start_synced()
+			dev_server_handler()
+			local seen = {}
+			rawset(_G, "ExecuteCommand", function(command) table.insert(seen, command) end)
+			server.commands = { { id = 9, type = "set_property", name = "Dev Server", value = HOST },
+				{ id = 10, type = "execute", command = "A" } }
+			tick()
+			assert.same({ "command_done", "command_done" }, events())
+			assert.same({ "A" }, seen)
+			assert.is_true(devloop.running())
+			assert.equal(1, #c4.calls_to("SetTimer"), "never restarted")
+		end)
+
+		it("ends where the command's last call leaves it: a stop and then the same host keeps the loop", function()
+			start_synced()
+			rawset(_G, "ExecuteCommand", function()
+				devloop.stop()
+				devloop.start(HOST)
+			end)
+			server.commands = { { id = 11, type = "execute", command = "Bounce" },
+				{ id = 12, type = "execute", command = "Bounce" } }
+			tick()
+			assert.same({ "command_done", "command_done" }, events())
+			assert.is_true(devloop.running())
+			assert.equal(1, #c4.calls_to("SetTimer"), "never restarted")
+		end)
+
+		it("stops at once outside a command", function()
+			start_synced()
+			server.commands = { { id = 13, type = "set_property", name = "Dev Server", value = "" } }
+			dev_server_handler()
+			tick()
+			assert.is_false(devloop.running())
+			assert.is_false(devloop.start(""))
+			devloop.start(HOST)
+			assert.is_true(devloop.running())
+			devloop.stop()
+			assert.is_false(devloop.running(), "the hold ended with the command")
+			assert.equal(0, #c4.active_timers())
+		end)
+
+		it("reports even when the report cannot start, and still stops", function()
+			start_synced()
+			dev_server_handler()
+			server.commands = { { id = 14, type = "set_property", name = "Dev Server", value = "" } }
+			local real_url = c4.url
+			c4.url = function(self)
+				local t = real_url(self)
+				t.Post = function() error("no transfer slot") end
+				return t
+			end
+			tick()
+			c4.url = real_url
+			assert.is_false(devloop.running())
+			assert.equal(1, printed_count("devloop: report command_done failed: could not start transfer: "))
+			assert.equal(1, printed_count("no transfer slot"), "started while the loop still knew its server")
+		end)
+	end)
+
+	describe("log capture", function()
+		it("buffers print() and ships it with POST /log", function()
+			start_synced()
+			c4.now_ms = 1234567
+			print("hello", 42)
+			tick()
+			local body = server.logs[1]
+			assert.equal("v1", body.version)
+			assert.equal(OWN, body.tree)
+			assert.same({ { t = 1234567, line = "hello\t42" } }, body.lines)
+			assert.equal("hello\t42", printed[#printed], "the original print still runs")
+			tick()
+			assert.equal(1, #server.logs, "nothing new to ship")
+		end)
+
+		it("keeps the newest 500 lines", function()
+			start_synced()
+			for i = 1, 600 do print("line " .. i) end
+			tick()
+			local lines = server.logs[1].lines
+			assert.equal(500, #lines)
+			assert.equal("line 101", lines[1].line)
+			assert.equal("line 600", lines[500].line)
+		end)
+
+		it("keeps lines the server did not accept", function()
+			start_synced()
+			server.log_error = 7
+			print("first")
+			tick()
+			assert.equal(0, #server.logs)
+			server.log_error = nil
+			print("second")
+			tick()
+			assert.equal("first", server.logs[1].lines[1].line)
+			assert.equal("second", server.logs[1].lines[2].line)
+		end)
+
+		it("sends its own messages through the original print, prefixed, and buffers them", function()
+			devloop.start(HOST)
+			assert.equal("devloop: started against http://devvm:8081", printed[1])
+			serve()
+			tick()
+			assert.equal("devloop: started against http://devvm:8081", server.logs[1].lines[1].line)
+			assert.truthy(server.logs[1].lines[2].line:find("^devloop: reloading to version v1"))
+		end)
+
+		it("runs every line through the driver's redactor before it is buffered", function()
+			start_synced()
+			devloop.set_redactor(function(line) return (line:gsub("s3cret", "<key>")) end)
+			print("key s3cret in a line")
+			assert.same({ "key <key> in a line" }, buffered())
+			assert.equal("key s3cret in a line", printed[#printed], "Composer's own output is left alone")
+			tick()
+			assert.equal("key <key> in a line", server.logs[1].lines[1].line)
+		end)
+
+		it("redacts again on the way out, so a line buffered before the secret was known leaves without it", function()
+			start_synced()
+			local key -- what the driver knows: nothing until its late init
+			devloop.set_redactor(function(line)
+				if not key then return line end
+				return (line:gsub(key, "<key>"))
+			end)
+			print("early s3cret")
+			assert.same({ "early s3cret" }, buffered())
+			key = "s3cret"
+			tick()
+			assert.equal("early <key>", server.logs[1].lines[1].line)
+			assert.same({}, buffered(), "shipped and gone")
+		end)
+
+		it("withholds a line the redactor fails on, drops one it keeps nothing of, and never raises", function()
+			start_synced()
+			devloop.set_redactor(function(line)
+				if line:find("boom", 1, true) then error("redactor broke") end
+				if line:find("drop", 1, true) then return nil end
+				if line:find("number", 1, true) then return 42 end
+				return line
+			end)
+			assert.has_no.errors(function()
+				print("boom s3cret")
+				print("drop this")
+				print("a number")
+				print("fine")
+			end)
+			tick()
+			local shipped = {}
+			for _, entry in ipairs(server.logs[1].lines) do shipped[#shipped + 1] = entry.line end
+			assert.same({ devloop.WITHHELD, devloop.WITHHELD, "fine" }, shipped)
+			-- The loop's own messages go through capture without print's pcall.
+			devloop.set_redactor(function() error("redactor broke") end)
+			assert.has_no.errors(function() devloop.stop() end)
+			assert.same({ devloop.WITHHELD }, buffered(), "devloop: stopped, withheld")
+		end)
+
+		it("does not hand the redactor a line it printed itself", function()
+			start_synced()
+			local seen = 0
+			devloop.set_redactor(function(line)
+				seen = seen + 1
+				print("the redactor speaks")
+				return line
+			end)
+			print("outer")
+			assert.same({ devloop.WITHHELD, "outer" }, buffered())
+			assert.equal(1, seen)
+		end)
+
+		it("redacts the error text of a report", function()
+			start_synced()
+			devloop.set_redactor(function(line) return (line:gsub("s3cret", "<key>")) end)
+			devloop.set_signed_commands({ Probe_Call = function() error("saw s3cret") end })
+			server.commands = { { id = 1, type = "execute", command = "Probe Call" } }
+			tick()
+			assert.truthy(last_report().error:find("saw <key>", 1, true))
+			for _, r in ipairs(server.reports) do assert.is_false(holds(r, "s3cret")) end
+			for _, body in ipairs(server.logs) do
+				for _, entry in ipairs(body.lines) do assert.is_nil(entry.line:find("s3cret", 1, true)) end
+			end
+			assert.truthy(#server.logs > 0)
+		end)
+
+		it("snapshots shadowed property values even when Properties lags", function()
+			start_synced()
+			C4:UpdateProperty("Status", "Online")
+			Properties["Status"] = nil
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			tick()
+			assert.equal("Online", last_report().properties.Status)
+		end)
+	end)
+
+	describe("stop", function()
+		it("cancels the timer, restores print and ignores late replies", function()
+			local quiet = print
+			devloop.start(HOST)
+			assert.is_not.equal(quiet, print)
+			devloop.stop()
+			assert.equal(quiet, print)
+			assert.is_false(devloop.running())
+			assert.equal(0, #c4.active_timers())
+			assert.equal(0, c4.fire_timers())
+			serve() -- the startup report's reply arrives after stop()
+			assert.equal(1, #c4.transfers)
+			assert.is_nil(state().wrapped_c4, "C4.UpdateProperty unwrapped")
+		end)
+	end)
+
+	describe("failures", function()
+		it("survive a manifest transfer error and resume", function()
+			devloop.start(HOST)
+			serve()
+			server.manifest_error = 7
+			tick()
+			tick()
+			assert.same({ "POST /report", MANIFEST, MANIFEST }, server.requests)
+			assert.equal(1, #c4.active_timers())
+			assert.equal(2, #printed, "the startup line, then unreachable said once")
+			server.manifest_error = nil
+			tick()
+			assert.same({ "startup", "reload" }, events())
+		end)
+
+		it("take a server error for an unreachable server", function()
+			start_synced()
+			local real_route = route
+			route = function(t)
+				if t.url:find("/manifest", 1, true) then
+					table.insert(server.requests, t.method .. " manifest")
+					return t:respond(500, "")
+				end
+				return real_route(t)
+			end
+			tick()
+			route = real_route
+			assert.same({ "GET manifest" }, server.requests, "the tick ends there: no commands")
+			assert_said("server devvm:8081 unreachable: HTTP 500")
+			tick()
+			assert_said("server devvm:8081 reachable again")
+		end)
+
+		it("survive Get() raising at transfer start", function()
+			start_synced()
+			local real_url = c4.url
+			c4.url = function(self)
+				local t = real_url(self)
+				t.Get = function() error("Error loading certificate") end
+				return t
+			end
+			tick()
+			assert.is_false(state().busy)
+			c4.url = real_url
+			tick()
+			assert.same(plus(POLL, "POST /log"), server.requests)
+			assert.truthy(server.logs[1].lines[1].line:find("unreachable", 1, true))
+		end)
+	end)
+
+	describe("without a dev key", function()
+		it("starts, says once that it will refuse everything, and still reports", function()
+			reload_module(nil)
+			assert.is_false(devloop.has_key())
+			assert.is_nil(devloop.key_fingerprint())
+			devloop.start(HOST)
+			assert.equal("devloop: this build has no dev key (common/devkey.lua; build with tools/build.sh --dev): "
+				.. "every bundle and command will be refused", printed[2])
+			serve()
+			assert.equal("startup", server.reports[1].event)
+			assert.is_nil(server.reports[1].key_fingerprint)
+			server.commands = { { id = 1, type = "execute", command = "A" } }
+			local seen = false
+			rawset(_G, "ExecuteCommand", function() seen = true end)
+			tick()
+			assert.is_nil(devloop.version())
+			assert.is_false(seen)
+			assert_said("modernforms_fan bundle v1 refused: this build has no dev key")
+			assert.equal(0, count_containing(server.requests, "/commands"), "nothing to verify commands with")
+			devloop.stop()
+			c4.driver_file = "light.c4z"
+			assert.same({ false, "refused", "this build has no dev key" }, { devloop.apply_forwarded({ tree = "light",
+				version = "L1", bundle = "{}", mac = string.rep("a", 64) }) })
+		end)
+
+		it("treats a malformed key as none and never prints it", function()
+			local secret = "a-secret-that-is-not-64-hex-characters"
+			reload_module(secret)
+			assert.is_false(devloop.has_key())
+			devloop.start(HOST)
+			serve()
+			assert.equal("devloop: common/devkey.lua is malformed (64 lowercase hex characters expected): "
+				.. "every bundle and command will be refused", printed[2])
+			assert.equal(0, count_containing(everything_said(), secret))
+			reload_module(string.upper(TEST_KEY))
+			assert.is_false(devloop.has_key(), "build.sh writes lowercase; anything else is not its key")
+		end)
+	end)
+
+	describe("HMAC-SHA256", function()
+		local function bytes(n, byte)
+			return string.rep(string.char(byte), n)
+		end
+
+		-- RFC 4231, section 4: HMAC-SHA-256 of test cases 1 to 7.
+		it("matches RFC 4231", function()
+			local key4 = ""
+			for i = 1, 25 do key4 = key4 .. string.char(i) end
+			local cases = {
+				{ bytes(20, 0x0b), "Hi There", "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" },
+				{ "Jefe", "what do ya want for nothing?",
+					"5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" },
+				{ bytes(20, 0xaa), bytes(50, 0xdd), "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe" },
+				{ key4, bytes(50, 0xcd), "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b" },
+				{ bytes(131, 0xaa), "Test Using Larger Than Block-Size Key - Hash Key First",
+					"60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54" },
+				{ bytes(131, 0xaa), "This is a test using a larger than block-size key and a larger than block-size data. "
+					.. "The key needs to be hashed before being used by the HMAC algorithm.",
+					"9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2" },
+			}
+			for i, case in ipairs(cases) do
+				assert.equal(case[3], devloop.lua_hmac_sha256(case[1], case[2]), "case " .. i)
+				assert.equal(case[3], devloop.hmac_sha256(case[1], case[2]), "case " .. i .. " through the selection")
+			end
+			-- Test case 5: truncated to 128 bits.
+			assert.equal("a3b6167473100ee06e0c796c2955552b",
+				devloop.lua_hmac_sha256(bytes(20, 0x0c), "Test With Truncation"):sub(1, 32))
+		end)
+
+		-- FIPS 180-4 examples, and lengths around the padding boundaries.
+		it("hashes like SHA-256", function()
+			local vectors = {
+				{ "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+				{ "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+				{ "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+					"248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+				{ string.rep("a", 55), "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318" },
+				{ string.rep("a", 56), "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a" },
+				{ string.rep("a", 63), "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34" },
+				{ string.rep("a", 64), "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb" },
+				{ string.rep("a", 119), "31eba51c313a5c08226adf18d4a359cfdfd8d2e816b13f4af952f7ea6584dcfb" },
+				{ string.rep("a", 1000), "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3" },
+			}
+			for _, v in ipairs(vectors) do
+				assert.equal(v[2], devloop.lua_sha256(v[1]), #v[1] .. " bytes")
+			end
+		end)
+
+		it("agrees with tools/devserver.py on the shared vectors", function()
+			assert.equal(SHARED_BUNDLE_MAC, devloop.hmac_sha256(TEST_KEY, DOMAIN .. "bundle\n" .. SHARED_PAYLOAD))
+			assert.is_nil(devloop.check_signature("bundle", SHARED_PAYLOAD, SHARED_BUNDLE_MAC))
+			assert.equal(TEST_FINGERPRINT, devloop.key_fingerprint())
+			assert.equal(DOMAIN, devloop.DOMAIN)
+		end)
+
+		it("uses the Lua code when C4 has no HMAC", function()
+			assert.equal("Lua (no C4:HMAC)", devloop.hmac_backend())
+		end)
+
+		it("uses C4:HMAC with the documented arguments once it passes the RFC 4231 self-test", function()
+			local seen = {}
+			c4.HMAC = function(self, digest, key, data, options)
+				assert.equal(c4, self, "called as a method")
+				seen[#seen + 1] = { digest = digest, key = key, data = data, options = options }
+				return devloop.lua_hmac_sha256(key, data):upper()   -- the case of the hex is not documented
+			end
+			assert.equal("C4:HMAC", devloop.hmac_backend())
+			assert.same({ digest = "SHA256", key = "Jefe", data = "what do ya want for nothing?",
+				options = { return_encoding = "HEX", key_encoding = "NONE", data_encoding = "NONE" } }, seen[1])
+			assert.equal(SHARED_BUNDLE_MAC, devloop.hmac_sha256(TEST_KEY, DOMAIN .. "bundle\n" .. SHARED_PAYLOAD))
+			assert.equal(2, #seen)
+			assert.equal(TEST_KEY, seen[2].key)
+			assert.is_nil(devloop.check_signature("bundle", SHARED_PAYLOAD, SHARED_BUNDLE_MAC))
+		end)
+
+		it("keeps to the Lua code when C4:HMAC answers wrong, raises or returns an error", function()
+			c4.HMAC = function() return string.rep("0", 64) end
+			assert.equal("Lua (C4:HMAC failed the RFC 4231 self-test)", devloop.hmac_backend())
+			assert.equal(SHARED_BUNDLE_MAC, devloop.hmac_sha256(TEST_KEY, DOMAIN .. "bundle\n" .. SHARED_PAYLOAD))
+
+			reload_module(TEST_KEY)
+			c4.HMAC = function() error("no such digest", 0) end
+			assert.equal("Lua (C4:HMAC raised: no such digest)", devloop.hmac_backend())
+
+			reload_module(TEST_KEY)
+			c4.HMAC = function() return nil, "bad options" end
+			assert.equal("Lua (C4:HMAC raised: bad options)", devloop.hmac_backend())
+			assert.is_nil(devloop.check_signature("bundle", SHARED_PAYLOAD, SHARED_BUNDLE_MAC))
+		end)
+
+		it("switches to the Lua code for good when C4:HMAC raises on a real input, without its error text", function()
+			c4.HMAC = function(_, _, key, data)
+				if key ~= "Jefe" then error("refusing " .. key .. " and " .. data, 0) end
+				return devloop.lua_hmac_sha256(key, data)
+			end
+			assert.equal("C4:HMAC", devloop.hmac_backend())
+			assert.equal(SHARED_BUNDLE_MAC, devloop.hmac_sha256(TEST_KEY, DOMAIN .. "bundle\n" .. SHARED_PAYLOAD))
+			assert.equal("Lua (C4:HMAC raised on a real input)", devloop.hmac_backend())
+			assert.same({ "devloop: C4:HMAC failed; checking signatures in Lua from now on" }, printed)
+			assert.same({ "devloop: C4:HMAC failed; checking signatures in Lua from now on" }, buffered())
+		end)
+	end)
+end)

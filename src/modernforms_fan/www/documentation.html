@@ -1,0 +1,45 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Modern Forms Fan driver - documentation</title>
+<style type="text/css">
+body { font-family: "Segoe UI", Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.45; color: #222; background: #fff; margin: 16px 24px; max-width: 900px; }
+h1 { font-size: 22px; margin: 0 0 4px 0; }
+h2 { font-size: 17px; margin: 26px 0 8px 0; padding-bottom: 3px; border-bottom: 1px solid #c8c8c8; }
+p { margin: 8px 0; }
+ul { margin: 6px 0 10px 0; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; margin: 10px 0 16px 0; }
+th, td { border: 1px solid #b8b8b8; padding: 4px 8px; vertical-align: top; text-align: left; }
+th { background: #ececec; }
+code { font-family: Consolas, "Courier New", monospace; font-size: 13px; background: #f2f2f2; padding: 0 3px; }
+.note { background: #f6f6ea; border: 1px solid #d8d8c0; padding: 6px 10px; margin: 10px 0; }
+.caption { font-size: 12px; color: #555; margin: 18px 0 0 0; }
+</style>
+</head>
+<body>
+
+<h1>Modern Forms Fan</h1>
+
+<div class="note"><b>Not ready for use.</b> This build is the first step of a new driver for Modern Forms smart ceiling fans and their lights: it proves that the driver can be built, tested and packaged, and it does not control a fan. Do not add it to a project; keep your fan on the driver it uses today. What the driver will do, and how a fan moves to it from the driver it uses now, is being written down as the driver's first contract; nothing on this page describes it yet.</div>
+
+<h2>What this build does</h2>
+<p>Nothing that reaches a fan. It has no connections, actions, events or programming, and shows no tile on Navigators. Its <b>Properties</b> tab has two rows:</p>
+<table>
+<tr><th>Row</th><th>What it shows</th></tr>
+<tr><td><b>Driver Version</b></td><td>The driver's build number, for example <code>12</code>; a newer build has a higher one.</td></tr>
+<tr><td><b>Debug Mode</b></td><td><code>Off</code> (the default) or <code>On</code>. On, the driver writes its debug lines to Composer's Lua output; off, only warnings and errors.</td></tr>
+</table>
+<p>A development build also shows a <b>Dev Server</b> row, for the developer's test setup; release builds do not have it.</p>
+
+<h2>Where to follow the work</h2>
+<p>The project, its plans and its issues are on GitHub: <a href="https://github.com/corytron/c4-modernforms-driver">github.com/corytron/c4-modernforms-driver</a>. The changes of every release are listed at the end of this page.</p>
+
+<!-- CHANGELOG -->
+
+<p class="caption">Modern Forms Fan driver for Control4. Copyright 2026 Cory Fair; licensed under the Apache License, Version 2.0 (the LICENSE and NOTICE files that come with the driver). Modern Forms and WAC Lighting are trademarks of their respective owners; Control4 and Composer are trademarks of Snap One, LLC. This project is not affiliated with, endorsed by or supported by Modern Forms, WAC Lighting or Snap One.</p>
+
+</body>
+</html>

@@ -1,0 +1,46 @@
+name: Feature request
+description: Something the driver should do, or do differently
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a personal project with no roadmap; a request is welcome and may stay
+        open for a while. Known to be out of scope for the first release: several fans
+        managed together, the fan's sleep timer and schedules as Control4 features, and
+        other WAC Lighting product lines. Automations belong in Control4 programming,
+        not in the Modern Forms app: the driver reports what the fan does. If your
+        request is one of these, say why it matters to you anyway.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: The situation in your home and what you cannot do today (in Composer, on a Navigator, from a keypad, from the Modern Forms app, the remote or the wall control).
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: How it could work
+      description: What the driver should do and where it shows up (a property, an action, a tile, programming, a keypad LED). If it means the driver acting on its own (finding a fan, following its address, renaming or moving devices, changing programming), say so; that needs a written contract under docs/ first.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Fan (on/off, speeds, direction)
+        - Light (on/off, dimming)
+        - Keypads, Button Links and LEDs
+        - Connection to the fan (address changes, the fan offline, firmware)
+        - Moving from the stock WAC driver
+        - Composer properties, actions and texts
+        - The manual and the documentation
+        - Build, tests and tooling
+        - Other
+  - type: checkboxes
+    id: hardware
+    attributes:
+      label: Hardware and help
+      options:
+        - label: I can test a build on my own controller and fan and report back.
+        - label: I would like to implement this myself (we agree the approach first).

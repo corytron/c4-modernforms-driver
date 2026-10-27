@@ -1,0 +1,152 @@
+# Secret and private-data scan of this repository (gitleaks 8.30; run by
+# tools/check.sh over the tree with `gitleaks dir` and over the whole history
+# with `gitleaks git`, and by CI's "Secrets and private data" job on a
+# full-depth checkout). The default rules stay on; this project adds what they
+# cannot know: LAN addresses, MAC addresses and Modern Forms client ids
+# (docs/scaffold-design.md, section 2), and the fan owner's account e-mail and
+# cloud identity, which the fan's own device information carries. Allowlists
+# carry only the documented placeholders (10.0.2.151 and 10.0.2.152 for fans,
+# 10.0.2.10 for the controller, 192.0.2.7 and 192.0.2.8 for the VMs,
+# 00:00:5e:00:53:01 and MF_00005E005301 for a fan's MAC and client id),
+# documentation ranges and textbook values that name no device. A finding that
+# is none of those is a finding: fix the file, or rewrite the history; never
+# add a real value here.
+title = "c4-modernforms-driver gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths with no secrets by construction"
+paths = [
+    # Generated packages, staging directories and local diagnostics (gitignored).
+    '''^build/''',
+    # Worktrees other sessions keep under .claude/ (excluded from git, never pushed).
+    '''^\.claude/worktrees/''',
+    # Python bytecode caches (gitignored): they hold the unit tests' private-data
+    # vectors folded back into whole strings.
+    '''(^|/)__pycache__/''',
+]
+
+# Any IPv4 literal that is not a documented placeholder or a textbook example.
+# The placeholders may be written with zero-padded octets, as the address
+# spelling tests of the shared modules exercise.
+[[rules]]
+id = "lan-address"
+description = "IPv4 address that is neither a documented placeholder nor a textbook example"
+regex = '''\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'''
+[[rules.allowlists]]
+description = "Documented placeholders and textbook ranges, with optional zero padding where the tests use it"
+regexes = [
+    # 192.0.2.0/24 (RFC 5737 TEST-NET-1): the development VM 192.0.2.7, the
+    # Windows VM 192.0.2.8 and the test fixtures' addresses, in every padded
+    # spelling, and invalid octets such as 192.0.2.256 that a parser test feeds.
+    '''^192\.0{1,3}\.0{0,2}2\.[0-9]{1,3}$''',
+    # The placeholder fans 10.0.2.151 and 10.0.2.152 and the placeholder
+    # controller 10.0.2.10, in every padded spelling.
+    '''^0{0,2}10\.0{1,3}\.0{0,2}2\.(?:151|152|0?10)$''',
+    # 192.168.x.x: home-network-looking examples for the manual and the README.
+    '''^192\.168\.[0-9]{1,3}\.[0-9]{1,3}$''',
+    # RFC 5737 TEST-NET-2 and TEST-NET-3.
+    '''^198\.51\.100\.[0-9]{1,3}$''',
+    '''^203\.0\.113\.[0-9]{1,3}$''',
+    # 0.x.x.x is never a host on a network (RFC 1122 "this network"): the
+    # unspecified address 0.0.0.0, and four-part version numbers such as 0.10.0.1.
+    '''^0\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$''',
+    # 224.0.0.0 and above is never a host on a LAN: multicast (224/4, such as
+    # mDNS's 224.0.0.251 and SSDP's 239.255.255.250, which fan discovery may
+    # name), reserved and broadcast (240/4, 255.255.255.255).
+    '''^2(?:2[4-9]|[34][0-9]|5[0-5])\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$''',
+    # Textbook values: loopback, 1.2.3.4 and 10.10.10.10.
+    '''^127\.0\.0\.1$''',
+    '''^1\.2\.3\.4$''',
+    '''^10\.10\.10\.10$''',
+]
+
+# The house subnet, 10.0.1.x, in every spelling the Hue project's address
+# research used: dotted decimal with or without zero padding, hexadecimal
+# octets (0x0a.0x00.0x01.0x..), and the three-part short form 10.0.256 to
+# 10.0.511. The prefix itself is public (the Hue repository names it, and
+# tools/gh-discussion.py refuses it); an address in it is not. Nothing is
+# allowlisted.
+[[rules]]
+id = "house-subnet"
+description = "An address in the house subnet 10.0.1.x, in any spelling"
+regex = '''(?i)\b(?:0{0,2}10\.0{1,3}\.0{0,2}1\.(?:[0-9]{1,3}|0x[0-9a-f]{1,2})|0x0a\.0x0{1,2}\.0x0?1\.0x[0-9a-f]{1,2}|10\.0\.(?:2(?:5[6-9]|[6-9][0-9])|[34][0-9]{2}|5(?:0[0-9]|1[01])))\b'''
+keywords = ["10.", "0x0a"]
+
+# A MAC address, six hex octets joined by colons or by hyphens. A fan's MAC
+# names a real device (and is its client id, below). Allowed: RFC 7042's
+# documentation range 00:00:5e:00:53:00 to 00:00:5e:00:53:ff (the placeholder
+# fan is 00:00:5e:00:53:01, a second one 00:00:5e:00:53:02), and the all-zero
+# and broadcast addresses, which name no device either.
+[[rules]]
+id = "mac-address"
+description = "MAC address outside the documentation range 00:00:5e:00:53:xx"
+regex = '''(?i)\b[0-9a-f]{2}(?:(?::[0-9a-f]{2}){5}|(?:-[0-9a-f]{2}){5})\b'''
+[[rules.allowlists]]
+description = "RFC 7042's documentation range, the all-zero address and the broadcast address"
+regexes = [
+    '''(?i)^00[:-]00[:-]5e[:-]00[:-]53[:-][0-9a-f]{2}$''',
+    '''^00(?:[:-]00){5}$''',
+    '''(?i)^ff(?:[:-]ff){5}$''',
+]
+
+# A Modern Forms client id: "MF_" and the fan's MAC as twelve hex digits (the
+# clientId of the fan's device information, MF_C82B... for C8:2B:...; the
+# aiomodernforms tests and Home Assistant's fixtures show the form). Matched
+# without a closing boundary, so an id with a suffix is caught too. Allowed, as
+# for the MAC: the placeholder MF_00005E005301 and the rest of the
+# documentation range, and the all-zero and all-F ids.
+[[rules]]
+id = "modernforms-client-id"
+description = "Modern Forms client id (MF_ and twelve hex digits) of a real fan"
+regex = '''(?i)\bMF_[0-9a-f]{12}'''
+keywords = ["mf_"]
+[[rules.allowlists]]
+description = "Client ids of documentation-range, all-zero and all-F MACs"
+regexes = [
+    '''(?i)^MF_00005E0053[0-9a-f]{2}$''',
+    '''^MF_0{12}$''',
+    '''(?i)^MF_F{12}$''',
+]
+
+# An e-mail address. The fan's device information names its owner's account
+# ("owner"), so a recorded fixture or a pasted answer can carry one. Allowed:
+# the documentation domains example.com, example.net and example.org (and their
+# subdomains), the reserved names .example, .invalid, .test and .localhost
+# (RFC 2606, RFC 6761), GitHub's noreply addresses and the git@github.com of an
+# SSH remote. Not in .git/: the reflog and the commit message being written name
+# the committer, whose address every commit carries anyway; every other rule
+# still reads .git/.
+[[rules]]
+id = "account-email"
+description = "E-mail address outside the documentation domains"
+regex = '''\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b'''
+keywords = ["@"]
+[[rules.allowlists]]
+description = "Documentation domains, reserved names and GitHub's own addresses"
+regexes = [
+    '''(?i)@(?:[a-z0-9-]+\.)*example\.(?:com|net|org)$''',
+    '''(?i)@(?:[a-z0-9-]+\.)*[a-z0-9-]+\.(?:example|invalid|test|localhost)$''',
+    '''(?i)@users\.noreply\.github\.com$''',
+    '''(?i)^git@github\.com$''',
+]
+[[rules.allowlists]]
+description = "git's own files: the committer's address, which every commit carries"
+paths = [
+    '''^\.git/''',
+]
+
+# A cloud identity id: an AWS region, a colon and a UUID, as the fan's device
+# information gives its owner's identity ("federatedIdentity",
+# us-east-1:<uuid>). Allowed: the all-zero UUID.
+[[rules]]
+id = "federated-identity"
+description = "AWS-style identity id (region:UUID) of a real account"
+regex = '''(?i)\b[a-z]{2}(?:-gov)?-[a-z]+-[0-9]{1,2}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+[[rules.allowlists]]
+description = "The all-zero UUID"
+regexes = [
+    '''(?i)^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]{1,2}:0{8}-0{4}-0{4}-0{4}-0{12}$''',
+]

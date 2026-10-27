@@ -1,0 +1,14 @@
+# Desired state of the house installation. This file is the source of truth;
+# a GitHub Deployment on the environment "house" is the observed state;
+# .github/workflows/drift.yml opens one issue labelled "deploy" when they differ.
+# docs/cicd-gitops-design.md, section 6. Flat key: value lines only.
+# release: none with build: none is the start state: no release of these drivers
+# is meant to be installed yet, and with no install recorded the drift workflow
+# opens no issue. The pull request that installs the first release sets both
+# (release: v1.0, build: the build number its packages carry, which Composer
+# shows as Driver Version); drivers: names the release's packages without .c4z.
+environment: house
+release: none            # no build of these drivers is installed yet (the house runs the stock WAC driver)
+build: none
+drivers: modernforms_fan
+debug_mode: Off

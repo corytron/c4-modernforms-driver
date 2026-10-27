@@ -1,0 +1,89 @@
+name: Bug report
+description: The Modern Forms Fan driver does something wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before you paste anything, **replace your LAN addresses
+        (the fan's, the controller's), the fan's MAC address and its client id with
+        placeholders**, for example `10.0.2.151` for the fan, `10.0.2.10` for the
+        controller, `00:00:5e:00:53:01` for the MAC and `MF_00005E005301` for the
+        client id, and **never paste the e-mail address of your Modern Forms account**.
+        If you think you have found a security problem, do not open an issue: see
+        `SECURITY.md`.
+
+        The versions asked below are enough: the form needs no address, MAC or id.
+        The driver's manual (the Documentation tab of the Modern Forms Fan device)
+        says what its properties show and what to do about them.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did (a Composer action, a Navigator tile, a keypad button, the Modern Forms app, the remote, the wall control, ...) and what the driver did. Steps to reproduce if you have them.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: c4-os
+    attributes:
+      label: Control4 OS version
+      description: The controller's OS version as Composer Pro reports it.
+      placeholder: "3.4.3"
+    validations:
+      required: true
+  - type: input
+    id: composer
+    attributes:
+      label: Composer Pro version
+      placeholder: "3.4.2"
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Driver build number
+      description: The **Driver Version** property of the Modern Forms Fan device (an integer; the Releases page says which release it belongs to).
+      placeholder: "120"
+    validations:
+      required: true
+  - type: input
+    id: fan-model
+    attributes:
+      label: Fan model
+      description: The fan's model and size as its box or label names them, and whether it has a light.
+      placeholder: "Model, 52 in., with light"
+    validations:
+      required: true
+  - type: input
+    id: fan-firmware
+    attributes:
+      label: Fan firmware
+      description: The fan's firmware version, or "unknown" if you cannot see it.
+      placeholder: "01.03.0025"
+    validations:
+      required: true
+  - type: textarea
+    id: properties
+    attributes:
+      label: What the device shows
+      description: The texts of the Modern Forms Fan device's properties that concern the problem, copied as they are; replace an address, MAC or client id among them with its placeholder.
+      render: text
+  - type: textarea
+    id: lua-output
+    attributes:
+      label: Lua output
+      description: Set **Debug Mode** to On on the device (Properties tab, then the row's Set button), reproduce the problem, paste the relevant lines of the device's Lua tab in Composer, and set Debug Mode back to Off. Addresses, the MAC and the client id replaced; no e-mail address.
+      render: text
+  - type: checkboxes
+    id: private-data
+    attributes:
+      label: Private data
+      options:
+        - label: I replaced LAN addresses, the fan's MAC address and its client id with placeholders and did not paste the e-mail address of a Modern Forms account.
+          required: true

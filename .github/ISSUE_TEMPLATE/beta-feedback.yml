@@ -1,0 +1,87 @@
+name: Beta feedback
+description: What you saw while testing a prerelease of the driver (a version such as 1.1-beta.1)
+labels: [beta-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing a prerelease. Before you paste anything, **replace your LAN
+        addresses (the fan's, the controller's), the fan's MAC address and its client id
+        with placeholders**, for example `10.0.2.151` for the fan, `10.0.2.10` for the
+        controller, `00:00:5e:00:53:01` for the MAC and `MF_00005E005301` for the client
+        id, and **never paste the e-mail address of your Modern Forms account**. If you
+        think you have found a security problem, do not open an issue: see `SECURITY.md`.
+
+        To go back to the stable release, follow "Going back" on the prerelease's page.
+  - type: input
+    id: version
+    attributes:
+      label: Prerelease version
+      description: The version the prerelease's page names (its tag without the v), and the **Driver Version** of the Modern Forms Fan device.
+      placeholder: "1.1-beta.1, Driver Version 120"
+    validations:
+      required: true
+  - type: input
+    id: c4-os
+    attributes:
+      label: Control4 OS version
+      description: The controller's OS version as Composer Pro reports it.
+      placeholder: "3.4.3"
+    validations:
+      required: true
+  - type: input
+    id: composer
+    attributes:
+      label: Composer Pro version
+      placeholder: "3.4.2"
+    validations:
+      required: true
+  - type: input
+    id: fan-model
+    attributes:
+      label: Fan model
+      description: The fan's model and size as its box or label names them, and whether it has a light.
+      placeholder: "Model, 52 in., with light"
+    validations:
+      required: true
+  - type: input
+    id: fan-firmware
+    attributes:
+      label: Fan firmware
+      description: The fan's firmware version, or "unknown" if you cannot see it.
+      placeholder: "01.03.0025"
+    validations:
+      required: true
+  - type: textarea
+    id: devices
+    attributes:
+      label: Devices involved
+      description: What this is about, for example the fan, its light, a keypad and the buttons linked to them, the Modern Forms remote or wall control, a Navigator tile.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you did and what you saw
+      description: The steps (a Composer action, a Navigator tile, a keypad button, the Modern Forms app, the remote, the wall control, ...), what the driver did, and what you expected instead. Add what the Modern Forms Fan device's properties show when it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: lua-output
+    attributes:
+      label: Lua output
+      description: Set **Debug Mode** to On on the device (Properties tab, then the row's Set button), do it again, paste the relevant lines of the device's Lua tab in Composer, and set Debug Mode back to Off. Addresses, the MAC and the client id replaced with placeholders; no e-mail address.
+      render: text
+  - type: input
+    id: reported-by
+    attributes:
+      label: Reported another way
+      description: For the maintainer, when pasting feedback that came by another channel (a message, a call). Leave it empty for your own report.
+      placeholder: "By email from a tester"
+  - type: checkboxes
+    id: private-data
+    attributes:
+      label: Private data
+      options:
+        - label: I replaced LAN addresses, the fan's MAC address and its client id with placeholders and did not paste the e-mail address of a Modern Forms account.
+          required: true
