@@ -44,35 +44,33 @@ no build of this driver has run on a controller.
 
 ## On GitHub (read 2026-10-27)
 
-- Issues #1 (the scaffold) and #2 (the v1 research) are open; the labels of
-  [`.github/labels.json`](../.github/labels.json) exist, `mf-api` and
-  `hardware` among them; the project board is user project 2, "Modern Forms
-  driver" (not public yet).
+- Issues #1 (the scaffold, PR #3) and #2 (the v1 research, PR #5) are
+  closed; #6 holds the v1 plan and the owner's decisions; #4 is the code
+  scanning issue. The labels of [`.github/labels.json`](../.github/labels.json)
+  exist, `mf-api` and `hardware` among them; the project board is user
+  project 2, "Modern Forms driver" (not public yet).
 - Discussions are on, with GitHub's default categories (releases in
-  Announcements, reports in Show and tell or General, decisions in Ideas).
+  Announcements, reports in Show and tell or General, decisions in Ideas);
+  the scaffold, the research and the plan are posted there (#7, #8, #9).
 - The environment `house` exists. Secret scanning, push protection,
   Dependabot security updates and private vulnerability reporting are on.
-- `main` holds the initial commit (the license and a README stub). Still to
-  switch on once the scaffold's CI has run, since they need its checks to
-  exist: branch protection of `main` with the four required checks, and
-  CodeQL's default setup for Python and Actions. Scorecard's first score
-  follows the first run of its workflow on `main`.
+- `main` is protected: pull requests only, the four required checks, the
+  branch current, conversations resolved, admins included; release tags
+  `v*` cannot be deleted except by an admin. CodeQL's default setup (Python,
+  Actions) and the Scorecard workflow scan every push to `main`.
 
 ## Open
 
 Every open item is an issue (`gh issue list --state open`); this list says
 where each stands on 2026-10-27.
 
-- **#1** The scaffold: this pull request.
-- **#2** The v1 research, by parallel read-only agents: the fan's local
-  interface (from `aiomodernforms`, Home Assistant's `modern_forms`
-  integration and read-only queries of the house fan), the fan and
-  `light_v2` proxies and their Button Links (`proxy_fan_speed_connections`,
-  `MATCH_LED_STATE`), the minimum OS, and the lifecycle edge cases on both
-  sides. Its documents land in a later pull request, then
-  [`design.md`](design.md) records the decisions under its open headings.
-- **WAC's API License Agreement**, a decision for the owner (for an issue
-  labelled `question`): the research found that WAC publishes a reference of
+- **#6** The v1 plan and its decisions, with a recommended default each:
+  structure, speed links, minimum OS, which fans, adding a fan, polling and
+  report rules, keypad LEDs, ON and Toggle, double taps, the fan offline,
+  the light's turn-on level, WAC's documents, the migration pace and the 1.0
+  codename. The research it rests on is indexed in
+  [`README.md`](README.md#research-and-edge-cases-v1-2).
+- **WAC's API License Agreement**, a decision for the owner (in #6): the research found that WAC publishes a reference of
   the fan's local interface under an agreement that treats that
   documentation as confidential. Either the project accepts the agreement
   and counts the reference as a source, or it keeps to the public
