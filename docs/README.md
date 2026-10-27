@@ -11,11 +11,39 @@ that the driver is not ready). What each release changed is in
 [`CHANGELOG.md`](../CHANGELOG.md); the working rules of the AI sessions that
 build the driver are in [`CLAUDE.md`](../CLAUDE.md).
 
-On 2026-10-27 the folder holds the scaffold's documents: the process,
+On 2026-10-27 the folder holds the scaffold's documents (the process,
 copied from the author's [Hue driver](https://github.com/corytron/c4-hue-driver)
-and adapted. The v1 research
-([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)), its
-edge-case notes and the v1 contract are listed here when they land.
+and adapted) and the v1 research with its edge-case notes
+([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)). The
+v1 contract is listed here when it lands.
+
+## Research and edge cases (v1, #2)
+
+Read-only research written before the v1 contract; every claim is marked
+verified (with the SDK file, the primary source or the Hue measurement) or
+assumed, and each note ends with the hardware checks that settle its
+assumptions and the questions for the owner.
+
+- [`modernforms-api-research.md`](modernforms-api-research.md): the fan's
+  local HTTP API (`POST /mf`, JSON, no authentication, no push), its fields
+  and ranges by fan generation, its fragility under polling, the causes of
+  late or out-of-order reports and the transport `C4:url` should give it.
+- [`fan-proxy-research.md`](fan-proxy-research.md): the fan proxy's
+  commands, notifications and capabilities, what `proxy_fan_speed_connections`
+  does and does not document, and driver-declared Button Links with keypad
+  LEDs for every speed, Off, Toggle and Cycle.
+- [`light-structure-research.md`](light-structure-research.md): the fan's
+  light as a `light_v2` dimmer with Top, Bottom and Toggle links, one driver
+  with two proxies versus a light child device, the minimum OS and the Lua
+  sandbox.
+- [`edge-cases-modernforms.md`](edge-cases-modernforms.md): the fan's life
+  seen from Modern Forms: addresses and identity, power cuts at the wall,
+  replacements, resets, firmware, the app's schedules and automations, and
+  what is automatic, offered or forbidden without a click.
+- [`edge-cases-control4.md`](edge-cases-control4.md): the Control4 side:
+  replacing the stock WAC driver step by step with a way back, updates,
+  backups and restores, connections, programming events and the report
+  rules that replace the keypad's settle timer.
 
 ## Start here
 
