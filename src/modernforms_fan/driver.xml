@@ -1,0 +1,59 @@
+<devicedata>
+	<copyright>Copyright 2026 Cory Fair. Licensed under the Apache License, Version 2.0 (see LICENSE). Not affiliated with Modern Forms, WAC Lighting or Snap One.</copyright>
+	<creator>Cory Fair</creator>
+	<manufacturer>Modern Forms</manufacturer>
+	<name>Modern Forms Fan</name>
+	<model>Modern Forms Fan (local API)</model>
+	<created>10/27/2026 12:00 PM</created>
+	<modified>10/27/2026 12:00 PM</modified>
+	<version>1</version>
+	<control>lua_gen</control>
+	<controlmethod>IP</controlmethod>
+	<driver>DriverWorks</driver>
+	<!-- The scaffold (docs/scaffold-design.md section 7): a combo driver, its own
+	     UI in Composer and no Control4 proxy until the v1 contract picks the fan
+	     and light_v2 proxies [verified: Fundamentals 5/_2.5 Combo Driver: the
+	     combo element and a proxy entry naming the driver itself]. No icons, no
+	     connections, no capabilities, actions or events yet. -->
+	<combo>true</combo>
+	<!-- 3.3.0 is a stand-in that the v1 research (#2) replaces with the minimum it
+	     picks and justifies; the fan proxy's per-speed links need 3.4.2 (CLAUDE.md,
+	     Targets). The element is documented as a top-level devicedata tag giving
+	     the minimum OS for an automatic driver update [verified: Fundamentals
+	     14/_1]; what it does for a manual install is not documented. -->
+	<minimum_os_version>3.3.0</minimum_os_version>
+	<config>
+		<script jit="1" file="driver.lua"/>
+		<documentation file="www/documentation.html"/>
+		<properties>
+			<property>
+				<name>Driver Version</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Debug Mode</name>
+				<type>LIST</type>
+				<items>
+					<item>Off</item>
+					<item>On</item>
+				</items>
+				<default>Off</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- DEV-ONLY BEGIN: tools/build.sh strips this block from release
+				 builds (docs/dev-loop.md); development builds keep it. -->
+			<property>
+				<name>Dev Server</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>false</readonly>
+			</property>
+			<!-- DEV-ONLY END -->
+		</properties>
+	</config>
+	<proxies>
+		<proxy name="Modern Forms Fan">modernforms_fan</proxy>
+	</proxies>
+</devicedata>

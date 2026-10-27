@@ -1,0 +1,77 @@
+[
+  {
+    "name": "bug",
+    "color": "d73a4a",
+    "description": "Something does not work as the manual or a contract says"
+  },
+  {
+    "name": "enhancement",
+    "color": "a2eeef",
+    "description": "New behaviour or an improvement to existing behaviour"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "The manual, the docs folder, the README"
+  },
+  {
+    "name": "hardware",
+    "color": "e99695",
+    "description": "Needs the controller, a fan, a keypad or a phone to close"
+  },
+  {
+    "name": "composer",
+    "color": "1d76db",
+    "description": "Composer Pro: properties, actions, pickers, Director behaviour"
+  },
+  {
+    "name": "mf-api",
+    "color": "fbca04",
+    "description": "Modern Forms fan local HTTP API, fan models and firmware"
+  },
+  {
+    "name": "security",
+    "color": "b60205",
+    "description": "Hardening, secrets, TLS, trust boundaries"
+  },
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Small and self-contained; a newcomer could take it"
+  },
+  {
+    "name": "question",
+    "color": "d876e3",
+    "description": "A decision or an answer is needed before work starts"
+  },
+  {
+    "name": "wontfix",
+    "color": "ffffff",
+    "description": "Decided against; kept for the record"
+  },
+  {
+    "name": "release",
+    "color": "0e8a16",
+    "description": "Releasing and publishing: checklists, history, GitHub settings"
+  },
+  {
+    "name": "ci",
+    "color": "0e8a16",
+    "description": "Workflows, checks and the development tooling"
+  },
+  {
+    "name": "deploy",
+    "color": "1d76db",
+    "description": "The house installation: drift between deploy/house.yaml and the recorded deployment"
+  },
+  {
+    "name": "dependencies",
+    "color": "0366d6",
+    "description": "Dependabot updates of pinned actions and check tools"
+  },
+  {
+    "name": "beta-feedback",
+    "color": "bfd4f2",
+    "description": "A tester's report on a prerelease (the Beta feedback form)"
+  }
+]
