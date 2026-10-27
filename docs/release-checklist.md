@@ -306,9 +306,11 @@ cut" above), from `main` only. What differs:
    `v1.1-beta.1`. The tag never moves, so a version whose tag exists fails
    before anything is built; take the next `N`. A prerelease carries its
    X.Y's codename from `.github/codenames.json`; a new X.Y needs its name
-   there first, or the workflow refuses it. A prerelease follows a release
-   (its notes name the release it follows and how to go back to it), so the
-   first one comes after 1.0 ([`prerelease-design.md`](prerelease-design.md#7-open-a-prerelease-before-10)).
+   there first, or the workflow refuses it. A prerelease may come before the
+   first release, as `1.0-beta.N` (1.0's name approved first): its notes then
+   follow no release, and they send a tester back to the stock WAC driver
+   rather than to release files
+   ([`prerelease-design.md`](prerelease-design.md#7-a-prerelease-before-the-first-release)).
 2. **Changelog.** Nothing changes in `CHANGELOG.md`: the notes come from the
    same `## Unreleased` entry, which holds everything since the last release,
    and a prerelease is never stamped (`changelog.py stamp` refuses one); the
@@ -316,12 +318,13 @@ cut" above), from `main` only. What differs:
    release.
 3. **What GitHub shows.** The release is marked Pre-release and never Latest,
    so `releases/latest` and the README's download links keep serving the
-   release. Check the title, `1.1 beta 1 "<codename>" (build N)`, the
-   Pre-release mark, and the assets: every package, `SHA256SUMS.txt`,
-   `manifest.json` and the two provenance files. The notes come from
+   release (before 1.0 they have none to serve). Check the title, `1.1 beta
+   1 "<codename>" (build N)`, the Pre-release mark, and the assets: every
+   package, `SHA256SUMS.txt`, `manifest.json` and the two provenance files.
+   The notes come from
    [`.github/prerelease-notes.md`](../.github/prerelease-notes.md): what it
-   is, the release it follows, the changes, how to install, how to go back,
-   where to report, how to verify, the license.
+   is, the release it follows (or that there is none yet), the changes, how
+   to install, how to go back, where to report, how to verify, the license.
 4. **Feedback.** The tester gets the release page's link. Reports come
    through the "Beta feedback" issue form
    ([`.github/ISSUE_TEMPLATE/beta-feedback.yml`](../.github/ISSUE_TEMPLATE/beta-feedback.yml),
@@ -334,7 +337,9 @@ cut" above), from `main` only. What differs:
    "Deploy to the house" above runs as for a release: the drift issue reads
    `Deploy v1.1-beta.1 (build N) to the house`, and the brief says it is a
    prerelease. Going back to the release is another desired-state pull
-   request.
+   request; before 1.0 the way back is the migration's rollback to the stock
+   WAC device (`docs/edge-cases-control4.md`, section 2), which the Windows
+   session does.
 6. **The release.** When testing is done, cut `X.Y` itself ("How a release
    is cut"): its notes carry the same `Unreleased` entry, and its
    desired-state pull request stamps `CHANGELOG.md`.
