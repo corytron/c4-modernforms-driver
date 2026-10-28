@@ -338,7 +338,7 @@ cut" above), from `main` only. What differs:
    `Deploy v1.1-beta.1 (build N) to the house`, and the brief says it is a
    prerelease. Going back to the release is another desired-state pull
    request; before 1.0 the way back is the migration's rollback to the stock
-   WAC device (`docs/edge-cases-control4.md`, section 2), which the Windows
+   WAC device ([`migration-design.md`](migration-design.md#6-going-back)), which the Windows
    session does.
 6. **The release.** When testing is done, cut `X.Y` itself ("How a release
    is cut"): its notes carry the same `Unreleased` entry, and its

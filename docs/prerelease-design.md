@@ -86,7 +86,7 @@ The packages are named in one place: the directories `src/<name>/` that hold a `
 | Notes and title | `tools/changelog.py notes`, `.github/prerelease-notes.md`, `.github/release-notes.md`, `.github/codenames.json` |
 | The house | `deploy/house.yaml`, `tools/deploy.py`, `.github/workflows/drift.yml` |
 | Feedback | `.github/ISSUE_TEMPLATE/beta-feedback.yml`, `.github/labels.json` |
-| Going back before the first release | `docs/edge-cases-control4.md`, section 2 (the phased migration from the stock driver and its rollback) |
+| Going back before the first release | [`migration-design.md`](migration-design.md#6-going-back) (the migration from the stock driver and its way back from every phase) |
 | The steps for the coordinator | [`release-checklist.md`](release-checklist.md#prerelease) |
 
 ## 7. A prerelease before the first release
@@ -95,6 +95,6 @@ Decided with the scaffold (2026-10-27): allowed. A `1.0-beta.N` can put the driv
 
 - **Codename:** the 1.0 name must be approved and in `.github/codenames.json` first; the Release workflow refuses a 1.0 beta otherwise, as any version whose X.Y the file does not name.
 - **Notes:** there is no stable release, so `{stable}` and `{stable_version}` have no value and the template's `if no stable` blocks take over (section 3): the notes say that the prerelease comes before the first release and that the project has no stable release yet, list the whole `Unreleased` entry (everything so far) under "What to try", and send the tester back to the stock WAC driver.
-- **Install:** the first install is no update. The tester adds a Modern Forms Fan device beside the stock WAC device of the same fan, and the stock device stays in the project with its programming disabled, not deleted (the phased migration of `docs/edge-cases-control4.md`, section 2: disable before delete). Later betas update that device in place.
+- **Install:** the first install is no update. The tester adds a Modern Forms Fan device beside the stock WAC device of the same fan, and the stock device stays in the project with its programming disabled, not deleted (the migration contract, [`migration-design.md`](migration-design.md#3-phases): disable before delete). Later betas update that device in place.
 - **Going back:** to the stock WAC driver, by the migration's rollback: disconnect the new device's links, set each keypad button's LED Behavior back to Programmed (disconnecting does not restore it), enable the stock device's programming again, undo anything done to quiet the stock device, then delete the Modern Forms Fan device or keep it unused.
 - **Changelog:** the rules do not change. A prerelease is never stamped, the 1.0 entry carries everything when 1.0 is released, and until then the Documentation tab shows the `Unreleased` entry as `1.0 beta 1 "<codename>" (prerelease), build N (date)`.

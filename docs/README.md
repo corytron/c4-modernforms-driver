@@ -13,9 +13,27 @@ build the driver are in [`CLAUDE.md`](../CLAUDE.md).
 
 On 2026-10-27 the folder holds the scaffold's documents (the process,
 copied from the author's [Hue driver](https://github.com/corytron/c4-hue-driver)
-and adapted) and the v1 research with its edge-case notes
-([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)). The
-v1 contract is listed here when it lands.
+and adapted), the v1 research with its edge-case notes
+([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)) and
+the v1 contract written from it and the owner's decisions
+([issue #6](https://github.com/corytron/c4-modernforms-driver/issues/6)).
+
+## Feature contracts
+
+Written before the code, against the research below; they are the
+specification, and `status.md` says what of them is live.
+
+- [`v1-design.md`](v1-design.md): the Modern Forms Fan driver: one driver
+  with a fan proxy and a `light_v2` proxy, the driver's own Button Links for
+  every speed, Off, Toggle and Cycle and the light's Top, Bottom and Toggle
+  with keypad LEDs, the transport to the fan and the report rules, the
+  properties, actions, events and texts, the module interfaces and the
+  build split.
+- [`migration-design.md`](migration-design.md): replacing the stock WAC
+  driver on a house: the new device beside the old one, the keypad moved
+  button by button with a way back from every phase, the driver's read-only
+  Migration Report, and the later removal of the stock device and the
+  keypad's LED workaround.
 
 ## Research and edge cases (v1, #2)
 

@@ -78,7 +78,7 @@ one-second settle Timer agent), and nothing of this driver installed.
    the v1 contract adds (`<rows>`), each with the text it says.
    - **Open.**
 
-## D. Fan speed links (the fan proxy's per-speed connections)
+## D. Fan speed links (the driver's own Button Links)
 
 6. Connections: select the Modern Forms Fan device. Under its Control
    Outputs expect one Button Link per speed of the fan (the stock driver
@@ -147,10 +147,13 @@ one-second settle Timer agent), and nothing of this driver installed.
 
 ## I. Moving from the stock driver (the migration contract)
 
-16. The migration contract's steps, in its order: the connections and the
-    programming to redo on the new device, then the house's LED scripts and
-    its one-second Timer agent removed. Until that contract exists, nothing
-    of the stock driver's setup is touched.
+16. The migration contract's phases, in its order
+    ([`migration-design.md`](migration-design.md#3-phases)): the new device
+    beside the stock one, the buttons moved to links one by one with their
+    old lines disabled first, the double taps rebuilt, the LED workaround
+    switched off; later, once the driver's Migration Report reads safe to
+    remove, the old lines, the one-second Timer agent and the stock device
+    deleted. Nothing of the stock driver's setup is touched before that.
     - **Open.**
 
 ## What to paste back
