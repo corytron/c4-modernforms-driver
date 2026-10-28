@@ -34,6 +34,15 @@ specification, and `status.md` says what of them is live.
   button by button with a way back from every phase, the driver's read-only
   Migration Report, and the later removal of the stock device and the
   keypad's LED workaround.
+- [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
+  throwaway Composer package built outside `src/` so no release carries it,
+  and the Windows session's brief for each check K4–K10 and K14 of
+  [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install);
+  deleted after M1.
+- [`fan-probe.md`](fan-probe.md): `tools/mf_probe.py`, the VM's tool for
+  the fan-side checks (K11 direction, K12 the light's level while off, K13
+  bursts, K15 the dim staircase) and for read-only reads and fixtures: what
+  each check writes to the fan and for how long, and its safety rails.
 
 ## Research and edge cases (v1, #2)
 
