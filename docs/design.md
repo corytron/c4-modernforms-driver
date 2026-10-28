@@ -89,7 +89,7 @@ Composer can show goes to the Windows session.
 
 **[verified on hardware, 2026-10-27: a hands-on test on the house, OS
 3.4.3, Composer Pro 3.4.2]** The fan runs on the stock driver
-`wac_mf_fan_and_light_controller(v4).c4z`, which declares 13 BUTTON_LINK
+`wac_mf_fan_and_light_controller(v4).c4z`, which declares 12 BUTTON_LINK
 connections: Fan Off, Fan Speed 1 to 6, Toggle Preset and Cycle Speed for
 the fan, and Top, Bottom and Light Toggle for the light. Keypad buttons bind
 to them normally, and nothing happens in either direction: a press reaches
@@ -158,7 +158,7 @@ To be filled by the v1 research. Questions:
   `docs-driverworks-proxyprotocol-keypad/source/includes/62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`)
   and what the driver does with each: a press sets the speed, and what a
   hold does.
-- How the stock driver's 13 connections map onto the new ones, for the
+- How the stock driver's 12 connections (ids 0–11, M0) map onto the new ones, for the
   migration contract.
 
 ## Light: light_v2 (open, 2026-10-27)

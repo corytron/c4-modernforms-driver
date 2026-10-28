@@ -1,0 +1,221 @@
+<devicedata>
+	<!-- MF Probe (delete after M1): the throwaway package of docs/v1-design.md,
+	     section 11 (checks K4 to K10 and K14; probes/README.md). It declares what
+	     the v1 driver will (two proxies, the capabilities of section 2.3 plus
+	     proxy_fan_speed_connections, a light link with proxybindingid and a fan
+	     link without), controls nothing and logs everything. Its file name
+	     (mf_probe.c4z), <name> and <model> differ from the real driver's
+	     (docs/edge-cases-control4.md, D27), and it lives outside src/, so
+	     tools/build.sh and the Release workflow never see it;
+	     probes/build_probe.sh packs it.
+
+	     Doc paths below are relative to ~/c4-tools/reference/ and its
+	     source/includes folders: XML = docs-driverworks-xml, FUND =
+	     docs-driverworks-fundamentals, API = docs-driverworks-api, FAN, LV2 and
+	     KP = docs-driverworks-proxyprotocol-fan, -lightv2 and -keypad. K1 =
+	     the stock driver's driver.xml as the Windows session read it in M0
+	     (issue #11, "M0, Windows side", 2026-10-27). -->
+	<copyright>Copyright 2026 Cory Fair. Licensed under the Apache License, Version 2.0 (see LICENSE). Not affiliated with Modern Forms, WAC Lighting or Snap One.</copyright>
+	<creator>Cory Fair</creator>
+	<manufacturer>MF Probe</manufacturer>
+	<name>MF Probe (delete after M1)</name>
+	<model>MF Probe (M1 hardware checks)</model>
+	<created>10/27/2026 12:00 PM</created>
+	<modified>10/27/2026 12:00 PM</modified>
+	<!-- dp3 stamps <version> and <modified> (probes/build_probe.sh). -->
+	<version>1</version>
+	<control>lua_gen</control>
+	<controlmethod>IP</controlmethod>
+	<driver>DriverWorks</driver>
+	<!-- The real driver's value (docs/v1-design.md V3). The tag is documented
+	     only as the OS an automatic update needs [FUND
+	     14_updating_released_drivers/_1-UPDATINGRELEASEDDRIVERS.md]; for K9,
+	     probes/build_probe.sh also builds a copy declaring 9.0.0 (its k9
+	     option) to see what Composer does with it on a manual install. -->
+	<minimum_os_version>3.3.0</minimum_os_version>
+	<config>
+		<!-- LuaJIT with Lua 5.1 semantics [XML 15_common_xml/_71-script.md]. No
+		     <documentation>: the probe needs no Documentation tab
+		     [XML 15_common_xml/_70-documentation.md makes it optional]. -->
+		<script jit="1" file="driver.lua"/>
+		<properties>
+			<!-- The probe's only behaviour: with On, DO_PUSH on link 200 or 300
+			     answers MATCH_LED_STATE true on that link and DO_RELEASE answers
+			     false [KP 62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md].
+			     LIST type [XML 20_properties/_20-type.md, _50-items.md]. -->
+			<property>
+				<name>Echo LED On Press</name>
+				<type>LIST</type>
+				<items>
+					<item>Off</item>
+					<item>On</item>
+				</items>
+				<default>Off</default>
+				<readonly>false</readonly>
+			</property>
+		</properties>
+		<!-- Composer sends an action to ExecuteCommand as LUA_ACTION with the
+		     <command> in ACTION [API 5_director_command/_1-ExecuteCommand.md; FUND
+		     15_composerpro_interface_into_the_sdk/_6-ACTIONS.md]; name and command
+		     are the same text. sort_order on each [XML 30_actions/_45-sortorder.md]. -->
+		<actions>
+			<action>
+				<name>Run mDNS Probe</name>
+				<command>Run mDNS Probe</command>
+				<sort_order>1</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Dump State</name>
+				<command>Dump State</command>
+				<sort_order>2</sort_order>
+				<params/>
+			</action>
+		</actions>
+	</config>
+	<!-- Two proxies, one binding each [XML 15_common_xml/_31-proxies.md,
+	     _32-proxy.md; FUND 8_proxies_and_proxy_types/_1-SINGLEANDMULTIPROXIES.md,
+	     11_connections/_5-PROXYBINDINGMULTIPLE.md]; the name attributes are the
+	     default device names [FUND 8_proxies_and_proxy_types/_2-MODIFYINGTHEDEFAULTNAMINGOFPROXIES.md],
+	     the probe's own so they never read like the real driver's. The fan
+	     proxy's XML name `fan` and its class FAN are the stock driver's [K1:
+	     `fan` on 5001, class FAN]. The fan is declared first: K2 found that the
+	     first-declared proxy becomes the parent item, which carries the
+	     driver's properties, actions and Documentation tab. No icons
+	     (docs/v1-design.md V24). -->
+	<proxies>
+		<proxy proxybindingid="5001" name="MF Probe Fan" primary="True">fan</proxy>
+		<proxy proxybindingid="5002" name="MF Probe Light">light_v2</proxy>
+	</proxies>
+	<!-- One flat block for both proxies, as the stock driver has it [K1]; no
+	     name occurs in both lists [FAN 43_fan_capabilities/ against LV2
+	     5_light_v2_capabilities/]. The values are docs/v1-design.md section
+	     2.3's, plus proxy_fan_speed_connections True for K5. Spellings: True and
+	     False as the Hue Light's driver.xml; every name below that the stock
+	     driver declares is spelt as it does [K1]. A capability is read when a
+	     device is created: changing one on an installed probe needs the owner's
+	     controller reboot from System Manager (docs/composer-remote.md, rule 10). -->
+	<capabilities>
+		<!-- Fan [FAN 43_fan_capabilities/]. -->
+		<!-- Six speeds [_3-discretelevels.md; K1: 6]. -->
+		<discrete_levels>6</discrete_levels>
+		<!-- The stock driver's names, for the house's Navigators [_5-speednames.md;
+		     K1]; a comma list as in FAN 41_fan_proxy_commands/_12-GETSETUP.md. -->
+		<speed_names>Level 1, Level 2, Level 3, Level 4, Level 5, Level 6</speed_names>
+		<!-- [_4-presetspeed.md; docs/v1-design.md V11: 3]. -->
+		<preset_speed>3</preset_speed>
+		<!-- [_2-cansetpreset.md]. -->
+		<can_set_preset>True</can_set_preset>
+		<!-- [_1-canreverse.md]: True, so K8 sees SET_DIRECTION and
+		     TOGGLE_DIRECTION arrive; the real driver's value waits for K11. -->
+		<can_reverse>True</can_reverse>
+		<!-- [_4.5-proxyfanspeedconnections.md, from OS 3.4.2]: the proxy makes
+		     BUTTON_LINK connections for the speeds itself; what they are and do
+		     is K5. The stock driver does not declare it [K1]. -->
+		<proxy_fan_speed_connections>True</proxy_fan_speed_connections>
+		<!-- Light [LV2 5_light_v2_capabilities/], docs/v1-design.md section 2.3. -->
+		<dimmer>True</dimmer>
+		<set_level>True</set_level>
+		<ramp_level>True</ramp_level>
+		<on_off>True</on_off>
+		<min_max>False</min_max>
+		<click_rates>False</click_rates>
+		<hold_rates>True</hold_rates>
+		<hold_rate_min>1000</hold_rate_min>
+		<supports_default_on>True</supports_default_on>
+		<cold_start>False</cold_start>
+		<has_leds>True</has_leds>
+		<has_button_events>False</has_button_events>
+		<supports_target>True</supports_target>
+		<supports_brightness_stop>True</supports_brightness_stop>
+		<supports_color>False</supports_color>
+		<supports_color_correlated_temperature>False</supports_color_correlated_temperature>
+		<supports_broadcast_scenes>False</supports_broadcast_scenes>
+		<supports_multichannel_scenes>False</supports_multichannel_scenes>
+		<advanced_scene_support>False</advanced_scene_support>
+		<load_group_support>False</load_group_support>
+		<reduced_als_support>True</reduced_als_support>
+		<hide_proxy_properties>False</hide_proxy_properties>
+		<hide_proxy_events>False</hide_proxy_events>
+		<buttons_are_virtual>True</buttons_are_virtual>
+	</capabilities>
+	<!-- Connections [XML 50_connections_xml/; FUND 11_connections/_1-OVERVIEW.md].
+	     Ids by range: proxies 5000-5999, control 1-999 [XML
+	     50_connections_xml/_15-id.md]; type 2 proxy, 1 control
+	     [_30-type.md]. No network connection: K10's bindings 6001 to 6003 are
+	     made at run time with C4:CreateNetworkConnection, which needs no
+	     connection XML [API 32_serial_network_device/_1-CreateNetworkConnection.md]. -->
+	<connections>
+		<!-- The fan proxy's binding, class FAN [K1]. -->
+		<connection>
+			<id>5001</id>
+			<facing>6</facing>
+			<connectionname>FAN</connectionname>
+			<type>2</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>FAN</classname>
+				</class>
+			</classes>
+		</connection>
+		<!-- The light_v2 proxy's binding, as the Hue Light's. -->
+		<connection>
+			<id>5002</id>
+			<facing>6</facing>
+			<connectionname>LIGHT</connectionname>
+			<type>2</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>LIGHT_V2</classname>
+				</class>
+			</classes>
+		</connection>
+		<!-- K4: a Button Link provider connection tied to the light proxy with
+		     the proxybindingid attribute [FUND 11_connections/_1-OVERVIEW.md
+		     documents the attribute on <connection>]: does Composer show it
+		     under the light item, and does a press still reach the driver as
+		     DO_PUSH / DO_CLICK / DO_RELEASE on 200 [KP
+		     62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md]? The
+		     stock driver's links carry no proxybindingid [K1]. -->
+		<connection proxybindingid="5002">
+			<id>200</id>
+			<facing>6</facing>
+			<connectionname>Light Top Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<!-- K4 and K6: the same kind of link without the attribute, the pattern
+		     verified on the house with the Hue Light (its driver.xml). -->
+		<connection>
+			<id>300</id>
+			<facing>6</facing>
+			<connectionname>Fan Off Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+	</connections>
+</devicedata>

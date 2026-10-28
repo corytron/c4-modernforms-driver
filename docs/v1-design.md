@@ -37,20 +37,20 @@ section 2): fan `10.0.2.151` (a second fan `10.0.2.152`), MAC
 | KP | `docs-driverworks-proxyprotocol-keypad` |
 | PP | `docs-driverworks-proxyprotocol` |
 | HUE | the owner's Hue project (`~/projects/c4-hue-driver`, read-only): measurements on this house, OS 3.4.2 / 3.4.3 |
-| M0 | the VM's read-only checks of the house fan, 2026-10-27, in #11: Gen 3 (ESP32, ESP-IDF 4.0.4), firmware 02.00.0052, six speeds, a dimmable light kit; answers in 0.25 to 0.39 s (one TCP connect of 1.36 s); `HTTP/1.1 200` with only `Content-Type: application/json` and `Content-Length`, keep-alive honoured; the light's level kept while it is off; the fan announces itself over mDNS |
+| M0 | the read-only checks of 2026-10-27 in #11. The VM's, of the house fan: Gen 3 (ESP32, ESP-IDF 4.0.4), firmware 02.00.0052, six speeds, a dimmable light kit; answers in 0.25 to 0.39 s (one TCP connect of 1.36 s); `HTTP/1.1 200` with only `Content-Type: application/json` and `Content-Length`, keep-alive honoured; the light's level kept while it is off; the fan announces itself over mDNS. The Windows session's (K1–K3), of the stock driver and the keypad: the stock package's proxies, capabilities and links, its two items in Composer, its properties and actions, and the keypad's seven buttons ([section 11](#11-hardware-checks-before-the-first-install), [section 5.4](#54-the-house-keypad)) |
 
-**Items M0 or M1 may still change are marked M0? or M1?** at the place
-they apply and listed in [section 16](#16-what-m0-and-m1-may-still-change).
-M0's VM half has arrived and is folded in; the Windows half (the stock
-driver's `driver.xml`, its Composer presentation, the keypad inventory)
-is pending.
+**Items M1 may still change are marked M1?** at the place they apply and
+listed in [section 16](#16-what-m0-and-m1-may-still-change). Both halves of
+M0 have arrived and are folded in: the VM's on 2026-10-27, the Windows
+session's (the stock driver's `driver.xml`, its Composer presentation, its
+properties and the keypad) later the same day.
 
 ## 1. Decisions
 
 | # | Decision | Basis | Mark |
 | --- | --- | --- | --- |
-| V1 | **One driver** `src/modernforms_fan/` → `modernforms_fan.c4z`, Composer name "Modern Forms Fan", with two proxies: the fan proxy on binding 5001 (primary) and a `light_v2` proxy on 5002. One Lua instance is the only thing that talks to the fan. | #6 decision 1; LSR §2.2; FUND `8_proxies_and_proxy_types/_1-SINGLEANDMULTIPROXIES.md`, `11_connections/_5-PROXYBINDINGMULTIPLE.md`; XML `15_common_xml/_32-proxy.md` | VERIFIED-doc: several proxies, one binding each, the binding in every command. ASSUMED (K2, K4): how Composer shows the two items. M0?: the fan proxy's XML name `fan` and class `FAN` (K1). If K4 fails: [section 2.8](#28-if-the-two-proxy-probe-fails). |
-| V2 | **The driver's own Button Links**: light Top/Bottom/Toggle on 200–202, fan Off 300, Speed 1–6 on 301–306, Toggle 307, Cycle 308. Each takes `DO_PUSH`/`DO_CLICK`/`DO_RELEASE` and sends `MATCH_LED_STATE`. `proxy_fan_speed_connections` is **not** declared; K5 records how it behaves for a later version. Ids 203–209 and 309–319 stay free for later links (connections can only ever be added). | #6 decision 2; FPR §3, §6, §7; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`; FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` | VERIFIED-house: the mechanism on the Hue Light (HUE `docs/keypad-design.md`, "Hardware findings"). ASSUMED (K6): the same on a fan-proxy driver. M1?: `proxybindingid` on the links (K4). |
+| V1 | **One driver** `src/modernforms_fan/` → `modernforms_fan.c4z`, Composer name "Modern Forms Fan", with two proxies: the fan proxy on binding 5001, **declared first and `primary`**, and a `light_v2` proxy on 5002. The first-declared proxy is the parent item in Composer and carries the driver's properties, actions and Documentation tab (K2), so Status, Fan Address and every row of §2.5 sit on the fan; the light is its child, with the light_v2 settings page. Kept after M0 although the stock driver declares its light first and so has "Fan Light" as the parent and "Fan" as a child (§2.2 says why). One Lua instance is the only thing that talks to the fan. | #6 decision 1; LSR §2.2; FUND `8_proxies_and_proxy_types/_1-SINGLEANDMULTIPROXIES.md`, `11_connections/_5-PROXYBINDINGMULTIPLE.md`; XML `15_common_xml/_32-proxy.md`; K1, K2 | VERIFIED-doc: several proxies, one binding each, the binding in every command. VERIFIED-house (K1, K2): one driver with a `light_v2` and a `fan` proxy runs on this house; the fan proxy's XML name is `fan`, its class `FAN`; the first-declared proxy is the parent and carries the driver's rows; a child item shows its own proxy's settings. ASSUMED (K4): that `primary` agrees with the order (the fan has both), and that the light as a child shows its settings page. If K4 fails: [section 2.8](#28-if-the-two-proxy-probe-fails). |
+| V2 | **The driver's own Button Links**: light Top/Bottom/Toggle on 200–202, fan Off 300, Speed 1–6 on 301–306, Toggle 307, Cycle 308. Each takes `DO_PUSH`/`DO_CLICK`/`DO_RELEASE` and sends `MATCH_LED_STATE`. `proxy_fan_speed_connections` is **not** declared; K5 records how it behaves for a later version. Ids 203–209 and 309–319 stay free for later links (connections can only ever be added). | #6 decision 2; FPR §3, §6, §7; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`; FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` | VERIFIED-house: the mechanism on the Hue Light (HUE `docs/keypad-design.md`, "Hardware findings"); the stock driver declares its own 12 links the same way, ids 0–11 without `proxybindingid`, and **no** `proxy_fan_speed_connections`, and Composer lists all 12 under both of its items (K1, K2). ASSUMED (K6): that a press arrives on a fan-proxy driver's link (the stock's links were dead in its own Lua). M1?: `proxybindingid` on the links (K4). |
 | V3 | **Minimum OS 3.3.0** in `driver.xml`, and a run-time check of `C4:GetVersionInfo()`: on an older controller the Status says so and the driver runs on. | #6 decision 3; LSR §3; LV2 `3_whats_new/_12-WHATSNEWIN330.md` (the brightness target); KP `3_whats_new/_20-WhatwasNewinOS3.md` (Button Linking); API `35_url/_10-Post.md` (3.0.0); FUND `14_updating_released_drivers/_1-UPDATINGRELEASEDDRIVERS.md` (the tag is documented as an auto-update gate only); API `5_director_command/_2-GetVersionInfo.md` | VERIFIED-doc. ASSUMED (K9): whether Composer refuses an install below the minimum. |
 | V4 | **Gen 1–3 fans with six speeds** (`POST /mf`). A Gen 4 fan (HTTP 404 on `/mf`, then `fan_g4` from `/device`) is refused with a Status and never sent a command. | #6 decision 4; MFR §1, §4; ECM H2, H7 | VERIFIED: AIO's generation detection (MFR §1); M0: the house fan is Gen 3 with six speeds. |
 | V5 | **Adding a fan**: the owner types `Fan Address`; the driver pins the fan's identity (client id and station MAC) at first contact; a different fan at that address gets nothing until **Use Selected Fan** accepts it; a new address of the pinned fan is followed when the owner types it or picks it, never on its own; no subnet scan, ever. **Find Fans** (an mDNS query) is in v1 only if K10 shows a documented call path working on the house; otherwise it waits for a later version (V5a). | #6 decision 5; M0 (mDNS); ECM N1–N10, Q3; ECC D18–D20 | VERIFIED: `clientId` in every answer (M0; MFR §2.4). See V5a. |
@@ -67,16 +67,16 @@ is pending.
 | V15 | **WAC's API License Agreement is not entered.** Every field the driver reads or writes is verified by `aiomodernforms` / Home Assistant code (as MFR cites it) or by M0; WAC's documents are at most corroboration and nothing of them is copied. | #6 decision 12; MFR "Licensing and provenance" | — |
 | V16 | **Migration**: the driver carries the **Migration Report** action and the **Migration** and **Stock Device** properties (§2.5); their behaviour is [`migration-design.md`](migration-design.md#4-the-migration-report)'s. `<replaces>` is never declared. | #6 decision 13; ECC §2.1, D24; XML `15_common_xml/_33.5-replaces.md` | VERIFIED-doc: `<replaces>` deletes the named driver's devices without warning. |
 | V17 | **1.0 codename "Arrakis"** (in `.github/codenames.json`); every 1.0 build and beta keeps it. | #6 decision 14 | — |
-| V18 | **Direction**: `can_reverse` True and `SET_DIRECTION`/`TOGGLE_DIRECTION` written as `fanDirection`, **if** K11 shows the house fan stays on Wi-Fi after a direction write; otherwise `can_reverse` False and the direction is shown only. Settled before the first install (a static capability). | MFR §8 (a field report of a model dropping off Wi-Fi on every direction write), §9; ECM S5; FAN `43_fan_capabilities/_1-canreverse.md` | M1?: K11. |
-| V19 | **Light capabilities**: as the Hue Light, minus colour, with `click_rates` False (taps are immediate, as V14 needs) and `reduced_als_support` True (the light may join Advanced Lighting Scenes; a static choice that is free to keep and costs a reboot to add later). | LSR §1.2; LV2 `5_light_v2_capabilities/_11-CLICKRATES.md`, `22-REDUCEDALSSUPPORT.md`; LV2 `45_Light_V2_advanced_lighting_scene/_1.3-REDUCEDALSSUPPORT.md` | VERIFIED-house: the Hue Light's set. |
-| V20 | **Private fields** (`owner`, `federatedIdentity`, `deviceName`, `SSID`, `BSSID`, `timezone`, the `schedule` blob) are dropped on receipt: never stored, shown or logged. The client id and MAC are stored, shown in Composer rows only, and appear in log lines only as their last four hex digits. | ECM rule 8, V6; MFR §2.4; M0 (the private list) | — |
+| V18 | **Direction**: `can_reverse` True and `SET_DIRECTION`/`TOGGLE_DIRECTION` written as `fanDirection`, **if** K11 shows the house fan stays on Wi-Fi after a direction write; otherwise `can_reverse` False and the direction is shown only. Settled before the first install (a static capability). | MFR §8 (a field report of a model dropping off Wi-Fi on every direction write), §9; ECM S5; FAN `43_fan_capabilities/_1-canreverse.md`; K1, K3 (the stock driver declares `can_reverse` True and offers Winter Mode and Summer Mode actions) | M1?: K11, still before the first install: the stock's actions show WAC writes the direction, not that nobody's fan dropped off Wi-Fi doing it. |
+| V19 | **Light capabilities**: as the Hue Light, minus colour, with `click_rates` False (taps are immediate, as V14 needs) and `reduced_als_support` True (the light may join Advanced Lighting Scenes; a static choice that is free to keep and costs a reboot to add later). The stock driver differs: `click_rates` True (250 to 1000 ms; the house's light shows 0.25 s up, 0.75 s down) and `has_leds` False (K1, K2); so the light's settings page loses its click rates and gains LED colours. Default On Brightness keeps the house's 100 (K2). | LSR §1.2; LV2 `5_light_v2_capabilities/_11-CLICKRATES.md`, `22-REDUCEDALSSUPPORT.md`; LV2 `45_Light_V2_advanced_lighting_scene/_1.3-REDUCEDALSSUPPORT.md`; K1, K2 | VERIFIED-house: the Hue Light's set; the stock's `reduced_als_support` True (K1). |
+| V20 | **Private fields** (`owner`, `federatedIdentity`, `deviceName`, `SSID`, `BSSID`, `timezone`, the `schedule` blob) are dropped on receipt: never stored, shown or logged. The client id and MAC are stored, shown in Composer rows only, and appear in log lines only as their last four hex digits. Unlike the stock driver, whose rows show Owner (an e-mail), Federated Identity and Device Name (K3). | ECM rule 8, V6; MFR §2.4; M0 (the private list); K3 | — |
 | V21 | **Persistence**: the identity, the fan's model and firmware, the last online flag and the preset speed with `C4:PersistSetValue`; the fan's state is not persisted. The `Fan ID` row doubles as the identity's copy in the project file. | FUND `24_persisting_driver_data/_1-PERSISTINGDRIVERDATA.md`; API `26.5_persistence/_3-PersistGetValue.md`, `_4-PersistSetValue.md`; ECC D9, D10; HUE `docs/design.md` "Storage" | VERIFIED-house: values survive an update and a reboot. ASSUMED (parked to the first restore): a driver-written read-only row is in a project backup. |
 | V22 | **The fan's own automations are shown, not fought**: `Fan Automations` lists a schedule, away mode, adaptive learning and running sleep timers; `Last Change By` names who changed the fan when it was not Control4 (Gen 3 `userData`); **Turn Off Away Mode** and **Turn Off Adaptive Learning** are offered as clicks. Schedules and timers are not cleared in v1. | ECM A1–A7, §9; MFR §2.3 (the allow-list), §11 row 11; `CLAUDE.md` (Control4 is the source of truth) | VERIFIED: the fields (AIO, MFR §2.2; M0 shows all of them on the house fan). ASSUMED (K16): what `userData` says for the remote. |
 | V23 | **Reboot Fan** action (`{"reboot":true}`), a click only, never automatic; up to 2 minutes of silence afterwards counts as rebooting, not offline. Not a programming command (every command is forever once released). | MFR §2.3, §11 row 10; ECM P4, P6; ECC §5.2 | VERIFIED: AIO `reboot()` (MFR §2.3); the fan's behaviour after it ASSUMED (K18). |
 | V24 | **No custom icons in v1**: the two proxies show Control4's own fan and light icons, which a device keeps for good from its creation. An owner who wants custom icons says so before the first install. | HUE `docs/design.md` "Composer Pro 3.4.2 UI" (builds 125 and 135); ECC D25 | VERIFIED-house: the icon rule. |
 | V25 | **Programming surface**: events 1 Fan Offline and 2 Fan Online (3 reserved for a later "Changed Outside Control4"); one variable, `Online`; one conditional, `BOOL_ONLINE`; no programming commands of the driver's own. | ECC §5.2, F2, F24; API `36_variable/_1-AddVariable.md`, `7_event/_4-FireEventByID.md`; FUND `10_conditionals/_4-USINGTHETESTCONDITIONFUNCTION.md`, `_8-XMLINABOOLEANTYPECONDITIONAL.md` | VERIFIED-doc. |
-| V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button is lit (blue) at speed 1, its double tap, and the High button (orange) at speed 6; with one Follow Connection link per button and V12 they would be dark there. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
-| V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue for 1 and orange for 6. Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | ASSUMED (K6): adoption at run time. |
+| V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button (single tap speed 2) is lit at speed 1, its double tap, and the High button (single tap 5) at speed 6 (K1–K3, §5.4); with one Follow Connection link per button and V12 they would be dark there. On the house: `Speed 2 Link Also Lit At` = `Speed 1`, `Speed 5 Link Also Lit At` = `Speed 6`. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
+| V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | ASSUMED (K6): adoption at run time. |
 
 ## 2. Structure and `driver.xml`
 
@@ -113,22 +113,46 @@ F2, F26).
 ```
 
 The `name` attributes are the default device names (FUND
-`8_proxies_and_proxy_types/_2-MODIFYINGTHEDEFAULTNAMINGOFPROXIES.md`).
-M0?: the proxy type `fan` (K1; every public fan driver uses it, FPR §1.1).
+`8_proxies_and_proxy_types/_2-MODIFYINGTHEDEFAULTNAMINGOFPROXIES.md`). The
+proxy type `fan` and its class `FAN` are VERIFIED-house: the stock driver
+declares them on this house (K1), as every public fan driver does (FPR
+§1.1).
+
+**Which item is the parent.** On the house the first-declared proxy is the
+parent item, carries every driver property and action and the
+Documentation tab, and the child shows only its own proxy's settings (K2:
+the stock driver declares `light_v2` first, on 5000, so "Fan Light" is the
+parent and "Fan", with only the proxy's Preset Level, its child). Whether
+the `primary` attribute (XML `15_common_xml/_32-proxy.md`, documented by
+name only) or the order decides is not known, so the fan is both first and
+`primary`. The fan as parent is kept, against the stock's order, because:
+
+- the device is a fan, the driver is "Modern Forms Fan", and its own rows
+  (Fan Address, Fan ID, the speed links' settings) are fan rows: on a light
+  parent they would sit beside Default On Brightness;
+- the split comes out clean: the driver's and the fan's rows on the fan, the
+  light_v2 settings page alone on the light (a child showing its proxy's
+  settings, as the stock's fan child does; ASSUMED until K4 shows it);
+- the migration renames by role, not by place in the tree
+  ([`migration-design.md`](migration-design.md#2-decisions), G14), and the
+  family sees Navigator tiles, not Composer's tree.
+
+The cost: the tree is the other way round from the stock device's, which the
+Windows session's briefs name item by item anyway.
 
 ### 2.3 Capabilities
 
-One `<capabilities>` block carries both proxies' names; no name occurs in
-both lists (VERIFIED-doc: FAN `43_fan_capabilities/` against LV2
-`5_light_v2_capabilities/`; that each proxy ignores the other's names is
-ASSUMED, K1 shows how the stock driver does it). `True`/`False` spelt as in
-the Hue Light's `driver.xml`.
+One flat `<capabilities>` block carries both proxies' names; no name occurs
+in both lists (VERIFIED-doc: FAN `43_fan_capabilities/` against LV2
+`5_light_v2_capabilities/`), and a driver that mixes them so runs on this
+house (VERIFIED-house: the stock driver, K1). `True`/`False` are spelt as in
+the stock driver's block and the Hue Light's `driver.xml` (K1; HUE).
 
 | Capability | Value | Proxy | Kind | Source |
 | --- | --- | --- | --- | --- |
 | `discrete_levels` | 6 | fan | static (FPR §1.2) | FAN `43_fan_capabilities/_3-discretelevels.md`; M0 |
-| `speed_names` | `1,2,3,4,5,6` (M0?: the stock driver's names if K1 shows them, for the family's Navigators) | fan | static | FAN `_5-speednames.md`; comma list as in `41_fan_proxy_commands/_12-GETSETUP.md` |
-| `preset_speed` | 3 | fan | static; the run-time preset is the driver's (V11) | FAN `_4-presetspeed.md` |
+| `speed_names` | `Level 1,Level 2,Level 3,Level 4,Level 5,Level 6`: the stock driver's names (K1), which the house's Navigators and programming show today ("Set speed Level 2" in its scripts), and the proxy's own default for more than five speeds, so nothing the family sees changes; a comma list without spaces, as in the proxy's `GET_SETUP` example | fan | static | FAN `_5-speednames.md`, `41_fan_proxy_commands/_12-GETSETUP.md`; K1 |
+| `preset_speed` | 3 (the stock declares 1; its device's Preset Level reads Level 3 on the house, K2) | fan | static; the run-time preset is the driver's (V11) | FAN `_4-presetspeed.md`; #6 decision 8 |
 | `can_set_preset` | True | fan | static | FAN `_2-cansetpreset.md` |
 | `can_reverse` | True, or False if K11 fails (V18) | fan | static | FAN `_1-canreverse.md` |
 | `proxy_fan_speed_connections` | not declared (V2) | fan | — | FAN `_4.5-proxyfanspeedconnections.md` |
@@ -157,7 +181,7 @@ Not declared: `click_rate_min`/`_max`, `supports_color_stop`, any
 
 | Id | `connectionname` | Type | Consumer | Class | `linelevel` | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| 5001 | `FAN` | 2 (proxy) | False | `FAN` (M0?: K1) | False | |
+| 5001 | `FAN` | 2 (proxy) | False | `FAN` (VERIFIED-house, K1) | False | declared first (§2.2) |
 | 5002 | `LIGHT` | 2 (proxy) | False | `LIGHT_V2` | False | as the Hue Light |
 | 200 | Light Top Button Link | 1 | False | `BUTTON_LINK` | True | `common/device.lua`'s ids |
 | 201 | Light Bottom Button Link | 1 | False | `BUTTON_LINK` | True | |
@@ -175,7 +199,9 @@ binding in the control range 1–999 (XML `50_connections_xml/_15-id.md`,
 `11_connections/_1-OVERVIEW.md` documents the attribute); the default is
 **without** it, the pattern verified on the house, unless K4 shows that a
 link with the attribute is shown under its proxy's item and still delivers
-its presses to the driver. Reserved, never declared in v1: 203–209 (light),
+its presses to the driver. Without it, Composer lists every link under both
+items, as it does the stock driver's 12 (K2), which serves the keypad drag
+of the migration either way. Reserved, never declared in v1: 203–209 (light),
 309 "Fan Cycle Down Button Link", 310 "Fan Direction Button Link", 311–319
 (fan), 6001 (Find Fans' dynamic network binding, V5a; no XML).
 
@@ -201,7 +227,7 @@ its presses to the driver. Reserved, never declared in v1: 203–209 (light),
 | 21–26 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | only with V27: the on colour a speed link shows while the fan runs at that speed |
 | 27 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | only with V27: the off colour sent with them |
 | 28 | Migration | DYNAMIC_LIST | "" | — | [`migration-design.md`](migration-design.md#4-the-migration-report) (its verdict and rows) |
-| 29 | Stock Device | DEVICE_SELECTOR, `<items>`: the stock driver's file names exactly as M0 reads them **[M0]** (today `wac_mf_fan_and_light_controller(v4).c4z`; another version of WAC's file has its name added by a later build, a property change with no reboot), `<multiselect>false</multiselect>` | "" | no | the fallback that names this fan's stock device when the Migration Report cannot tell (that document's §4.2) |
+| 29 | Stock Device | DEVICE_SELECTOR, `<items>`: the stock driver's file name as M0 read it, `wac_mf_fan_and_light_controller(v4).c4z` (K1; that the Select dialog lists the device under it is ASSUMED, seen at its first use; another version of WAC's file has its name added by a later build, a property change with no reboot), `<multiselect>false</multiselect>` | "" | no | the fallback that names this fan's stock device when the Migration Report cannot tell (that document's §4.2) |
 | 30 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
 | dev | Dev Server | STRING | "" | no | DEV-ONLY block, as the scaffold |
 | dev | Dev State | STRING | "" | yes | DEV-ONLY block, [section 12](#12-dev-loop-actions-and-toolsregresssh) |
@@ -295,8 +321,10 @@ name answers false. No `<commands>` (V25).
 
 ### 2.8 If the two-proxy probe fails
 
-If K4 shows that the light item gets no settings page, that its links can
-only appear under the fan, or that a press on a light link never arrives,
+K2 makes this unlikely: the stock driver's two items work on the house,
+and its child item shows its own proxy's settings. If K4 still shows that
+the light item gets no settings page, that its links can only appear under
+the fan, or that a press on a light link never arrives,
 v1 takes LSR's option (b) instead: a second package `src/modernforms_light/`
 (a `light_v2` device with links 200–202 and the Hue Light's bridge-binding
 machinery, which the port into `common/device.lua` stripped and which comes
@@ -758,6 +786,40 @@ disconnecting does not turn it back (VERIFIED-house, HUE
 `docs/composer-remote.md` "Learned 2026-10-27"); the driver never touches
 a keypad's settings (ECC C4).
 
+### 5.4 The house keypad
+
+M0 (K3, #11): one keypad on a dimmer in the fan's room, seven buttons, all
+in use, so none is spare; no Connections link reaches the fan today. Each
+speed script lights its own button and darkens the others, and the timer
+"Fan LED Settle" repaints all five after every "Fan Speed Changed": the
+workaround the migration removes. The cutover binds them as below
+([`migration-design.md`](migration-design.md#1-what-the-migration-replaces)
+keeps the record and [its phases](migration-design.md#3-phases) the order):
+
+| Button | Today | Its link | `Also Lit At` | Double Tap afterwards | Its LED afterwards |
+| --- | --- | --- | --- | --- | --- |
+| Low | Single Tap speed 2; Double Tap speed 1 and the LED blue | Fan Speed 2 (302) | `Speed 1` (V26) | the keypad's programming: the new fan to Level 1 (V12) | lit at speeds 2 and 1, in its own `#8000FF`; blue at 1 only with V27 |
+| Medium | speed 3 | Fan Speed 3 (303) | — | — | lit at 3 |
+| Med-High | speed 4 | Fan Speed 4 (304) | — | — | lit at 4 |
+| High | Single Tap speed 5; Double Tap speed 6 and the LED `#ff6000` | Fan Speed 5 (305) | `Speed 6` | the new fan to Level 6 | lit at 5 and 6, in `#8000FF`; `#ff6000` at 6 only with V27 |
+| Off | fan off | Fan Off (300) | — | — | lit while off, in its own `#800000` |
+| Up, Down | Regular Buttons without an LED: the fan's light on, off | Light Top (200), Light Bottom (201), if K19 shows they have Button Links | — | — | none |
+
+- The speed buttons' on colour is `#8000FF` and the Off button's `#800000`,
+  each set on the keypad (K3); the links send no colours (§5.1), so each
+  keeps its own. Blue at 1 and `#ff6000` at 6 are painted by programming
+  today, which goes: they return only with V27
+  ([#14](https://github.com/corytron/c4-modernforms-driver/issues/14), item 1).
+- Up and Down on the light's Top and Bottom links tap as today (on at
+  Default On Brightness, off) and gain the links' holds (§5.2). The keypad
+  proxy's documentation says a button's name updates its binding names (KP
+  `61_keypad_protocol_notifications/_9-NEW_KEYPAD_BUTTON.md`) but says
+  nothing of button types, so whether a Regular Button has a Button Link is
+  ASSUMED until K19. Without one they keep their programming, aimed at the new light
+  (the migration's Phase 6).
+- Fan Toggle (307), Fan Cycle (308) and Light Toggle (202) stay unbound on
+  this house: M0 found no programming that toggles or cycles the fan.
+
 ## 6. Offline, online, rebooting and the wrong fan
 
 ### 6.1 Phases
@@ -871,7 +933,7 @@ Every Last Action is also logged with `log.always` (as `dev.result` does).
 | Firmware | `02.00.0052 (motor 03.00.0000) since 2026-10-27`; after a change `02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052` |
 | Last Seen | `2026-10-27 18:02:10, answered in 0.31 s`, written at most every 10 s |
 | Last Change By | `<who> at 14:05`, written on each change Control4 did not make. `<who>` from `userData`: `ble` → `Remote or wall control`; `local_wifi` → `Modern Forms app or another local client`; `cloud` → `Modern Forms cloud (app away, voice assistant)`; `sleep_timer` → `The fan's sleep timer`; `away_mode` → `The fan's away mode`; `schedule` → `A schedule in the Modern Forms app`; anything else, `none` or absent (Gen 1/2) → `Outside Control4 (source not reported)` (VERIFIED values: AIO `const.py`, MFR §2.2; what an RF remote reports is K16) |
-| Fan Automations | `None`, or `Active: ` and the items joined by `, `: `schedule`, `away mode`, `adaptive learning`, `fan timer 25 min`, `light timer 10 min` (Gen 3, minutes rounded up), `fan timer set`, `light timer set` (Gen 1/2). Written when the text changes. `schedule` counts when the field is a non-empty string (ASSUMED: empty means none; M0? the house fan's value with no schedule in the app) |
+| Fan Automations | `None`, or `Active: ` and the items joined by `, `: `schedule`, `away mode`, `adaptive learning`, `fan timer 25 min`, `light timer 10 min` (Gen 3, minutes rounded up), `fan timer set`, `light timer set` (Gen 1/2). Written when the text changes. `schedule` counts when the field is a non-empty string (ASSUMED: empty means none; one read-only VM read of the house fan's value, while the app shows no schedule, settles it, §16) |
 | Keypad Links | items: `5 of 12 links bound`, then one per bound keypad, `Fan Speed 3: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id) |
 | Found Fans | items: `MF_Fan_005301 at 10.0.2.151`, with ` (this device's fan)` when its MAC is the pinned one; at most 16 |
 | Speed N Link Also Lit At | the dealer's choice among `No other speed`, `Speed 1` … `Speed 6`; no driver text |
@@ -1265,14 +1327,42 @@ and 300 (without), the Lua command window (`C4:AllowExecute`, API
 `ReceivedFromProxy`, `ExecuteCommand`, `OnBindingChanged` and
 `ReceivedFromNetwork`, and an action that runs K10. It is deleted after M1.
 
+**The test button.** The house keypad has no spare button (K3). For K4 to
+K6 the Windows session first looks, read-only, for an unused button on a
+keypad elsewhere in the project (no programming on any of its events, no
+link; one with an LED for the LED parts) and binds that one; the probe and
+that keypad need not share a room. If there is none, it borrows a house
+button for about a minute each: **Up** for the press-only parts (K4, K5's
+press, K6's tap, hold and double tap), and **Medium**, whose only script
+sets speed 3, for the LED parts (Up has no LED). A press on a borrowed
+button also runs its own programming (the fan's light on, or speed 3 through
+the stock device), which is harmless and which the owner is told about.
+While Medium is bound, one change of the fan's speed also answers K14.
+
+**Restore check R-K**, after every borrowed button and before the round
+ends; a step that fails ends the round with a report
+([`composer-remote.md`](composer-remote.md#rules-for-the-windows-session),
+rule 3):
+
+1. The probe's link Disconnected; the keypad's and the probe's lists both
+   show the button unbound.
+2. Its LED Behavior, where it has one, set back to its M0 value, Programmed
+   (a disconnect does not restore it); its Button Behavior as M0 recorded it.
+3. Its on and off colours as M0 recorded them (`#8000FF` on for Medium), set
+   again if K6's colours changed them.
+4. The Copy All of each of its scripts equal to the one saved before the
+   borrow.
+5. The owner's next press does what it did before: Up turns the fan's light
+   on; Medium sets speed 3 and its LED is repainted by the workaround.
+
 | # | Check | Who | Settles | Research | When |
 | --- | --- | --- | --- | --- | --- |
-| K1 | Read the stock package's `driver.xml` (names and ids only, nothing copied): proxies (type, name, binding, `primary`), capabilities (fan and light, their spelling), connections (ids, classes, `proxybindingid`), `minimum_os_version`, `jit` | Windows session, read-only | V1's `fan`/`FAN`; `speed_names`; the links' `proxybindingid` default; whether the stock driver used the proxy's speed links | FPR T1; LSR H3; ECC H1 | M0 (pending the go-ahead) |
-| K2 | The stock device in Composer: tree items, which item has Properties, Actions, Documentation and Lua, the light's settings page, where its 13 links show | Windows session, read-only | V1's presentation | LSR H1, H2 | M0 (pending) |
-| K3 | The stock device's properties and Documentation tab: how it polls, local or cloud | Windows session, read-only | the migration's overlap | MFR Q9; ECC §2.3 | M0 (pending) |
-| K4 | The probe beside the stock device, in a test room: its items and tabs, the light's settings page, where links 200 and 300 show, that a press arrives on each | Windows session; one press by the owner unless K7 works | V1 (else §2.8); the links' `proxybindingid` | ECC H2; LSR H1, H2 | M1 |
-| K5 | `proxy_fan_speed_connections` on the probe: which links appear, their names and ids; a press → `SET_SPEED` on 5001, `DO_*` elsewhere, or nothing; an LED following `CURRENT_SPEED` alone | Windows session; a press and a glance by the owner unless K7 works | nothing in v1; facts for a later version | FPR T2–T4; ECC H1 | M1 |
-| K6 | A spare keypad button bound to the probe's 300: tap, hold, double tap and what arrives; `MATCH_LED_STATE` true and false; then, from the Lua window, `BUTTON_COLORS {ON_COLOR = "ff0000", OFF_COLOR = "000000", CURRENT_COLOR = "ff0000"}` and `MATCH_LED_STATE` true (red?), and while it is lit `BUTTON_COLORS` with `0000ff` and `MATCH_LED_STATE` true again (blue?); `MATCH_LED_STATE` false; an unbind and rebind (does `REQUEST_BUTTON_COLORS` arrive, and which colour does the button show afterwards?) | Windows session binds, sends and unbinds; the owner taps and glances (about 40 s) | V12, §5.1's click rule; V27 (colours taken over the link, and again while bound); §5.2's bottom link | FPR T5, T6; ECC H4, H7 | M1 |
+| K1 | Read the stock package's `driver.xml` (names and ids only, nothing copied): proxies, capabilities, connections, `minimum_os_version`, `jit` | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** `light_v2` on 5000 declared first, `fan` on 5001 with class `FAN`; one flat capability block (fan: `discrete_levels` 6, `speed_names` Level 1 to 6, `preset_speed` 1, `can_set_preset` and `can_reverse` True; light: `click_rates` True 250–1000, `has_leds` False, `reduced_als_support` True); 12 links of its own, ids 0–11, no `proxybindingid`, no `proxy_fan_speed_connections`; no `minimum_os_version`; `jit` 1; network connection 6000. Settles V1's `fan`/`FAN`, `speed_names` (§2.3), the spelling, `Stock Device`'s item | FPR T1; LSR H3; ECC H1 | M0, done |
+| K2 | The stock device in Composer: tree items, which item has Properties, Actions, Documentation and Lua, the light's settings page, where its links show | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** two items; the first-declared proxy ("Fan Light") is the parent with every property, action and the Documentation tab; the child ("Fan") shows only its proxy's Preset Level (Level 3); both list all 12 links. Settles V1's presentation (§2.2) | LSR H1, H2 | M0, done |
+| K3 | The stock device's properties, actions and Documentation tab; the keypad and the programming that names the fan | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** the fan reached on the LAN by a static address on connection 6000, no SDDP; rows that show Owner, Federated Identity and Device Name; 11 actions (Reboot, Winter and Summer Mode among them); the keypad of §5.4. Settles §5.4, V20's note, the migration's overlap | MFR Q9; ECC §2.3 | M0, done |
+| K4 | The probe in a test room: which item is the parent and carries its rows and actions, whether the light child shows its settings page, where links 200 and 300 show, that a press arrives on each (through a **test button**, above) | Windows session, then R-K if the button was borrowed; one press by the owner unless K7 works | V1 (else §2.8); the links' `proxybindingid` | ECC H2; LSR H1, H2 | M1 |
+| K5 | `proxy_fan_speed_connections` on the probe: which links appear, their names and ids; a press on the test button → `SET_SPEED` on 5001, `DO_*` elsewhere, or nothing; an LED following `CURRENT_SPEED` alone (an LED test button only) | Windows session, then R-K if the button was borrowed; a press and a glance by the owner unless K7 works | nothing in v1; facts for a later version | FPR T2–T4; ECC H1 | M1 |
+| K6 | An **LED test button** bound to the probe's 300: tap, hold, double tap and what arrives; `MATCH_LED_STATE` true and false; then, from the Lua window, `BUTTON_COLORS {ON_COLOR = "ff0000", OFF_COLOR = "000000", CURRENT_COLOR = "ff0000"}` and `MATCH_LED_STATE` true (red?), and while it is lit `BUTTON_COLORS` with `0000ff` and `MATCH_LED_STATE` true again (blue?); `MATCH_LED_STATE` false; an unbind and rebind (does `REQUEST_BUTTON_COLORS` arrive, and which colour does the button show afterwards?) | Windows session binds, sends and unbinds, then R-K if the button was borrowed; the owner taps and glances (about 40 s) | V12, §5.1's click rule; V27 (colours taken over the link, and again while bound); §5.2's bottom link | FPR T5, T6; ECC H4, H7 | M1 |
 | K7 | `KEYPAD_BUTTON_ACTION {BUTTON_ID, ACTION}` from the probe's Lua window drives a bound link like a press (KP `60_keypad_proxy_commands/_4-KEYPADBUTTONACTION.md`) | Windows session | whether K4–K6 and M4 need the owner's hands | ECC H5; FPR T3 | M1 (first) |
 | K8 | Fan proxy notifications from the probe's Lua window: `CURRENT_SPEED` alone, then `ON`; `DESIGNATE_PRESET` from the app with and without the `PRESET_SPEED` answer; `GET_CURRENT_STATE` at the add | Windows session; three taps in the Control4 app by the owner | R9 (confirms never sending `ON`), the preset answer | FPR T7, T8; ECC H3 | M1 |
 | K9 | A copy of the probe declaring minimum OS 9.0.0: refused or not; deleted | Windows session | how much V3's run-time check carries | LSR H7 | M1 |
@@ -1280,16 +1370,17 @@ and 300 (without), the Lua command window (`C4:AllowExecute`, API
 | K11 | Direction: with the fan running, `{"fanDirection":"reverse"}`, a read 3 times over 10 s, `{"fanDirection":"forward"}`, a read; the fan must keep answering | VM; the owner told first; his hands only if the fan drops off Wi-Fi (10 s off at the wall) | V18, `can_reverse` | MFR §8, §12; ECM check 7 | M1, before the first install |
 | K12 | Light: off, `{"lightBrightness":30}`, a read (still off?), `{"lightOn":true}`, a read (on at 30?), off, a read (level 30 kept?) | VM | V14's two steps | LSR H4; ECM check 7 | M1 |
 | K13 | Bursts: 10 speed commands and 20 level commands back to back, one in flight; latency, errors, the final state | VM; the owner told the fan will run through its speeds for about 20 s | `GAP_MS`, `RAMP_STEP_MS` (Lua constants) | LSR H6; MFR §12 | M1 or M4 |
-| K14 | A Programmed LED command on a Follow Connection button: does it still act? | Windows session | the migration's order | ECC H6 | M1 |
+| K14 | A Programmed LED command on a Follow Connection button: does it still act? (With Medium borrowed for K6: one change of the fan's speed while it is bound) | Windows session | the migration's order | ECC H6 | M1 |
 | K15 | The light stepped 1 → 100 in 12 requests over 3 s, then down: a dim or a staircase? | VM; the owner's eyes, 30 s | whether a hold looks acceptable | LSR H5 | M1 (optional) |
 | K16 | One remote press and one app change; `userData` and how soon each shows; Breeze on from the remote: does `fanSpeed` move? Reads every 0.5 s for 3 s after a command: does the state bounce? | the owner's hands; VM reads | §7.3's `Last Change By`, the Breeze note, `SETTLE_MS` | ECM checks 4–6, 8; MFR Q8 | M4 (not blocking) |
 | K17 | Power cut of 10 s at the wall: time until it answers, the state it comes back in | the owner's hands | the manual's text (decision 10 is fixed) | ECM check 3 | M4 (not blocking) |
 | K18 | Reboot Fan: do motor and light change; time until it answers | dev loop | the manual's text | ECM check 10 | M4 |
+| K19 | The house keypad's own rows in Connections' top pane: is there a Button Link row for Up and for Down (Regular Buttons)? | Windows session, read-only, seconds | §5.4: Up and Down on Light Top and Bottom, or kept as programming | KP `61_keypad_protocol_notifications/_9-NEW_KEYPAD_BUTTON.md` (button names update binding names); K3 | M1 (first) |
 
 Before the first install of the real driver (M4) these must be settled,
-because they are static: K1 (proxy name and class, `speed_names`), K4 (the
-structure and the links' `proxybindingid`), K11 (`can_reverse`). The rest
-changes Lua at most. At M4 the first dev install also shows that a new
+because they are static: K1 (proxy name and class, `speed_names`; done), K4
+(the structure and the links' `proxybindingid`), K11 (`can_reverse`). The
+rest changes Lua at most. At M4 the first dev install also shows that a new
 device takes its capabilities with no reboot (LSR H8) and that a fan request
 keeps its time while the Hue drivers hold their transfers (ECC H13). Parked:
 links and bindings across a reboot (FPR T9), what the proxies hold after a
@@ -1381,8 +1472,8 @@ text as section 7 has it:
    lit at once and corrected, keypad colours for the fan links (or, with
    V27, a colour per speed), double taps as programming on the keypad's own
    events, and `Speed N Link Also Lit At` for a button whose double tap sets
-   another speed (worked example: a button on Fan Speed 3 that double-taps to
-   speed 1, set to `Speed 1`).
+   another speed (worked example: a button on Fan Speed 2 whose double tap
+   sets Level 1: `Speed 2 Link Also Lit At` set to `Speed 1`).
 6. The light: Default On Brightness, no fades (a target is reached at once),
    holds stepping twice a second, Advanced Lighting Scenes, the settings page.
 7. When the fan is offline: what Control4 shows, what happens when power
@@ -1421,39 +1512,47 @@ text as section 7 has it:
 
 ## 16. What M0 and M1 may still change
 
+M0 is done (#11, both halves, 2026-10-27). What it settled, now written into
+this file as VERIFIED:
+
+| Item | Settled as | By |
+| --- | --- | --- |
+| Fan proxy XML name and class | `fan` / `FAN` | K1 |
+| Two proxies in one driver, one flat capability block, `True`/`False` | as §2.2, §2.3 | K1 |
+| `speed_names` | `Level 1,Level 2,Level 3,Level 4,Level 5,Level 6` (the stock's and the house's) | K1 |
+| The parent item | the first-declared proxy; v1 declares the fan first (V1, §2.2) | K2 |
+| The stock driver's links | its own 12, ids 0–11, no `proxybindingid`, no `proxy_fan_speed_connections` | K1 |
+| `Stock Device`'s item | `wac_mf_fan_and_light_controller(v4).c4z` | K1 |
+| The keypad's links and `Also Lit At` | Low → Speed 2, also lit at 1; Medium → 3; Med-High → 4; High → Speed 5, also lit at 6; Off → Fan Off (§5.4) | K3 |
+| The generation, firmware and fields | Gen 3, 02.00.0052, the field lists of §4.1 and §10.1, the level kept while off, mDNS | M0 (VM) |
+
+What M1 may still change:
+
 | Item | Default in this file | Changed by |
 | --- | --- | --- |
-| Fan proxy XML name and class | `fan` / `FAN` | K1 (M0, stock `driver.xml`) |
-| `speed_names` | `1,2,3,4,5,6` | K1: the stock driver's names, if it declares any |
-| Capability spelling (`True`/`true`) | `True` | K1 |
-| `proxybindingid` on the links | none | K4 (with K1 as a hint) |
-| Structure | one driver, two proxies | K2, K4 → §2.8 |
+| `proxybindingid` on the links | none (as the stock's 12, K1) | K4 |
+| The light as a child with its settings page; `primary` agreeing with the order | as §2.2 | K4 → §2.8 if it fails |
 | `can_reverse` | True | K11 |
+| Up and Down on Light Top and Bottom | yes, if they have Button Links | K19 |
 | Find Fans, `Found Fans`, `discovery.lua` | out until K10 passes | K10 |
 | `GAP_MS`, `RAMP_STEP_MS`, `SETTLE_MS` | 250, 500, 2500 ms | K13, K16 (Lua only) |
-| `Fan Automations`' schedule test | a non-empty string | M0's value of `schedule` on the house fan |
-| `Speed LED Colors` and the per-speed colour rows (V27) | not in the build | K6, then the owner ([section 17](#17-open-items-for-the-owner)) |
+| `Fan Automations`' schedule test | a non-empty string | one read-only VM read of `schedule` while the app shows no schedule |
+| `Speed LED Colors` and the per-speed colour rows (V27) | not in the build | K6, then the owner ([#14](https://github.com/corytron/c4-modernforms-driver/issues/14), [section 17](#17-open-items-for-the-owner)) |
 | device.lua's bottom light link | lit through inverted colours | K6: the inverted state instead, if keypads ignore `BUTTON_COLORS` |
-| `Stock Device`'s items | `wac_mf_fan_and_light_controller(v4).c4z` | K1 (the exact file names Director reports) |
-| Which speed links need `Also Lit At`, and with which speed | — | M0's keypad inventory ([`migration-design.md`](migration-design.md#1-what-the-migration-replaces), §1.4); set in the cutover, not in this file |
-| The stock driver's links, programming and polling | — | K1–K3; [`migration-design.md`](migration-design.md#4-the-migration-report)'s, not this file's |
-
-Folded in from M0 (VM): Gen 3 (V4), firmware 02.00.0052 and the ESP32
-module (§7.3), every field of the house fan's two answers (§4.1, §10.1),
-the light's level kept while off (V14), latency and timeouts (§3.2), the
-response headers and keep-alive (§3.1), the private list (V20), mDNS (V5,
-V5a, K10).
+| The migration's order around the LED workaround | — | K14; [`migration-design.md`](migration-design.md#8-open-items)'s |
 
 ## 17. Open items for the owner
 
-Each goes into an issue labelled `question` (the coordinator's); the
-default holds until the owner answers, and none blocks the M3 build.
+They are [#14](https://github.com/corytron/c4-modernforms-driver/issues/14),
+labelled `question`; each default holds until the owner answers, and none
+blocks the M3 build.
 
 1. **A colour per speed on the keypad (V27).** With V26 alone, a button
    whose double tap sets speed 1 is lit at speed 1 too, but in the colour
    it shows at its single-tap speed: a button on Follow Connection has one
-   on colour, the keypad's own. Today the Low button shows blue at speed 1
-   and the High button orange at 6. A colour per speed needs the driver to
+   on colour, the keypad's own (`#8000FF` on the house's speed buttons).
+   Today programming paints Low blue at speed 1 and High `#ff6000` at 6
+   (§5.4). A colour per speed needs the driver to
    send `BUTTON_COLORS` over the link: the link protocol documents the
    message, but no keypad has been seen to apply it (K6), and #6 decision 9
    with FPR §7 item 8 keeps it out of v1 unless K6 shows that it works and
