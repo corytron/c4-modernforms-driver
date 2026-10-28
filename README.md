@@ -34,7 +34,7 @@ endorsed by or supported by Modern Forms, WAC Lighting or Snap One
 ## Why a new driver
 
 The fan in the author's house runs on the stock driver,
-`wac_mf_fan_and_light_controller(v4).c4z`. That driver declares 13 Button
+`wac_mf_fan_and_light_controller(v4).c4z`. That driver declares 12 Button
 Link connections (Fan Off, Fan Speed 1 to 6, Toggle Preset, Cycle Speed, and
 the light's Top, Bottom and Light Toggle), and in a hands-on test on
 2026-10-27 (controller on OS 3.4.3, Composer Pro 3.4.2) none of them did

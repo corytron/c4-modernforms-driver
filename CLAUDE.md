@@ -2,7 +2,7 @@
 
 Custom Control4 DriverWorks driver for Modern Forms (WAC Lighting) smart ceiling fans with integrated lights, over the fan's local HTTP API. Personal project for one home, public on GitHub under the Apache License 2.0 since 2026-10-27 (see "Licensing" below). Its process is copied from the owner's Hue project (corytron/c4-hue-driver), which is the reference for anything this file does not settle.
 
-**The goal:** replace the stock `wac_mf_fan_and_light_controller(v4).c4z`, whose 13 Button Link connections do nothing in either direction (tested on the house 2026-10-27), with a driver whose fan speed links and light links really work with keypads and their LEDs, and whose state follows changes made in the Modern Forms app, the remote and the wall control. Then the house's keypad LED programming and its 1-second settle Timer agent are removed.
+**The goal:** replace the stock `wac_mf_fan_and_light_controller(v4).c4z`, whose 12 Button Link connections do nothing in either direction (tested on the house 2026-10-27), with a driver whose fan speed links and light links really work with keypads and their LEDs, and whose state follows changes made in the Modern Forms app, the remote and the wall control. Then the house's keypad LED programming and its 1-second settle Timer agent are removed.
 
 ## How I want you to work
 

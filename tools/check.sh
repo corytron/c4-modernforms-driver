@@ -10,9 +10,9 @@
 #                     below, whatever the order given
 #
 # Checks, in order:
-#   lua-lint     luacheck src tests tools
+#   lua-lint     luacheck src tests tools (and probes/ if present)
 #   lua-test     busted tests
-#   shell        shellcheck -S style tools/*.sh (and setup-vm.sh if present)
+#   shell        shellcheck -S style tools/*.sh (and probes/*.sh and setup-vm.sh if present)
 #   python-lint  ruff check tools; ruff format --check tools
 #   python-test  python3 -B -m unittest discover -s tools/tests (-B: no __pycache__,
 #                whose constant-folded test vectors the secrets tree scan would flag)
@@ -67,7 +67,12 @@ run() {
 }
 
 check_lua_lint() {
-	run luacheck src tests tools
+	local dirs=(src tests tools)
+	# The M1 probe package (docs/v1-design.md, section 11) lives outside src/ so no release carries it.
+	if [[ -d probes ]]; then
+		dirs+=(probes)
+	fi
+	run luacheck "${dirs[@]}"
 }
 
 check_lua_test() {
@@ -76,6 +81,12 @@ check_lua_test() {
 
 check_shell() {
 	local files=(tools/*.sh)
+	local probe
+	for probe in probes/*.sh; do
+		if [[ -f "$probe" ]]; then
+			files+=("$probe")
+		fi
+	done
 	if [[ -f setup-vm.sh ]]; then
 		files+=(setup-vm.sh)
 	fi
