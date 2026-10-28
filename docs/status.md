@@ -64,31 +64,32 @@ no build of this driver has run on a controller.
 Every open item is an issue (`gh issue list --state open`); this list says
 where each stands on 2026-10-27.
 
-- **#6** The v1 plan and its decisions, with a recommended default each:
-  structure, speed links, minimum OS, which fans, adding a fan, polling and
-  report rules, keypad LEDs, ON and Toggle, double taps, the fan offline,
-  the light's turn-on level, WAC's documents, the migration pace and the 1.0
-  codename. The research it rests on is indexed in
-  [`README.md`](README.md#research-and-edge-cases-v1-2).
-- **WAC's API License Agreement**, a decision for the owner (in #6): the research found that WAC publishes a reference of
-  the fan's local interface under an agreement that treats that
-  documentation as confidential. Either the project accepts the agreement
-  and counts the reference as a source, or it keeps to the public
-  open-source clients and its own measurements, citing WAC's documents at
-  most as corroboration, which is the rule until the decision
-  ([`design.md`](design.md), "Method").
-- **The v1 contract**, written from the research before any driver code,
-  with the migration from the stock driver as its own part.
-- **The 1.0 codename** (Dune, Denis Villeneuve's films): proposed to the
-  owner before the first build; `.github/codenames.json` is `{}` until then,
-  and the release tooling refuses a release whose X.Y has no name.
+- **#11** M0, the read-only checks: the VM half is done (the house fan is
+  a Gen 3 fan on firmware 02.00.0052; it answers `/mf` locally with
+  keep-alive and announces itself over mDNS); the Windows half (the stock
+  driver's `driver.xml`, its connections and the keypad's programming) waits
+  for the owner's go-ahead in the Windows session.
+- **#14** Three owner questions from the v1 contract (a colour per speed on
+  the keypad, the Cycle link wrapping, custom icons), each with a default.
+- **M1**, the probes of [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
+  (a throwaway package beside the stock device), then **M3**, the build
+  split of [`v1-design.md`](v1-design.md#13-m3-build-split).
 
-Decided, not open:
+Decided, not open (2026-10-27, #6; the specification is
+[`v1-design.md`](v1-design.md), the cutover
+[`migration-design.md`](migration-design.md)):
 
 - One driver, **Modern Forms Fan** (`src/modernforms_fan/`, package
-  `modernforms_fan.c4z`), for the fan and its light, unless the v1 research
-  decides otherwise (`scaffold-design.md`, section 1).
+  `modernforms_fan.c4z`), with a fan proxy and a `light_v2` proxy, and its
+  own Button Links for every speed, Off, Toggle and Cycle and the light's
+  Top, Bottom and Toggle, with keypad LEDs.
+- Minimum OS 3.3.0, checked at run time too; Gen 1–3 fans with six speeds.
+- WAC's API License Agreement: the project stays off it and builds on the
+  public open-source clients and its own read-only measurements
+  ([`design.md`](design.md), "Method").
+- The migration: one cutover sitting with the stock programming disabled,
+  not deleted; the stock device and the LED workaround removed later, once
+  the driver's Migration Report reads safe to remove.
+- The 1.0 codename is "Arrakis".
 - Control4 is the source of truth: automations live in Control4
   programming, not in the Modern Forms app (`CLAUDE.md`).
-- The scaffold's `driver.xml` declares minimum OS 3.3.0 as a stand-in; the
-  v1 research picks the real value (`scaffold-design.md`, section 7).

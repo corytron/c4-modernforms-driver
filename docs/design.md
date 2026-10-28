@@ -110,6 +110,8 @@ reports that arrive in order.
 
 ## Transport (open, 2026-10-27)
 
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): the local `POST /mf` JSON API of Gen 1–3 fans, polled (the fan pushes nothing), one request in flight, the command's answer authoritative ([`modernforms-api-research.md`](modernforms-api-research.md)). The questions below are kept as they were asked.
+
 To be filled by the v1 research. Questions:
 
 - What the fan's local interface offers: how state is read, which commands
@@ -128,6 +130,8 @@ To be filled by the v1 research. Questions:
 
 ## Driver structure (open, 2026-10-27)
 
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): one driver with a fan proxy and a `light_v2` proxy; the fan is added by its address and pinned by its client id ([`light-structure-research.md`](light-structure-research.md), [`edge-cases-modernforms.md`](edge-cases-modernforms.md)). The questions below are kept as they were asked.
+
 To be filled by the v1 research. Questions:
 
 - One driver with a fan proxy and a `light_v2` proxy (the scaffold's
@@ -138,6 +142,8 @@ To be filled by the v1 research. Questions:
   new address is followed and not taken for a new fan.
 
 ## Fan proxy and speed links (open, 2026-10-27)
+
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): the driver declares its own Button Links for Speed 1–6, Off, Toggle and Cycle; `proxy_fan_speed_connections` is not declared in v1 and a probe tests it ([`fan-proxy-research.md`](fan-proxy-research.md)). The questions below are kept as they were asked.
 
 To be filled by the v1 research. Questions:
 
@@ -157,6 +163,8 @@ To be filled by the v1 research. Questions:
 
 ## Light: light_v2 (open, 2026-10-27)
 
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): a `light_v2` dimmer without colour, Top, Bottom and Toggle links on the shared keypad machine, Default On Brightness ([`light-structure-research.md`](light-structure-research.md)). The questions below are kept as they were asked.
+
 To be filled by the v1 research. Questions:
 
 - The light's on/off and dimming as the fan reports them (range, steps,
@@ -168,6 +176,8 @@ To be filled by the v1 research. Questions:
   is.
 
 ## Keypad LEDs (open, 2026-10-27)
+
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): `MATCH_LED_STATE` per driver link; the pressed target lights at once and is corrected if the fan disagrees ([`fan-proxy-research.md`](fan-proxy-research.md)). The questions below are kept as they were asked.
 
 To be filled by the v1 research. Questions:
 
@@ -184,6 +194,8 @@ To be filled by the v1 research. Questions:
 
 ## State model (open, 2026-10-27)
 
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): sequence numbers, a settle window, coalescing and the report rules R1–R9 of [`edge-cases-control4.md`](edge-cases-control4.md#51-the-report-contract); the fan offline keeps its last state with Fan Offline and Fan Online events. The questions below are kept as they were asked.
+
 To be filled by the v1 research. Questions:
 
 - The one state the driver keeps per fan (fan on and speed, direction,
@@ -197,6 +209,8 @@ To be filled by the v1 research. Questions:
   each, and what it shows in Composer.
 
 ## Minimum OS (open, 2026-10-27)
+
+**Current (2026-10-27, #6):** decided by the owner with the research's recommended defaults, specified in [`v1-design.md`](v1-design.md): 3.3.0, with a run-time version check ([`light-structure-research.md`](light-structure-research.md)). The questions below are kept as they were asked.
 
 To be filled by the v1 research. Known so far **[verified]**:
 
