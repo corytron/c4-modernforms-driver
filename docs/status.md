@@ -64,11 +64,17 @@ no build of this driver has run on a controller.
 Every open item is an issue (`gh issue list --state open`); this list says
 where each stands on 2026-10-27.
 
-- **#11** M0, the read-only checks: the VM half is done (the house fan is
-  a Gen 3 fan on firmware 02.00.0052; it answers `/mf` locally with
-  keep-alive and announces itself over mDNS); the Windows half (the stock
-  driver's `driver.xml`, its connections and the keypad's programming) waits
-  for the owner's go-ahead in the Windows session.
+- **#17** M1, the probes: ready, not run. The Composer probe package
+  (`probes/`, `build/probe/mf_probe.c4z`) waits for the Windows session,
+  which the owner has lent to other work for now. The fan-side write checks
+  K11, K12, K13 and K15 with `tools/mf_probe.py` wait until the owner has
+  been told what the fan will do and for how long
+  ([`fan-probe.md`](fan-probe.md)). M0 (#11) is done: the house fan is a
+  Gen 3 fan on firmware 02.00.0052 that answers `/mf` locally with
+  keep-alive and announces itself over mDNS. The stock driver declares 12
+  links of its own (ids 0–11) and no `proxy_fan_speed_connections`. Its
+  keypad, programming and settle timer are inventoried in
+  [`migration-design.md`](migration-design.md#1-what-the-migration-replaces).
 - **#14** Three owner questions from the v1 contract (a colour per speed on
   the keypad, the Cycle link wrapping, custom icons), each with a default.
 - **M1**, the probes of [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
