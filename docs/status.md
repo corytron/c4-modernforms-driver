@@ -64,12 +64,17 @@ no build of this driver has run on a controller.
 Every open item is an issue (`gh issue list --state open`); this list says
 where each stands on 2026-10-27.
 
-- **#17** M1, the probes: ready, not run. The Composer probe package
-  (`probes/`, `build/probe/mf_probe.c4z`) waits for the Windows session,
-  which the owner has lent to other work for now. The fan-side write checks
-  K11, K12, K13 and K15 with `tools/mf_probe.py` wait until the owner has
-  been told what the fan will do and for how long
-  ([`fan-probe.md`](fan-probe.md)). M0 (#11) is done: the house fan is a
+- **#17** M1, the probes: half done. The fan-side checks K11, K12, K13
+  and K15 ran on 2026-10-27 (`tools/mf_probe.py`,
+  [`fan-probe.md`](fan-probe.md)). The Windows session installed the
+  Composer probe package (`probes/`, `build/probe/mf_probe.c4z`) in a test
+  room and ran what needs no keypad button: K4's structure and links, K5's
+  first step, K8's Lua part and K10 (**passed: Find Fans is in v1**), all in
+  [`v1-design.md`](v1-design.md#111-what-the-probe-has-shown-so-far-17). Not
+  run: K9, and everything that needs a bound keypad button (K4's presses, K5,
+  K6, K7, K14, K19's Down): the house has no keypad outside the bedroom, so
+  those wait for the owner's daytime round with a borrowed button and the
+  restore check. The probe stays installed until then. M0 (#11) is done: the house fan is a
   Gen 3 fan on firmware 02.00.0052 that answers `/mf` locally with
   keep-alive and announces itself over mDNS. The stock driver declares 12
   links of its own (ids 0–11) and no `proxy_fan_speed_connections`. Its
