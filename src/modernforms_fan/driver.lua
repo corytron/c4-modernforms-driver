@@ -158,8 +158,18 @@ local function result(key, args)
 	show_result(texts.result(key, args))
 end
 
+-- Linear: "^%s*(.-)%s*$" rescans a long run of inner blanks at every step (#49).
 local function trimmed(value)
-	return (value or ""):match("^%s*(.-)%s*$")
+	local text = value or ""
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
 end
 
 -- The modules ------------------------------------------------------------------

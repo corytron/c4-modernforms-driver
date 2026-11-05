@@ -20,8 +20,17 @@ wire.REBOOT = '{"reboot":true}'
 
 -- Small helpers ----------------------------------------------------------------
 
+-- Linear: "^%s*(.-)%s*$" rescans a long run of inner blanks at every step (#49).
 local function trim(text)
-	return (text:match("^%s*(.-)%s*$"))
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
 end
 
 local function round(n)

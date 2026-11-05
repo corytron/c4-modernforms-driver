@@ -1221,7 +1221,14 @@ end
 -- dev key still runs the loop (log and reports reach the server, which can
 -- then say what is wrong) but refuses every bundle and command.
 function devloop.start(host_port)
-	host_port = tostring(host_port or ""):match("^%s*(.-)%s*$")
+	host_port = tostring(host_port or "")
+	-- Linear, as the driver's trims (#49): no pattern that rescans inner blanks.
+	local first = host_port:find("%S")
+	local last = #host_port
+	while first and last > first and host_port:find("^%s", last) do
+		last = last - 1
+	end
+	host_port = first and host_port:sub(first, last) or ""
 	if host_port == "" then
 		devloop.stop()
 		return false
