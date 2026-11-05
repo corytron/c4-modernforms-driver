@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.0 "Arrakis", build 67 (2026-11-05)
+
 ### Added
 
 - First build of the Modern Forms Fan driver (`modernforms_fan.c4z`), for fans with six speeds (Gen 1 to 3): one device per fan with the fan's speeds, on and off and direction, and its light with dimming, in Control4 programming, the Navigators and the keypads (#26).
