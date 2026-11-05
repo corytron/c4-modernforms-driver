@@ -521,13 +521,22 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Done:** open.
 45. **A new address, followed by the driver (#39).** Optional and never
     blocking; the driver needs a minute or two, which the Windows session
-    waits out. (a) *By hand, only if the router can do it cheaply:* give the
-    fan another address (change its DHCP reservation), then switch the fan's
-    power off at the wall for 10 seconds and on again so that it takes the
-    new address. The Windows session reads `Status`, `Fan Address` and `Last
-    Action` every 15 seconds for 3 minutes. Afterwards put the reservation
-    back if you changed it, and read the same rows again until the driver has
-    followed the fan back. (b) *A typed address wins.* Set `Fan Address` to a
+    waits out. (a) *Without the router (the usual way, no hands):* the VM
+    stands in as the fan's old address. A TCP relay on the VM's port 80
+    forwards every connection to the fan's port 80 (port 80 needs root on
+    the VM; the 2026-11-05 round ran a small Python relay in a container
+    published on port 80). Set `Fan Address` to the VM's address (Set) and
+    wait for `Same fan MF_00005E005301, now at <VM address>`. About 30
+    seconds after the controller's first request reaches the relay, stop
+    the relay: from the driver's side the fan has left that address. The
+    Windows session reads `Status`, `Fan Address` and `Last Action` every 15
+    seconds for 3 minutes; Composer's log for the device catches what falls
+    between two readings. *By hand, only if the router can do it cheaply:*
+    give the fan another address (change its DHCP reservation), then switch
+    the fan's power off at the wall for 10 seconds and on again so that it
+    takes the new address, read the same rows, and afterwards put the
+    reservation back and read them again until the driver has followed the
+    fan back. (b) *A typed address wins.* Set `Fan Address` to a
     free address of the network on which nothing answers, read `Status`,
     `Fan Address` and `Last Action` after about a minute, then set the fan's
     own address back. (c) Set `Follow Address Changes` to `Off` (Set), then
@@ -539,9 +548,12 @@ installed, the keypad moved to its links and the stock device was deleted
       `Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)`; `Fan
       Offline` and `Fan Online` fired once each (step 35's scripts, while
       they are there); `Fan ID`, `Found Fans`, the item names and the
-      bindings unchanged. Record the seconds from the power coming back to
-      `Online: …`. Putting the reservation back gives a second `Followed fan
-      …` line, back to the old address. If nothing is followed within 3
+      bindings unchanged. Through the stand-in the addresses are the other
+      way round: `Followed fan MF_00005E005301 to <fan's address> (was <VM
+      address>)`, about a minute after the relay stops. By hand, record the
+      seconds from the power coming back to `Online: …`; putting the
+      reservation back gives a second `Followed fan …` line, back to the
+      old address. If nothing is followed within 3
       minutes, record `Status` and `Last Action` and click **Find Fans**:
       whether the fan is listed at its new address tells a network that
       keeps multicast from the controller apart from a driver fault. (b)
@@ -549,10 +561,15 @@ installed, the keypad moved to its links and the stock device was deleted
       <time>; showing last state` and `Fan Offline`; `Fan Address` keeps the
       typed address and no `Followed fan …` line appears, although the fan
       answers at its own address; then `Online: …` and `Fan Online` once the
-      fan's own address is back. (c) Nothing visible changes, the row reads
-      `On` at the end, and the Lua tab shows no `[ERROR]` line. Without (a)
-      the specs carry the follow itself (`fan_driver_spec`).
-    - **Done:** open.
+      fan's own address is back (no `Last Action` line for that: the fan
+      answered where it was pinned). (c) Nothing visible changes, the row
+      reads `On` at the end, and the Lua tab shows no `[ERROR]` line.
+      Without (a) the specs carry the follow itself (`fan_driver_spec`).
+    - **Done:** 2026-11-05, build 51 (#58, Discussion #60). (a) through the
+      stand-in: `Fan Offline` 46 seconds after the last answer through it,
+      `Followed fan …` 9 seconds later, 55 seconds in all, one Offline and
+      Online pair; (b) the typed address kept for 90 seconds, no follow;
+      (c) nothing visible. The router form of (a) was not run.
 46. **A firmware change.** Parked, never blocking: after the next firmware
     update of the fan, `Firmware` reads `<version> (motor <version>) since
     <date>, was <old version>` and the device works as before.
