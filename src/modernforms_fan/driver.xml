@@ -7,6 +7,11 @@
 	<created>10/27/2026 12:00 PM</created>
 	<modified>10/27/2026 12:00 PM</modified>
 	<version>1</version>
+	<!-- #78: the driver's own icons, 16 px (tree, Items) and 32 px (List View), drawn by
+	     tools/make_icons.py. A device keeps the icons of the build that created it
+	     (V24): one created before these keeps Control4's own. -->
+	<small image_source="c4z">images/devices_sm/modernforms_fan_16.png</small>
+	<large image_source="c4z">images/devices_lg/modernforms_fan_32.png</large>
 	<control>lua_gen</control>
 	<controlmethod>IP</controlmethod>
 	<driver>DriverWorks</driver>
@@ -336,8 +341,8 @@
 	<!-- Section 2.2: the fan is declared first and primary (the first-declared
 	     proxy is the parent item, K2 and K4), the light second. No images (V24). -->
 	<proxies>
-		<proxy proxybindingid="5001" name="Modern Forms Fan" primary="True">fan</proxy>
-		<proxy proxybindingid="5002" name="Modern Forms Fan Light">light_v2</proxy>
+		<proxy proxybindingid="5001" name="Modern Forms Fan" primary="True" image_source="c4z" small_image="images/devices_sm/modernforms_fan_16.png" large_image="images/devices_lg/modernforms_fan_32.png">fan</proxy>
+		<proxy proxybindingid="5002" name="Modern Forms Fan Light" image_source="c4z" small_image="images/devices_sm/modernforms_light_16.png" large_image="images/devices_lg/modernforms_light_32.png">light_v2</proxy>
 	</proxies>
 	<!-- Section 2.3: one flat block for both proxies; no name is in both lists
 	     [FAN 43_fan_capabilities/, LV2 5_light_v2_capabilities/]. A capability

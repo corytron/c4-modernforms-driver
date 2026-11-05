@@ -126,12 +126,31 @@ describe("Modern Forms Fan driver", function()
 		local xml = read("src/" .. DRIVER .. "/driver.xml")
 		local bare = xml:gsub("<!%-%-.-%-%->", "")
 
-		it("names the driver, asks for 3.3.0 and has no combo, icons or replaces", function()
+		it("names the driver, asks for 3.3.0 and has no combo or replaces", function()
 			assert.equal("Modern Forms Fan", field(bare, "name"))
 			assert.equal("Modern Forms", field(bare, "manufacturer"))
 			assert.equal("3.3.0", field(bare, "minimum_os_version"))
-			for _, tag in ipairs({ "combo", "small", "large", "replaces", "auto_update" }) do
+			for _, tag in ipairs({ "combo", "replaces", "auto_update" }) do
 				assert.is_nil(bare:find("<" .. tag, 1, true), tag)
+			end
+		end)
+
+		it("declares the driver's own icons on the device and on each proxy, every file in the package (#78)", function()
+			assert.truthy(bare:find('<small image_source="c4z">images/devices_sm/modernforms_fan_16.png</small>', 1, true))
+			assert.truthy(bare:find('<large image_source="c4z">images/devices_lg/modernforms_fan_32.png</large>', 1, true))
+			local want = {
+				fan = { "images/devices_sm/modernforms_fan_16.png", "images/devices_lg/modernforms_fan_32.png" },
+				light_v2 = { "images/devices_sm/modernforms_light_16.png", "images/devices_lg/modernforms_light_32.png" },
+			}
+			for attrs, kind in bare:gmatch("<proxy ([^>]-)>(.-)</proxy>") do
+				assert.truthy(attrs:find('image_source="c4z"', 1, true), kind)
+				assert.truthy(attrs:find('small_image="' .. want[kind][1] .. '"', 1, true), kind)
+				assert.truthy(attrs:find('large_image="' .. want[kind][2] .. '"', 1, true), kind)
+			end
+			for path in bare:gmatch('(images/[%w_/]+%.png)') do
+				local f = io.open("src/" .. DRIVER .. "/www/" .. path, "rb")
+				assert.truthy(f, path .. " is in the package")
+				if f then f:close() end
 			end
 		end)
 
