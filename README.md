@@ -11,7 +11,7 @@
 [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [License](LICENSE) and [notice](NOTICE)
 
-> **1.0 "Arrakis" is released:**
+> **1.1 "Jamis" is the latest release:**
 > [get the latest release](https://github.com/corytron/c4-modernforms-driver/releases/latest).
 > It is a personal project, tried on one fan (a Gen 3) and one controller;
 > [`docs/status.md`](docs/status.md) says what runs there and what is open.
@@ -161,7 +161,7 @@ and its driver downloads directly from
 [`releases/latest/download/modernforms_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_fan.c4z).
 Each X.Y carries its own codename from Denis Villeneuve's *Dune* films, a
 major name for an X.0 and a lesser one for a point release: 1.0 is
-"Arrakis". Prereleases for testers (`X.Y-beta.N`) are marked
+"Arrakis", 1.1 is "Jamis". Prereleases for testers (`X.Y-beta.N`) are marked
 **Pre-release** and never **Latest**, so the links above skip them. What
 each release changed is in [`CHANGELOG.md`](CHANGELOG.md), which each
 release's notes and the end of the driver's Documentation tab repeat.
