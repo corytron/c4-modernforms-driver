@@ -9,6 +9,12 @@
 
 local model = require("fan.model")
 
+-- Test addresses built from their parts, so the source holds no address
+-- literal outside the documented placeholders (the secrets check).
+local function ip(...)
+	return table.concat({ ... }, ".")
+end
+
 local NIL = {} -- in a JSON override: remove the key
 
 -- Virtual time ------------------------------------------------------------------
@@ -2556,6 +2562,474 @@ describe("fan.model Use Selected Fan (3.5, L2 to L7, L21, D18)", function()
 	end)
 end)
 
+-- docs/address-follow-design.md 2.2 (decisions F2, F4, F6) and docs/edge-cases-address.md
+-- (ECA) 3.4, 3.5, CA2, CA6: m:follow is Use Selected Fan's one read restricted to the pinned fan.
+describe("fan.model follow: the pinned fan at a new address (address-follow-design 2.2; ECA 3.4, 3.5)", function()
+	local MAC = "00005E005301" -- the pin's, as the fan's multicast DNS answer carries it
+
+	local function snapshot(t)
+		return t and with({}, t) or nil
+	end
+
+	-- Asks for a follow. The callback counts its calls and notes what the model, the store
+	-- and the transport were at that moment.
+	local function follow(h, address, mac12)
+		local got = { n = 0 }
+		h.m:follow(address, mac12, function(key, args)
+			got.n = got.n + 1
+			got.key, got.args = key, args
+			got.phase = h.m:phase()
+			got.stored = snapshot(h.data.mf_identity)
+			got.info = snapshot(h.data.mf_info)
+			got.transport = h.transport.address
+		end)
+		return got
+	end
+
+	local function use(h, address, mac12)
+		local got = {}
+		h.m:use_fan(address, mac12, function(key, args) got.key, got.args = key, args end)
+		return got
+	end
+
+	-- The quiet fan pinned at 10.0.2.151, then silent there: offline after three timeouts.
+	local function offline()
+		return went_offline(steady(new_harness()))
+	end
+
+	-- Another fan answers the poll at 10.0.2.151 (N3).
+	local function foreign()
+		local h = steady(new_harness())
+		poll(h, state_json({ clientId = OTHER.clientId }))
+		gap(h)
+		assert.equal("foreign", h.m:phase())
+		return h
+	end
+
+	-- A 404 on the poll at 10.0.2.151, then the probe's answer: Gen 4 or not a fan (3.6).
+	local function verdict(json)
+		return function()
+			local h = steady(new_harness())
+			poll_fail(h, "http", 404)
+			gap(h)
+			assert.equal("g4", pending(h).kind)
+			ok(h, json)
+			gap(h)
+			return h
+		end
+	end
+
+	it("F6 the pinned fan at the new address: one info read there on a new epoch; followed, stored before the callback",
+		function()
+			local h = offline()
+			local epoch, n, learned = h.transport.epoch, #h.transport.sent, h.m:identity().learned
+			clear(h)
+			local got = follow(h, "10.0.2.152", MAC)
+			assert.equal(n + 1, #h.transport.sent, "one read")
+			local s = last_sent(h)
+			assert.same({ "info", "/mf", h.wire.QUERY_INFO, "10.0.2.152" }, { s.kind, s.path, s.body, s.address })
+			assert.is_true(s.epoch > epoch, "the read goes out on a new epoch")
+			assert.equal(0, got.n, "nothing is decided before the answer")
+			assert.equal("offline", h.m:phase(), "nor does the phase change")
+			assert.equal("10.0.2.151", h.m:identity().address)
+			ok(h, h.info)
+			assert.equal(1, got.n)
+			assert.equal("followed", got.key)
+			assert.same({ address = "10.0.2.152", was = "10.0.2.151", client_id = "MF_00005E005301" }, got.args)
+			assert.equal("waiting", got.phase, "waiting before the callback")
+			assert.same({ client_id = "MF_00005E005301", mac = MAC, generation = "3", address = "10.0.2.152",
+				learned = learned }, got.stored, "mf_identity is persisted before the callback")
+			assert.equal("10.0.2.152", got.transport)
+			assert.equal("10.0.2.152", h.m:identity().address)
+			assert.equal("10.0.2.152", h.m:status_view().address)
+			assert.is_true(h.transport.epoch > epoch, "the epoch moved on")
+			assert.equal(h.transport.epoch, h.m:debug().epoch)
+			local ph = events(h, "phase")
+			assert.equal(1, #ph)
+			assert.same({ "waiting", "10.0.2.152", "offline" }, { ph[1][1], ph[1][2].address, ph[1][3] })
+			assert.is_nil(ph[1][2].event, "no event of its own: a move shows as the outage it is (ECA CA13)")
+			assert.equal(1, #events(h, "info"), "the identity and the firmware are announced")
+			gap(h)
+			local st = last_sent(h)
+			assert.equal("state", st.kind, "the contact: the info read is not repeated")
+			assert.equal("10.0.2.152", st.address)
+			assert.equal(h.transport.epoch, st.epoch)
+			ok(h, h.state)
+			assert.equal("online", h.m:phase())
+			ph = events(h, "phase")
+			assert.equal("online", ph[#ph][1])
+			assert.equal("online", ph[#ph][2].event, "Fan Online closes the outage's pair")
+			assert.same({}, events(h, "result"), "no Last Action of the model's own: the driver writes L30")
+			assert.equal(1, got.n)
+		end)
+
+	it("F2 it follows from every offline-like phase: offline, foreign, Gen 4 and not a fan", function()
+		local cases = {
+			{ "offline", offline }, { "foreign", foreign }, { "gen4", verdict({ systemType = "fan_g4" }) },
+			{ "notfan", verdict({ systemType = "router" }) },
+		}
+		for _, case in ipairs(cases) do
+			local h = case[2]()
+			assert.equal(case[1], h.m:phase())
+			local got = follow(h, "10.0.2.152", MAC)
+			assert.equal("10.0.2.152", last_sent(h).address, case[1])
+			ok(h, h.info)
+			assert.equal("followed", got.key, case[1])
+			assert.equal("10.0.2.152", h.m:identity().address, case[1])
+			gap(h)
+			ok(h, h.state)
+			assert.equal("online", h.m:phase(), case[1])
+			local ph = events(h, "phase")
+			assert.equal("online", ph[#ph][2].event, case[1] .. ": Fan Online")
+		end
+	end)
+
+	it("F4 another fan there: not_same, the previous address back with a contact; the pin and the store untouched",
+		function()
+			local h = offline()
+			local pin, writes = h.m:identity(), #h.writes
+			clear(h)
+			local got = follow(h, "10.0.2.152", MAC)
+			ok(h, info_json(OTHER))
+			assert.equal(1, got.n)
+			assert.equal("not_same", got.key, "never now_using")
+			assert.same({ address = "10.0.2.152", other_client_id = "MF_00005E005302" }, got.args)
+			assert.equal("10.0.2.151", got.transport, "restored before the callback")
+			assert.equal("offline", got.phase)
+			assert.same(pin, h.m:identity(), "never another fan pinned")
+			assert.equal(writes, #h.writes, "nothing stored")
+			assert.same({}, events(h, "phase"))
+			assert.same({}, events(h, "info"))
+			assert.same({}, events(h, "result"))
+			gap(h)
+			local s = last_sent(h)
+			assert.same({ "info", "10.0.2.151" }, { s.kind, s.address }, "a contact there, as after a failed Use Selected Fan")
+			assert.equal(h.transport.epoch, s.epoch)
+		end)
+
+	it("F4 the TXT MAC against the HTTP mac: another in the answer is not_same; another in the announcement is not read",
+		function()
+			local h = offline()
+			local got = follow(h, "10.0.2.152", MAC)
+			ok(h, info_json({ mac = "00:00:5e:00:53:99" })) -- the pinned client id with another station MAC (N9)
+			assert.equal(1, got.n)
+			assert.equal("not_same", got.key)
+			assert.is_nil(got.args.other_client_id, "the client id was the pin's, the MAC was not")
+			assert.equal("10.0.2.151", h.transport.address)
+			assert.equal("10.0.2.151", h.m:identity().address)
+
+			local o = offline()
+			local n, epoch = #o.transport.sent, o.transport.epoch
+			local other = follow(o, "10.0.2.152", "00:00:5E:00:53:99")
+			assert.equal(1, other.n)
+			assert.equal("not_same", other.key)
+			assert.equal(n, #o.transport.sent, "nothing is read where the pinned fan was not announced (F8)")
+			assert.equal(epoch, o.transport.epoch)
+			assert.equal("offline", o.m:phase())
+		end)
+
+	it("F4 the client id is compared without case, the MAC in any of its spellings", function()
+		local h = offline()
+		local got = follow(h, "10.0.2.152", "00:00:5e:00:53:01")
+		ok(h, info_json({ clientId = "mf_00005e005301", mac = "00-00-5E-00-53-01" }))
+		assert.equal("followed", got.key)
+		assert.equal("MF_00005E005301", h.m:identity().client_id, "the pin keeps its own spelling")
+		assert.equal(MAC, h.m:identity().mac)
+	end)
+
+	it("FA14 a 404, an answer that is no fan's or one without a MAC: not_same, no Gen 4 probe, nothing stored", function()
+		local cases = {
+			{ "a 404", function(h) fail(h, "http", 404, 40) end },
+			{ "not JSON", function(h) fail(h, "json", nil, 40) end },
+			{ "no client id", function(h) ok(h, { hello = "world" }) end },
+			{ "no MAC", function(h) ok(h, info_json({ mac = NIL })) end },
+			{ "a malformed MAC", function(h) ok(h, info_json({ mac = "00:00:5e" })) end },
+		}
+		for _, case in ipairs(cases) do
+			local h = offline()
+			local writes = #h.writes
+			local got = follow(h, "10.0.2.152", MAC)
+			case[2](h)
+			assert.equal(1, got.n, case[1])
+			assert.equal("not_same", got.key, case[1])
+			assert.equal("10.0.2.151", got.transport, case[1])
+			assert.equal(writes, #h.writes, case[1])
+			gap(h)
+			assert.equal("info", pending(h).kind, case[1])
+			assert.equal("10.0.2.151", last_sent(h).address, case[1] .. ": the contact at the previous address")
+			for _, k in ipairs(kinds(h)) do assert.not_equal("g4", k, case[1]) end
+		end
+	end)
+
+	it("FA15 silence and an error are no_answer: the previous address back with a contact, nothing stored", function()
+		local cases = {
+			{ "a timeout", function(h)
+				h.clock.advance(5000)
+				fail(h, "timeout", nil, 5000)
+			end },
+			{ "a refused connection", function(h) fail(h, "connect", nil, 20) end },
+			{ "an HTTP error", function(h) fail(h, "http", 500, 40) end },
+			{ "an empty body", function(h) fail(h, "empty", nil, 40) end },
+		}
+		for _, case in ipairs(cases) do
+			local h = offline()
+			local pin, writes = h.m:identity(), #h.writes
+			local got = follow(h, "10.0.2.152", MAC)
+			case[2](h)
+			assert.equal(1, got.n, case[1])
+			assert.equal("no_answer", got.key, case[1])
+			assert.same({ address = "10.0.2.152" }, got.args, case[1])
+			assert.equal("10.0.2.151", got.transport, case[1])
+			assert.equal("offline", h.m:phase(), case[1])
+			assert.same(pin, h.m:identity(), case[1])
+			assert.equal(writes, #h.writes, case[1])
+			gap(h)
+			assert.equal("info", pending(h).kind, case[1])
+			assert.equal("10.0.2.151", last_sent(h).address, case[1])
+		end
+	end)
+
+	it("F4 an address that cannot be the pinned fan's new one (not IPv4, the one in use): not_same, nothing read",
+		function()
+			local h = offline()
+			local n, epoch = #h.transport.sent, h.transport.epoch
+			for _, address in ipairs({ "fan.local", "", ip(10, 0, 2, 256), "10.0.2.151", " 10.0.2.151 " }) do
+				local got = follow(h, address, MAC)
+				assert.equal(1, got.n, address)
+				assert.equal("not_same", got.key, address)
+			end
+			assert.equal("not_same", follow(h, nil, MAC).key)
+			assert.equal("not_same", follow(h, "10.0.2.152", nil).key, "an announcement without a MAC")
+			assert.equal("not_same", follow(h, "10.0.2.152", "banana").key)
+			assert.equal(n, #h.transport.sent)
+			assert.equal(epoch, h.transport.epoch)
+			assert.equal("10.0.2.151", h.transport.address)
+			assert.equal("offline", h.m:phase())
+		end)
+
+	it("F2 busy at once, nothing sent or disturbed: online, waiting, unset, rebooting, stopped, nothing pinned", function()
+		local function refused(h, why)
+			local n, address, epoch, due = #h.transport.sent, h.transport.address, h.transport.epoch, h.clock.next_due()
+			local phase = h.m:phase()
+			local got = follow(h, "10.0.2.152", MAC)
+			assert.equal(1, got.n, why)
+			assert.equal("busy", got.key, why)
+			assert.equal("10.0.2.152", got.args.address, why)
+			assert.equal(n, #h.transport.sent, why .. ": nothing sent")
+			assert.equal(address, h.transport.address, why)
+			assert.equal(epoch, h.transport.epoch, why .. ": no new epoch")
+			assert.equal(due, h.clock.next_due(), why .. ": the timers are untouched")
+			assert.equal(phase, h.m:phase(), why)
+		end
+		refused(steady(new_harness()), "online")
+		local w = new_harness({ store = { mf_identity = with({}, PIN) } })
+		w.m:start("10.0.2.151")
+		refused(w, "waiting")
+		local u = new_harness({ store = { mf_identity = with({}, PIN) } })
+		u.m:start("")
+		refused(u, "unset")
+		local r = steady(new_harness())
+		r.m:reboot(function() end)
+		assert.equal("rebooting", r.m:phase())
+		refused(r, "rebooting")
+		local s = offline()
+		s.m:stop()
+		refused(s, "stopped")
+		-- offline with nothing to follow (F2): a fan never reached, a Fan ID row without a MAC (D10)
+		for _, row in ipairs({ false, { client_id = "MF_00005E005301" } }) do
+			local p = new_harness()
+			p.m:start("10.0.2.151", row or nil)
+			fail(p, "timeout", nil, 5000)
+			gap(p)
+			attempt(p)
+			attempt(p)
+			assert.equal("offline", p.m:phase())
+			refused(p, row and "a pin without a MAC" or "no pin")
+		end
+	end)
+
+	it("CA6 busy while a Use Selected Fan read is under way; the click decides", function()
+		local h = offline()
+		local click = use(h, "10.0.2.152")
+		local n = #h.transport.sent
+		local got = follow(h, "10.0.2.152", MAC)
+		assert.equal(1, got.n)
+		assert.equal("busy", got.key)
+		assert.equal(n, #h.transport.sent)
+		assert.equal("info", pending(h).kind, "the click's read is still out")
+		ok(h, h.info)
+		assert.equal("moved", click.key, "L2, the click's own text")
+		assert.equal(1, got.n)
+	end)
+
+	it("CA6 a click while a follow read is out wins: the follow hears busy at once, its late answer is dropped", function()
+		local h = offline()
+		local got = follow(h, "10.0.2.152", MAC)
+		local click = use(h, "192.0.2.153")
+		assert.equal(1, got.n)
+		assert.equal("busy", got.key)
+		assert.same({ address = "10.0.2.152" }, got.args)
+		assert.equal("192.0.2.153", h.transport.address)
+		assert.equal("info", pending(h).kind)
+		assert.equal("192.0.2.153", last_sent(h).address, "the click's own read")
+		local entry, result = h.transport:late_answer({ ok = true, code = 200, json = h.info, ms = 9 })
+		entry.cb(result)
+		assert.equal(1, got.n)
+		assert.equal("10.0.2.151", h.m:identity().address, "the follow's answer is never read")
+		ok(h, h.info)
+		assert.equal("moved", click.key)
+		assert.equal("192.0.2.153", h.m:identity().address)
+		assert.equal(1, got.n)
+	end)
+
+	it("CA2 the owner types Fan Address while a follow read is out: no_answer, and the typed address wins", function()
+		local h = offline()
+		local got = follow(h, "10.0.2.152", MAC)
+		assert.is_nil(h.m:set_address("192.0.2.153"))
+		assert.equal(1, got.n)
+		assert.equal("no_answer", got.key)
+		assert.equal("waiting", h.m:phase())
+		assert.equal("192.0.2.153", h.transport.address)
+		assert.equal("10.0.2.151", h.m:identity().address, "the follow changed nothing")
+		local entry, result = h.transport:late_answer({ ok = true, code = 200, json = h.info, ms = 9 })
+		entry.cb(result)
+		assert.equal(1, got.n)
+		assert.equal("info", pending(h).kind)
+		assert.equal("192.0.2.153", last_sent(h).address, "the typed address's contact")
+	end)
+
+	it("stop() while a follow read is out: no_answer, once, and nothing after", function()
+		local h = offline()
+		local got = follow(h, "10.0.2.152", MAC)
+		h.m:stop()
+		assert.equal(1, got.n)
+		assert.equal("no_answer", got.key)
+		local n = #h.transport.sent
+		h.clock.advance(600000)
+		assert.equal(1, got.n)
+		assert.equal(n, #h.transport.sent)
+	end)
+
+	it("F6 a follow that reads a new firmware records it, with the old one, before the callback (ECM F1)", function()
+		local h = offline()
+		local got = follow(h, "10.0.2.152", MAC)
+		ok(h, info_json({ firmwareVersion = "02.00.0060" }))
+		assert.equal("followed", got.key)
+		assert.same({ "02.00.0060", "02.00.0052", "2026-10-27" },
+			{ got.info.firmware, got.info.firmware_was, got.info.firmware_since })
+		assert.equal("02.00.0060", h.m:info().firmware)
+		assert.is_true(logged(h, "warn", "firmware 02.00.0052 -> 02.00.0060"))
+	end)
+
+	it("P8 a command wanted while offline waits for the follow, and goes once the fan is verified at its new address",
+		function()
+			local h = offline()
+			assert.is_true(h.m:want({ fan_on = true, speed = 3 }))
+			assert.equal("info", pending(h).kind, "offline: the command's one try is a contact")
+			local got = follow(h, "10.0.2.152", MAC)
+			assert.equal("10.0.2.152", last_sent(h).address)
+			ok(h, h.info)
+			assert.equal("followed", got.key)
+			assert.is_true(h.m:busy("fan"), "still wanted")
+			gap(h)
+			assert.equal("state", last_sent(h).kind, "the contact first")
+			ok(h, h.state)
+			gap(h)
+			local s = last_sent(h)
+			assert.same({ "command", '{"fanOn":true,"fanSpeed":3}', "10.0.2.152" }, { s.kind, s.body, s.address })
+		end)
+
+	it("a follower that asks for its next candidate from inside the callback is served", function()
+		local h = offline()
+		local calls = {}
+		h.m:follow("10.0.2.152", MAC, function(key)
+			calls[#calls + 1] = key
+			h.m:follow("192.0.2.153", MAC, function(k) calls[#calls + 1] = k end)
+		end)
+		ok(h, info_json(OTHER))
+		assert.same({ "not_same" }, calls)
+		gap(h)
+		assert.equal("info", pending(h).kind)
+		assert.equal("192.0.2.153", last_sent(h).address, "the next candidate goes before the contact at 10.0.2.151")
+		ok(h, h.info)
+		assert.same({ "not_same", "followed" }, calls)
+		assert.equal("192.0.2.153", h.m:identity().address)
+		assert.equal("waiting", h.m:phase())
+	end)
+
+	it("a follow asked for from the callback of one being given up is refused (busy), never stranded", function()
+		local function chained(h, calls)
+			h.m:follow("10.0.2.152", MAC, function(key)
+				calls[#calls + 1] = key
+				h.m:follow("192.0.2.153", MAC, function(k) calls[#calls + 1] = k end)
+			end)
+		end
+		-- the owner's edit: the typed address's contact goes through
+		local h, calls = offline(), {}
+		chained(h, calls)
+		assert.is_nil(h.m:set_address("10.0.2.151"))
+		assert.same({ "no_answer", "busy" }, calls)
+		assert.equal("10.0.2.151", last_sent(h).address)
+		contact(h)
+		assert.equal("online", h.m:phase())
+		-- a click: its read goes out and decides
+		local c, heard = offline(), {}
+		chained(c, heard)
+		local click = use(c, "10.0.2.152")
+		assert.same({ "busy", "busy" }, heard)
+		ok(c, c.info)
+		assert.equal("moved", click.key)
+		-- stop()
+		local s, told = offline(), {}
+		chained(s, told)
+		s.m:stop()
+		assert.same({ "no_answer", "busy" }, told)
+	end)
+
+	it("the callback is called exactly once in every case, however long the model runs afterwards", function()
+		local cases = {
+			{ "followed", function(h) ok(h, h.info) end },
+			{ "not_same", function(h) ok(h, info_json(OTHER)) end },
+			{ "no_answer", function(h) fail(h, "connect", nil, 20) end },
+			{ "a click", function(h) use(h, "192.0.2.153") end },
+			{ "an edit", function(h) h.m:set_address("10.0.2.151") end },
+			{ "stop", function(h) h.m:stop() end },
+		}
+		for _, case in ipairs(cases) do
+			local h = offline()
+			local got = follow(h, "10.0.2.152", MAC)
+			case[2](h)
+			run(h, 600000)
+			assert.equal(1, got.n, case[1])
+		end
+		local h = steady(new_harness())
+		local got = follow(h, "10.0.2.152", MAC)
+		run(h, 600000)
+		assert.equal(1, got.n, "busy")
+	end)
+
+	it("a callback that raises is contained and logged, and so is an answer the parser chokes on", function()
+		local h = offline()
+		h.m:follow("10.0.2.152", MAC, function() error("boom") end)
+		ok(h, h.info)
+		assert.is_true(logged(h, "error", "the follow callback failed"))
+		assert.equal("waiting", h.m:phase(), "the model went on")
+		local o = steady(new_harness())
+		o.m:follow("10.0.2.152", MAC, function() error("boom") end)
+		assert.is_true(logged(o, "error", "the follow callback failed"))
+		assert.has_no.errors(function() o.m:follow("10.0.2.152", MAC) end)
+
+		local p = offline()
+		p.wire.info = function() error("unreadable") end
+		local got = follow(p, "10.0.2.152", MAC)
+		ok(p, p.info)
+		assert.equal(1, got.n)
+		assert.equal("not_same", got.key)
+		assert.is_true(logged(p, "error", "the follow's answer could not be read"))
+		assert.equal("10.0.2.151", p.transport.address)
+	end)
+end)
+
 describe("fan.model Turn Off Away Mode / Adaptive Learning (L14 to L19, A5, A6)", function()
 	local function off(h, which)
 		local got = {}
@@ -3206,7 +3680,9 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 		return st.light_on == true and st.level or nil
 	end
 
-	local function run_case(seed, steps)
+	-- `with_follow` mixes model:follow calls in (address-follow-design 2.2); without it the run
+	-- draws exactly the numbers it always did.
+	local function run_case(seed, steps, with_follow)
 		local pick = rng(seed)
 		local world = new_world()
 		local problems = {}
@@ -3293,9 +3769,42 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 			end
 			return real_send(t, req, cb)
 		end
+
+		-- Each follow asked for, with how often its callback came: exactly once (2.2). A follow
+		-- never pins another fan, and a follower may ask for its next candidate from the callback.
+		local follows = {}
+		local OFFLINE_LIKE = { offline = true, foreign = true, gen4 = true, notfan = true }
+		local function ask_follow(depth)
+			local target = ADDRESSES[pick(#ADDRESSES)]
+			local pin = h.m:identity()
+			local mac = (pin and pin.mac and pick(4) > 1) and pin.mac or "00005E005399"
+			local rec = { n = 0, pin = pin and pin.client_id, target = target }
+			follows[#follows + 1] = rec
+			note(string.format("follow %s %s (depth %d) in phase %s", target, mac, depth, h.m:phase()))
+			h.m:follow(target, mac, function(key, args)
+				rec.n = rec.n + 1
+				note(string.format("follow %s -> %s", target, tostring(key)))
+				if rec.n > 1 then problem("a follow's callback came twice") end
+				if key == "followed" then
+					local now = h.m:identity()
+					if not now or now.client_id ~= rec.pin then problem("a follow pinned another fan") end
+					if not now or now.address ~= args.address or h.transport.address ~= args.address then
+						problem("followed, but the pin or the transport is elsewhere")
+					end
+					if h.m:phase() ~= "waiting" then problem("followed while " .. h.m:phase()) end
+				elseif key ~= "not_same" and key ~= "no_answer" and key ~= "busy" then
+					problem("a follow answered " .. tostring(key))
+				end
+				if depth < 2 and pick(3) == 1 then ask_follow(depth + 1) end
+			end)
+		end
+
 		h.m:start(ADDRESSES[1])
 
 		for step = 1, steps do
+			if with_follow and pick(100) <= (OFFLINE_LIKE[h.m:phase()] and 25 or 4) then
+				ask_follow(0)
+			end
 			local op = pick(100)
 			if op <= 40 then
 				local p = pending(h)
@@ -3413,23 +3922,39 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 			if told_now.light ~= 55 then problem("the proxies were told light " .. tostring(told_now.light)) end
 		end
 		if told_now.fan ~= 4 then problem("the proxies were told fan " .. tostring(told_now.fan)) end
-		return problems, h
+		-- the new address above gave up any follow still out: by now every one has been answered
+		for _, rec in ipairs(follows) do
+			if rec.n ~= 1 then problem(string.format("a follow of %s was answered %d times", rec.target, rec.n)) end
+		end
+		return problems, h, #follows
 	end
 
 	-- FUZZ_SEEDS, FUZZ_STEPS and FUZZ_BASE widen or move the run for a deeper local search;
 	-- CI uses the defaults.
+	local function fuzz(with_follow)
+		local seeds = tonumber(os.getenv("FUZZ_SEEDS")) or 200
+		local steps = tonumber(os.getenv("FUZZ_STEPS")) or 150
+		local base = tonumber(os.getenv("FUZZ_BASE")) or 7919
+		local all, asked = {}, 0
+		for seed = 1, seeds do
+			local problems, _, n = run_case(seed * base, steps, with_follow)
+			asked = asked + (n or 0)
+			for _, p in ipairs(problems) do all[#all + 1] = p end
+			if #all >= 5 then break end
+		end
+		return all, asked
+	end
+
 	it("seeded runs of random operations: nothing raises, no command to a fan that is not verified, R1 and R7 hold",
 		function()
-			local seeds = tonumber(os.getenv("FUZZ_SEEDS")) or 200
-			local steps = tonumber(os.getenv("FUZZ_STEPS")) or 150
-			local base = tonumber(os.getenv("FUZZ_BASE")) or 7919
-			local all = {}
-			for seed = 1, seeds do
-				local problems = run_case(seed * base, steps)
-				for _, p in ipairs(problems) do all[#all + 1] = p end
-				if #all >= 5 then break end
-			end
+			assert.same({}, (fuzz(false)))
+		end)
+
+	it("the same with follows mixed in (address-follow-design 2.2): each answered once, never another fan pinned",
+		function()
+			local all, asked = fuzz(true)
 			assert.same({}, all)
+			assert.is_true(asked > 0, "the runs asked for follows")
 		end)
 end)
 
