@@ -261,9 +261,11 @@ tap first sets the single-tap speed and the Double Tap line then corrects it;
 the driver coalesces the two (the latest wins). Low's link is also lit at
 speed 1 and High's at speed 6 (`Speed N Link Also Lit At`), so each stays lit
 through its double tap. Up and Down, Regular Buttons without an LED, keep
-their programming, re-aimed at the new light: v1-design.md does not establish
-that a Regular Button binds the light's Top and Bottom links, and a link
-would give them no LED (section 8, item 14). Basis: [owner, #6, items 2 and
+their programming, re-aimed at the new light. **K19 (2026-11-04, #17) now
+shows that both have Button Link rows**, so they can bind to the light's Top
+and Bottom links instead (v1-design.md §5.4); a link gives them no LED
+(section 8, item 14). Which of the two Phase 4 does is the cutover sitting's
+call; the default here stays the programming until the owner says bind. Basis: [owner, #6, items 2 and
 9]; acting on the press [verified: KPD
 `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`]; V12 and V26
 of v1-design.md; H4 (section 8, item 5).
@@ -984,13 +986,16 @@ What M0 answered, and what is still to read:
 
 What the M1 probes (#17) and the first dev install may change:
 
-5. H4 (K6 of v1-design.md), what a double tap sends over a link. If the
-   Double Tap event can come before the second tap's push reaches the link,
-   or a linked button fires no Double Tap event, Phase 4 changes and the
-   owner's decision 9 (#6) goes back to him. K6 needs a spare button, which
-   this keypad lacks (M0).
-6. H6 (K14), Programmed LED commands on a Follow Connection button: no order
-   changes (G9); it says whether moved buttons may flicker until Phase 5.
+5. H4 (K6 of v1-design.md), what a double tap sends over a link. K6
+   (2026-11-04, #17) answered the link side: two push and click pairs, 0.10 s
+   and 0.22 s apart, no message of its own. Still open: whether the keypad's
+   own Double Tap event fires on a linked button, and whether it can come
+   before the second tap's push reaches the link; if it does not fire or comes
+   first, Phase 4 changes and the owner's decision 9 (#6) goes back to him.
+   The first cutover sitting reads it on Low.
+6. H6 (K14), Programmed LED commands on a Follow Connection button: K14
+   (2026-11-04, #17) shows that they still act, so no order changes (G9) and
+   moved buttons may be lit or repainted by the old lines until Phase 5.
 7. H8, `C4:GetAllCodeItems` on the house: its shape, size and time; whether
    keypad, Timer agent and Scheduler events appear; whether conditions carry
    their device (if not, the 12 Ifs are invisible to the report, and Phases 5
