@@ -64,22 +64,20 @@ no build of this driver has run on a controller.
 Every open item is an issue (`gh issue list --state open`); this list says
 where each stands on 2026-10-27.
 
-- **#17** M1, the probes: half done. The fan-side checks K11, K12, K13
-  and K15 ran on 2026-10-27 (`tools/mf_probe.py`,
+- **#17** M1, the probes: all but one check done. The fan-side checks K11,
+  K12, K13 and K15 ran on 2026-10-27 (`tools/mf_probe.py`,
   [`fan-probe.md`](fan-probe.md)). The Windows session installed the
   Composer probe package (`probes/`, `build/probe/mf_probe.c4z`) in a test
-  room and ran what needs no keypad button: K4's structure and links, K5's
-  first step, K8's Lua part and K10 (**passed: Find Fans is in v1**), all in
-  [`v1-design.md`](v1-design.md#111-what-the-probe-has-shown-so-far-17). Not
-  run: K9, and everything that needs a bound keypad button (K4's presses, K5,
-  K6, K7, K14, K19's Down): the house has no keypad outside the bedroom, so
-  those wait for the owner's daytime round with a borrowed button and the
-  restore check. The probe stays installed until then. M0 (#11) is done: the house fan is a
-  Gen 3 fan on firmware 02.00.0052 that answers `/mf` locally with
-  keep-alive and announces itself over mDNS. The stock driver declares 12
-  links of its own (ids 0–11) and no `proxy_fan_speed_connections`. Its
-  keypad, programming and settle timer are inventoried in
-  [`migration-design.md`](migration-design.md#1-what-the-migration-replaces).
+  room and ran K4, K5, K6, K7, K8's Lua part, K9, K10, K14 and K19 in two
+  rounds (2026-10-27 and 2026-11-04, the second with the owner at the keypad
+  and the restore check after each borrowed button), all in
+  [`v1-design.md`](v1-design.md#111-what-the-probe-has-shown-so-far-17).
+  Results: **K10 passed, Find Fans is in v1**; keypads take `BUTTON_COLORS`
+  over a link (V27 now waits only for the owner's yes, #14); Up and Down have
+  Button Link rows; Composer refuses a package whose minimum OS is above the
+  controller's (K9). Open: K8's three taps in the Control4 app (the owner's
+  phone); the probe and its test room stay installed until the owner decides
+  whether to run them.
 - **#14** Three owner questions from the v1 contract (a colour per speed on
   the keypad, the Cycle link wrapping, custom icons), each with a default.
 - **M1**, the probes of [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
