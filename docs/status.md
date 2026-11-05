@@ -136,6 +136,6 @@ Decided, not open (2026-10-27, #6; the specification is
 - The migration: one cutover sitting with the stock programming disabled,
   not deleted; the stock device and the LED workaround removed later (done
   on 2026-11-04; the Migration Report that checked it is removed by #45).
-- The 1.0 codename is "Arrakis".
+- The 1.0 codename is "Arrakis"; 1.1 is "Jamis" (approved 2026-11-05, #81).
 - Control4 is the source of truth: automations live in Control4
   programming, not in the Modern Forms app (`CLAUDE.md`).
