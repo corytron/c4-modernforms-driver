@@ -1001,6 +1001,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | --- | --- | --- | --- |
 | `mf_identity` | `{ client_id = "MF_00005E005301", mac = "00005E005301", generation = "3", address = "10.0.2.151", learned = <epoch s> }` | first contact, Use Selected Fan, a followed address | late init |
 | `mf_info` | `{ fan_type, light_type, motor_type, firmware, mcu_firmware, firmware_since = "2026-10-27", firmware_was }` | when it changes | late init |
+| `mf_wind` | `true` once a state answer of the pinned fan has shown Breeze (`wind`); `false` when Use Selected Fan re-points the device to another fan (#69) | when it changes | late init (only with a stored `mf_identity`), so Fan Model shows Breeze before the first answer |
 | `mf_online` | `true`/`false` | when the Online variable changes | `OnDriverInit`, D9's comparison |
 | `mf_preset_speed` | 1–6 | `DESIGNATE_PRESET` | late init |
 | `mf_names` | `{ fan = "Aviator 5", light = "Aviator 5 Light", at = <epoch s> }`: the names the driver last wrote and Director confirmed (V28); an item is written only after the read-back matches, so one of the two may be missing | the rename job, per item | the next rename job's guard |
@@ -1144,7 +1145,7 @@ t:stop()                     -- OnDriverDestroyed, Fan Address cleared
 local m = model.new({ transport = t, wire = wire, now = fn_ms, clock = fn_s (os.time),
                       timer = fn(ms, cb), store = { get = fn(k), set = fn(k, v) }, log = log,
                       listener = { ... } })
-m:start(address, pin_from_row)   -- late init: loads mf_identity (else pin_from_row), mf_info, mf_online; a contact if an address is set
+m:start(address, pin_from_row)   -- late init: loads mf_identity (else pin_from_row), mf_info, mf_wind, mf_online; a contact if an address is set
 m:stop()
 m:set_address(text) -> nil | "invalid"
 m:set_poll_interval(seconds)     -- clamped to 10..120

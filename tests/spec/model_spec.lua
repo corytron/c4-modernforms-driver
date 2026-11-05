@@ -2511,9 +2511,12 @@ describe("fan.model Use Selected Fan (3.5, L2 to L7, L21, D18)", function()
 		assert.is_nil(h.m:confirmed(), "nothing is known about the new fan yet")
 		assert.is_false(h.m:busy("direction"), "what was wanted of the old fan is dropped")
 		assert.equal(1, #events(h, "info"))
+		assert.is_false(h.data.mf_wind, "the old fan's Breeze is not the new fan's (#69)")
+		assert.is_nil(h.m:info().has_wind)
 		gap(h)
 		clear(h)
 		ok(h, state_json({ clientId = OTHER.clientId, fanSpeed = 5 }))
+		assert.is_true(h.data.mf_wind, "learned again from the new fan's state")
 		assert.equal("online", h.m:phase())
 		local settled = events(h, "settled")
 		assert.equal(1, #settled)
@@ -3186,6 +3189,7 @@ describe("fan.model persistence and restore (8, D9, F1, D10)", function()
 				firmware = "02.00.0052", mcu_firmware = "03.00.0000", firmware_since = "2026-10-20",
 			},
 			mf_online = true,
+			mf_wind = true,
 		}
 		for k, v in pairs(over or {}) do
 			if v == NIL then data[k] = nil else data[k] = v end
@@ -3232,14 +3236,41 @@ describe("fan.model persistence and restore (8, D9, F1, D10)", function()
 		for _, e in ipairs(events(h, "settled")) do assert.equal("start", e[3]) end
 	end)
 
+	it("#69 Breeze stored: Fan Model knows it at start, before any answer", function()
+		local h = new_harness({ store = stored() })
+		h.m:start("10.0.2.151")
+		assert.is_true(h.m:info().has_wind, "known before the fan answers")
+		contact(h)
+		assert.same({}, events(h, "info"))
+		assert.same({}, writes_of(h, "mf_wind"))
+	end)
+
+	it("#69 Breeze not stored (a build before #69): learned at the first answer, announced and stored once", function()
+		local h = new_harness({ store = stored({ mf_wind = NIL }) })
+		h.m:start("10.0.2.151")
+		assert.is_nil(h.m:info().has_wind)
+		contact(h)
+		assert.equal(1, #events(h, "info"))
+		assert.same({ true }, writes_of(h, "mf_wind"))
+		gap(h)
+		h.clock.advance(h.clock.next_due())
+		answer(h)
+		assert.same({ true }, writes_of(h, "mf_wind"), "written once, not at every answer")
+	end)
+
+	it("#69 a stored Breeze without a stored fan is not believed", function()
+		local h = new_harness({ store = stored({ mf_identity = NIL, mf_info = NIL }) })
+		h.m:start("10.0.2.151")
+		assert.is_nil(h.m:info())
+		assert.is_nil(h.m.has_wind)
+	end)
+
 	it("nothing is written when nothing changed", function()
 		local h = new_harness({ store = stored() })
 		h.m:start("10.0.2.151")
 		contact(h)
 		assert.same({}, h.writes)
-		local info = events(h, "info")
-		assert.equal(1, #info, "only Breeze, learned from the state read, is announced (#59)")
-		assert.is_true(info[1][2].has_wind)
+		assert.same({}, events(h, "info"), "Breeze was stored (#69): nothing new to announce")
 		assert.same({}, events(h, "result"))
 		assert.equal("2026-10-20", h.m:info().firmware_since)
 		assert.is_nil(h.m:info().firmware_was)
@@ -3348,7 +3379,7 @@ describe("fan.model persistence and restore (8, D9, F1, D10)", function()
 				end
 			end
 		end
-		assert.same({ mf_identity = true, mf_info = true, mf_online = true }, keys)
+		assert.same({ mf_identity = true, mf_info = true, mf_online = true, mf_wind = true }, keys)
 		assert.equal("3", h.data.mf_identity.generation)
 	end)
 

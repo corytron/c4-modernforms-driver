@@ -1219,8 +1219,10 @@ function Model:apply_answer(rec, st)
 	for _, key in ipairs(self.missing) do
 		self.missing_set[key] = true
 	end
-	if st.wind ~= nil then
+	if st.wind ~= nil and self.has_wind ~= true then
 		self.has_wind = true
+		-- Stored, so Fan Model shows Breeze at the next start before the fan answers (#69).
+		self:persist("mf_wind", true)
 	end
 	if c then
 		-- A contact reads afresh: what an earlier command still held is not believed over it.
@@ -1848,6 +1850,11 @@ function Model:start(address, pin_from_row)
 		self.info_ = copy(info)
 		self.has_light = type(info.light_type) == "string" and info.light_type:find("%S") ~= nil
 	end
+	if self.pin and self:recall("mf_wind") == true then
+		self.has_wind = true
+	end
+	-- The driver shows the restored identity itself (show_restored): no info event owed.
+	self.shown_wind = self.has_wind
 	self.online_flag = self:recall("mf_online") == true
 	local result = self:begin_at(address, "start")
 	self:flush()
@@ -2015,6 +2022,7 @@ function Model:adopt(u, key, info)
 		self.pin = { client_id = info.client_id, mac = info.mac, address = u.address, learned = self.clock() }
 		self.info_ = nil
 		self.conf, self.known, self.has_wind = {}, false, nil
+		self:persist("mf_wind", false)
 		self.missing, self.missing_set = nil, {}
 		self.settle, self.held, self.owed = {}, {}, {}
 	end
