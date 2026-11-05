@@ -145,7 +145,11 @@ end
 
 -- Last Action keeps the full text; the always-on log carries only the last four
 -- hex digits of a client id or MAC (section 3.7).
+-- shown_count counts the writes, so a line written later (the rename suffix)
+-- can tell whether anything else wrote Last Action in between (review of #37).
+local shown_count = 0
 local function show_result(text)
+	shown_count = shown_count + 1
 	log.always("%s", (text:gsub("%x%x%x%x%x%x%x%x(%x%x%x%x)", "...%1")))
 	prop("Last Action", text)
 end
@@ -516,10 +520,49 @@ local function one_consumer(binding)
 	return count == 1 and found_id or nil
 end
 
+-- The id when it is one of this device's own proxies, as GetDevices lists them
+-- under "proxies" (API 22_miscellaneous/_9, example 3), else nil.
+local function own_proxy(proxies, id)
+	if id == nil then
+		return nil
+	end
+	for key in pairs(proxies) do
+		if tonumber(key) == tonumber(id) then
+			return id
+		end
+	end
+	return nil
+end
+
+-- Both items, or neither: each must be the one bound consumer of its binding,
+-- one of this device's own proxies, and not this device itself (review of #37,
+-- finding 5). Anything else answers no_ids, so nothing else is ever renamed.
+local function item_ids()
+	local me = C4:GetDeviceID()
+	local ok, devices = pcall(C4.GetDevices, C4, { DeviceIds = tostring(me) })
+	if not ok or type(devices) ~= "table" then
+		return nil, nil
+	end
+	local entry
+	for key, value in pairs(devices) do
+		if tonumber(key) == tonumber(me) then
+			entry = value
+		end
+	end
+	if type(entry) ~= "table" or type(entry.proxies) ~= "table" then
+		return nil, nil
+	end
+	local fan_id = own_proxy(entry.proxies, one_consumer(FAN_BINDING))
+	local light_id = own_proxy(entry.proxies, one_consumer(LIGHT_BINDING))
+	if fan_id == nil or light_id == nil or tonumber(fan_id) == tonumber(light_id)
+		or tonumber(fan_id) == tonumber(me) or tonumber(light_id) == tonumber(me) then
+		return nil, nil
+	end
+	return fan_id, light_id
+end
+
 names_job = rename_mod.new({
-	ids = function()
-		return one_consumer(FAN_BINDING), one_consumer(LIGHT_BINDING)
-	end,
+	ids = item_ids,
 	display_name = function(id)
 		return C4:GetDeviceDisplayName(id)
 	end,
@@ -644,13 +687,20 @@ dispatch.commands["Use_Selected_Fan"] = function()
 		end
 		result(key, args)
 		refresh_status()
+		local shown = shown_count
 		-- A fan pinned by the click: the guarded rename, then the same line again
-		-- with its suffix (fan-name-design N4).
+		-- with its suffix (fan-name-design N4), unless something else wrote Last
+		-- Action in the meantime: that line stays and the log has the ending.
 		if key == "already" or key == "moved" or key == "now_using" then
 			names_job:run("guarded", function(outcome)
 				local suffix = texts.rename_suffix(outcome)
-				if suffix ~= "" then
+				if suffix == "" then
+					return
+				end
+				if shown_count == shown then
 					show_result(texts.result(key, args) .. suffix)
+				else
+					log.always("names: Use Selected Fan ended %q; Last Action has a later line", suffix)
 				end
 			end)
 		end

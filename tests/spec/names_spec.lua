@@ -48,7 +48,7 @@ end
 -- Strings the name rule refuses, each with what is wrong with it.
 local BAD = {
 	{ "empty", "" },
-	{ "23 characters", ("W"):rep(23) },
+	{ "20 characters", ("W"):rep(20) },
 	{ "a comma", "Aviator, 5" },
 	{ "an inch sign (a double quote)", 'Aviator 5"' },
 	{ "a single quote", "Aviator's 5" },
@@ -363,10 +363,10 @@ describe("fan.names", function()
 	end)
 
 	describe("valid", function()
-		it("accepts a name of ASCII letters, digits, blanks and hyphens of 1 to 22 characters", function()
+		it("accepts a name of ASCII letters, digits, blanks and hyphens of 1 to 19 characters", function()
 			for _, name in ipairs({
 				"Aviator 5", "Wynd XL", "Size Matters 84", "A", "7", "2006", "Tip-Top 44", "Modern Forms Fan",
-				("A"):rep(22), -- the longest
+				("A"):rep(19), -- the longest
 				"Light Wynd 52", "Wynd Lighting", "Wynd Lights", -- only a final " Light" is refused
 			}) do
 				assert.is_true(names.valid(name), name)
@@ -392,11 +392,11 @@ describe("fan.names", function()
 			end
 		end)
 
-		it("refuses 23 characters and accepts 22, whatever the characters", function()
-			assert.is_true(names.valid(("Ab 1-"):rep(4) .. "Ab")) -- 22 characters
-			assert.is_false(names.valid(("Ab 1-"):rep(4) .. "Abc")) -- 23, and nothing else wrong with it
-			assert.is_true(names.valid(("9"):rep(22)))
-			assert.is_false(names.valid(("9"):rep(23)))
+		it("refuses 20 characters and accepts 19, whatever the characters", function()
+			assert.is_true(names.valid(("Ab 1-"):rep(3) .. "Ab 1")) -- 19 characters
+			assert.is_false(names.valid(("Ab 1-"):rep(3) .. "Ab 12")) -- 20, and nothing else wrong with it
+			assert.is_true(names.valid(("9"):rep(19)))
+			assert.is_false(names.valid(("9"):rep(20)))
 			assert.is_false(names.valid(("9"):rep(5000)))
 		end)
 
@@ -425,16 +425,16 @@ describe("fan.names", function()
 			assert.equal("Size Matters 84 Light", names.light("Size Matters 84"))
 		end)
 
-		it("gives every name of the table a light name of at most 28 characters", function()
+		it("gives every name of the table a light name of at most 25 characters", function()
 			local bad = {}
 			for key, name in pairs(names.TABLE) do
 				local light = names.light(name)
-				if light ~= name .. " Light" or #light > 28 then
+				if light ~= name .. " Light" or #light > 25 then
 					bad[#bad + 1] = key
 				end
 			end
 			assert.same({}, bad)
-			assert.equal(28, #names.light(("A"):rep(22)))
+			assert.equal(25, #names.light(("A"):rep(19)))
 		end)
 
 		it("answers nil for nil, a value that is not a string, and a name that fails valid()", function()

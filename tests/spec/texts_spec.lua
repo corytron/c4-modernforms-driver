@@ -779,8 +779,12 @@ describe("fan.texts", function()
 			end
 		end)
 
-		it("same, busy, no_pin and anything else add nothing", function()
-			for _, outcome in ipairs({ "same", "busy", "no_pin", "", " ", "Renamed", "renamed ", "name_renamed", "forced",
+		it("busy is not renamed", function()
+			assert.equal("; not renamed", texts.rename_suffix("busy"))
+		end)
+
+		it("same, no_pin and anything else add nothing", function()
+			for _, outcome in ipairs({ "same", "no_pin", "", " ", "Renamed", "renamed ", "name_renamed", "forced",
 				"guarded", "__index", false, true, 0, 5, 0 / 0, math.huge, {}, { "renamed" }, print }) do
 				assert.equal("", texts.rename_suffix(outcome), tostring(outcome))
 			end

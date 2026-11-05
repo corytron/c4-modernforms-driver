@@ -475,10 +475,20 @@ describe("fan.rename", function()
 			assert.same({}, r.calls)
 		end)
 
-		it("answers same in a forced run too", function()
+		it("answers same in a forced run too, and records the names as the driver's again", function()
 			local r = rig({ names = names_of(TARGET_FAN, TARGET_LIGHT) }):settle("forced")
 			assert.equal("same", r.dones[1].outcome)
 			assert.same({}, r.calls)
+			assert.equal(1, #r.writes)
+			local written = r.writes[1]
+			local value = written.value or written[2]
+			assert.equal(TARGET_FAN, value.fan)
+			assert.equal(TARGET_LIGHT, value.light)
+		end)
+
+		it("records nothing for same in a guarded run", function()
+			local r = rig({ names = names_of(TARGET_FAN, TARGET_LIGHT) }):settle("guarded")
+			assert.equal("same", r.dones[1].outcome)
 			assert.same({}, r.writes)
 		end)
 

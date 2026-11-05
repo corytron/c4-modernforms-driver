@@ -63,7 +63,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li><b>For dealers</b>: a read-only <b>Migration Report</b> for replacing the stock WAC driver, with a way back from every step (chapter 11).</li>
 </ul>
 
-<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver never adds, moves or deletes a Control4 device and never changes keypad programming. It renames its own two items only when you click <b>Use Selected Fan</b> or <b>Name Items After Fan</b>, and never one you named yourself (chapter 3). The Migration Report only reads.</p>
+<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver never adds, moves or deletes a Control4 device and never changes keypad programming. It renames its own two items only when you click <b>Use Selected Fan</b> or <b>Name Items After Fan</b>; Use Selected Fan never renames one you named yourself (chapter 3). The Migration Report only reads.</p>
 
 <p>This is an independent driver. It is not made, endorsed or supported by Modern Forms, WAC Lighting or Snap One (Control4); the trademark notices are at the end of this page.</p>
 
@@ -136,7 +136,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><th>Ending</th><th>What happened</th></tr>
 <tr><td><code>; items renamed</code></td><td>Both items still had the names they were created with, or the names the driver gave them, so they now carry the fan's product name. Example: <code>Already using fan MF_00005E005301 at 10.0.2.151; items renamed</code>.</td></tr>
 <tr><td><code>; names kept</code></td><td>At least one item has a name you typed, so the driver changed neither. <b>Name Items After Fan</b> names them anyway, when you want that.</td></tr>
-<tr><td><code>; not renamed</code></td><td>The driver could not rename: it has no name for this model, has not read the model yet, did not find its two items, or Control4 did not confirm the new names. Click <b>Name Items After Fan</b>; its <b>Last Action</b> line says which.</td></tr>
+<tr><td><code>; not renamed</code></td><td>The driver could not rename: it has no name for this model, has not read the model yet, did not find its two items, Control4 did not confirm the new names, or another naming was still running. Click <b>Name Items After Fan</b>; its <b>Last Action</b> line says which.</td></tr>
 <tr><td>(no ending)</td><td>The items already carried the right names, so nothing was done.</td></tr>
 </table>
 

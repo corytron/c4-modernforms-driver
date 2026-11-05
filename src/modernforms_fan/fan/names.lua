@@ -50,11 +50,11 @@ names.DEFAULTS = {
 	{ fan = "Modern Forms Fan", light = "Modern Forms Fan Light" },
 }
 
-local MAX_NAME = 22 -- the longest fan item name; the light item's is 28 (ECR 5.4)
+local MAX_NAME = 19 -- the longest fan item name, so L23 stays within 70 characters (review of #37; ECR 5.4 said 22)
 local LIGHT = " Light" -- what the light item's name adds to the fan item's
 
 -- ECR 5.4: ASCII letters, digits, blanks and hyphens only (explicit ranges, so
--- a locale cannot widen the class), 1 to 22 characters, no blank at either end
+-- a locale cannot widen the class), 1 to 19 characters, no blank at either end
 -- or twice in a row, and not ending in " Light", which is how the light item's
 -- name is made. What is not a string is refused, never raised on.
 function names.valid(name)
@@ -98,7 +98,7 @@ end
 
 -- The light item's name: the fan item's name and " Light" (N2). Only a name
 -- that passes valid() gets one, so no light name is built from a bad name and
--- none is longer than 28 characters.
+-- none is longer than 25 characters.
 function names.light(name)
 	if not names.valid(name) then
 		return nil

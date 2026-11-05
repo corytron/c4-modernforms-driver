@@ -579,14 +579,77 @@ describe("Modern Forms Fan driver", function()
 			assert.same({}, c4.calls_to("RenameDevice"))
 		end)
 
-		it("Name Items After Fan with no fan set up refuses", function()
+		it("Name Items After Fan with no fan set up refuses with L28", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
 			env.OnDriverInit("DIT_STARTUP")
 			env.OnDriverLateInit("DIT_STARTUP")
 			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
 			c4.advance(10)
 			assert.same({}, c4.calls_to("RenameDevice"))
-			assert.truthy(env.Properties["Last Action"] ~= "", "it says why")
+			assert.equal("Nothing to name the items after: no fan is set up yet", env.Properties["Last Action"])
+		end)
+
+		it("a later Last Action line is not overwritten by the rename suffix", function()
+			local env, c4 = online_driver()
+			local fan_id, light_id = items(env)
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Use Selected Fan" })
+			for _ = 1, 3 do
+				local data = last_sent(c4)
+				if data == '{"queryStaticShadowData":1}' then
+					answer(c4, mf.INFO)
+				elseif data == '{"queryDynamicShadowData":1}' then
+					answer(c4, mf.state({ fanOn = true, fanSpeed = 3 }))
+				end
+			end
+			-- A second click while the guarded naming is pending is answered busy.
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			c4.advance(2500)
+			assert.equal("Aviator 5", name_of(fan_id))
+			assert.equal("Aviator 5 Light", name_of(light_id))
+			assert.equal("Naming in progress; try again in a moment", env.Properties["Last Action"])
+		end)
+
+		it("renames nothing when Use Selected Fan does not reach the fan", function()
+			local env, c4 = online_driver()
+			items(env)
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Use Selected Fan" })
+			c4.advance(30000)
+			assert.same({}, c4.calls_to("RenameDevice"))
+			assert.falsy(env.Properties["Last Action"]:find("renamed", 1, true), env.Properties["Last Action"])
+		end)
+
+		it("renames nothing when the driver is destroyed while a naming is pending", function()
+			local env, c4 = online_driver()
+			items(env)
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			env.OnDriverDestroyed()
+			c4.advance(2500)
+			assert.same({}, c4.calls_to("RenameDevice"))
+		end)
+
+		it("renames nothing when the bound items are not this device's own proxies (L26)", function()
+			local env, c4 = online_driver()
+			items(env)
+			c4.GetDevices = function() return {} end
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			c4.advance(2500)
+			assert.same({}, c4.calls_to("RenameDevice"))
+			assert.equal("Items not renamed: this device's items were not found", env.Properties["Last Action"])
+		end)
+
+		it("Name Items After Fan on names already right records them, so Use Selected Fan may rename later", function()
+			local env, c4 = online_driver()
+			local fan_id, light_id = items(env, "Aviator 5", "Aviator 5 Light")
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			c4.advance(2500)
+			assert.equal("Items already named Aviator 5 and Aviator 5 Light", env.Properties["Last Action"])
+			assert.same({}, c4.calls_to("RenameDevice"))
+			-- The record makes these names the driver's: the guard now treats them as ours.
+			fake.project.devices[fan_id].name = "Aviator 5"
+			fake.project.devices[light_id].name = "Aviator 5 Light"
+			use_selected(env, c4)
+			assert.same({}, c4.calls_to("RenameDevice"))
+			assert.equal("Aviator 5", name_of(fan_id))
 		end)
 	end)
 

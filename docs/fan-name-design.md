@@ -31,7 +31,7 @@ file wins; where this file is silent, ECR's section 5 is the rule.
 local names = require("fan.names")
 names.TABLE              -- [fan_type] = name: FNR Appendix B's 75 entries, each with a comment naming its family
 names.DEFAULTS           -- { { fan = "Modern Forms Fan", light = "Modern Forms Fan Light" } }: every pair a build shipped
-names.valid(name) -> bool          -- ECR 5.4: ASCII letters, digits, space, hyphen; 1 to 22 chars; no leading or
+names.valid(name) -> bool          -- ECR 5.4: ASCII letters, digits, space, hyphen; 1 to 19 chars; no leading or
                                    -- trailing blank; not ending in " Light"
 names.lookup(fan_type) -> name|nil -- trimmed exact match; nil for nil, "", unknown, or an entry that fails valid()
 names.light(name) -> name .. " Light"
@@ -88,8 +88,8 @@ too, for the forced path).
   `name_no_ids` (L26), `name_unconfirmed` (L27), `name_no_pin` (L28),
   `name_busy` (L29), with ECR 5.5's texts and placeholder names.
 - `texts.rename_suffix(outcome) -> string`: `renamed` → `; items renamed`,
-  `kept` → `; names kept`, `no_name`, `no_type`, `no_ids`, `unconfirmed` →
-  `; not renamed`, anything else → `""`. L2, L3 and L4 plus the longest
+  `kept` → `; names kept`, `no_name`, `no_type`, `no_ids`, `unconfirmed`,
+  `busy` → `; not renamed`, anything else → `""`. L2, L3 and L4 plus the longest
   suffix stay at or under 70 characters with the placeholders.
 
 ### 2.4 `fan/devcmds.lua` (changed, dev builds only)

@@ -98,8 +98,18 @@ local function val(x)
 	return s
 end
 
+-- Linear however the text is built (review of #37: the pattern form is
+-- quadratic on long inner blanks, and a fan's answer is not ours to trust).
 local function trim(s)
-	return (s:match("^%s*(.-)%s*$"))
+	local first = s:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #s
+	while last > first and s:find("^%s", last) do
+		last = last - 1
+	end
+	return s:sub(first, last)
 end
 
 -- A whole number as a string; nil for what is not a number of sensible size
@@ -885,13 +895,15 @@ end
 -- The tail the second write of a Use Selected Fan line carries once the
 -- guarded rename has ended (fan-name-design 2.3, ECR 5.5), by the job's
 -- outcome. An outcome with nothing to add gets "": "same" (the names already
--- matched), "busy", "no_pin" and anything the job does not name. L2 to L4
+-- matched), "no_pin" and anything the job does not name; "busy" (a rename
+-- already running) is "; not renamed" (ECR RC19, review of #37). L2 to L4
 -- plus the longest tail stay under 70 characters: L3 "(was ...)" is 51, so
 -- 66, and 68 with two WAC_ ids.
 local SUFFIXES = {
 	renamed = "; items renamed",
 	kept = "; names kept",
 	no_name = "; not renamed",
+	busy = "; not renamed",
 	no_type = "; not renamed",
 	no_ids = "; not renamed",
 	unconfirmed = "; not renamed",

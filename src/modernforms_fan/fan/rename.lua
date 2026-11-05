@@ -82,8 +82,18 @@ local TYPE_SHOWN = 40 -- so is the fan type, which the fan itself supplies
 
 -- Small helpers ---------------------------------------------------------------------
 
+-- Linear however the text is built (review of #37: the pattern form is
+-- quadratic on long inner blanks, and a fan's answer is not ours to trust).
 local function trim(text)
-	return (text:match("^%s*(.-)%s*$"))
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
 end
 
 -- fn(...) in pcall; a function that is not there fails like one that raises.
@@ -484,6 +494,15 @@ end
 local function start(self, run)
 	local plan = evaluate(self, run.mode)
 	say(self, "always", "names (%s): %s", run.mode, describe(plan))
+	-- A forced run that finds the targets already there makes them the driver's
+	-- again (ECR 5.6): the live read is the confirmation. A guarded one records
+	-- nothing (review of #37, finding 1).
+	if plan.outcome == "same" and run.mode == "forced" and type(self.store) == "table" then
+		local wrote, err = try(self.store.set, rename.KEY, { fan = plan.fan_to, light = plan.light_to, at = clock(self) })
+		if not wrote then
+			say(self, "warn", "names: the record could not be written: %s", tostring(err))
+		end
+	end
 	if plan.outcome ~= "renamed" then
 		finish(self, run, plan.outcome, args_of(plan))
 		return
