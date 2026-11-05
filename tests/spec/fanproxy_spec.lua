@@ -327,29 +327,21 @@ describe("fan.fanproxy", function()
 			assert.same({}, r.model.wants)
 		end)
 
-		it("the method with wrap goes round, 6 to 1 up and 1 to 6 down (the Fan Cycle link, V11)", function()
+		it("the method never goes round: 6 stays 6 up and 1 stays 1 down (V11, #77)", function()
 			local r = rig({ shown = { fan_on = true, speed = 6 } })
-			assert.is_true(r.fp:cycle(1, true))
-			assert.same({ fan_on = true, speed = 1 }, r.last_want())
-			r.model.shown_state.speed = 1
-			assert.is_true(r.fp:cycle(-1, true))
-			assert.same({ fan_on = true, speed = 6 }, r.last_want())
-			r.model.shown_state = { fan_on = false }
-			assert.is_true(r.fp:cycle(1, true))
-			assert.same({ fan_on = true, speed = 1 }, r.last_want())
-		end)
-
-		it("the same press stops where the proxy path stops: wrap is the caller's choice", function()
-			local r = rig({ shown = { fan_on = true, speed = 6 } })
-			r.fp:cycle(1, false)
+			assert.is_true(r.fp:cycle(1))
 			assert.same({}, r.model.wants)
-			r.fp:cycle(1, true)
-			assert.same({ { fan_on = true, speed = 1 } }, r.model.wants)
+			r.model.shown_state.speed = 1
+			assert.is_true(r.fp:cycle(-1))
+			assert.same({}, r.model.wants)
+			r.model.shown_state = { fan_on = false }
+			assert.is_true(r.fp:cycle(1))
+			assert.same({ fan_on = true, speed = 1 }, r.last_want())
 		end)
 
 		it("a step of 0 does nothing", function()
 			local r = rig({ shown = { fan_on = true, speed = 3 } })
-			assert.is_true(r.fp:cycle(0, true))
+			assert.is_true(r.fp:cycle(0))
 			assert.same({}, r.model.wants)
 		end)
 	end)

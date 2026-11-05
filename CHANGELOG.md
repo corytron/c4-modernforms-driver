@@ -14,6 +14,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Changed
+
+- The Fan Cycle Button Link stops at Level 6, as the fan's own Cycle Speed Up does: from off it goes to Level 1, then one speed up per press, and at Level 6 it stays there instead of starting again at Level 1 (#77).
+
 ## 1.0 "Arrakis", build 73 (2026-11-05)
 
 ### Fixed

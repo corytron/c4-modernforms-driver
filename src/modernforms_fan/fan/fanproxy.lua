@@ -279,10 +279,9 @@ end
 
 -- One step up (step > 0) or down (step < 0) from the shown speed, so a burst
 -- counts from its target (R5). From off, up goes to 1 and down does nothing.
--- At an end the speed stays (wrap false: the proxy's CYCLE_SPEED_UP and DOWN,
--- V11, never off by cycling) or goes round (wrap true: the Fan Cycle link,
--- 6 to 1).
-function fanproxy:cycle(step, wrap)
+-- At an end the speed stays: never round, never off by cycling (V11; the
+-- proxy's CYCLE_SPEED_UP and DOWN and, since #77, the Fan Cycle link).
+function fanproxy:cycle(step)
 	local shown = shown_of(self)
 	if shown.fan_on == nil then
 		self.log.debug("cycle refused: the fan's state is not known yet")
@@ -306,12 +305,7 @@ function fanproxy:cycle(step, wrap)
 			self.log.debug("cycle refused: the fan's speed is not known")
 			return false, "unknown"
 		end
-		target = speed + step
-		if wrap then
-			target = (target - 1) % SPEEDS + 1
-		else
-			target = math.max(1, math.min(SPEEDS, target))
-		end
+		target = math.max(1, math.min(SPEEDS, speed + step))
 		if target == speed then
 			self.log.debug("cycle: the fan stays at speed %d", speed)
 			return true
@@ -397,8 +391,8 @@ fanproxy.HANDLERS = {
 	OFF = function(self) self:off() end,
 	TOGGLE = function(self) self:toggle() end,
 	SET_SPEED = function(self, params) self:speed(params.SPEED) end,
-	CYCLE_SPEED_UP = function(self) self:cycle(1, false) end,
-	CYCLE_SPEED_DOWN = function(self) self:cycle(-1, false) end,
+	CYCLE_SPEED_UP = function(self) self:cycle(1) end,
+	CYCLE_SPEED_DOWN = function(self) self:cycle(-1) end,
 	-- The reply is sent for a refused value too, so the proxy's Preset Level
 	-- page shows the preset in use again (the Hue project's #234).
 	DESIGNATE_PRESET = function(self, params)

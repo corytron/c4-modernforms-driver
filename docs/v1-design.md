@@ -64,7 +64,7 @@ properties and the keypad) later the same day.
 | V8 | **State model**: per field a confirmed value, an in-flight value and a wanted ("dirty") value; the shown state is wanted over in flight over confirmed. Sequence numbers and an epoch on every request; the command's own answer is the authority; a read that contradicts a just-commanded value is believed only when the next read agrees (2.5 s settle); bursts coalesce, latest wins; Control4's commands are always sent, even when they equal the confirmed state. | #6 decision 6; MFR §6; ECC R2, R3, R5; ECM S7, S8, S11 | Policy; the fan-side causes of disagreement ASSUMED (K16). |
 | V9 | **Report rules R1–R9** of ECC §5.1, unchanged: one notification per real change, never older after newer, confirmed values only, no `ON`/`OFF` notifications to the fan proxy. | #6 decision 6; [ECC §5.1](edge-cases-control4.md#51-the-report-contract); FAN `42_fan_protocol_notifications/_1-CURRENTSPEED.md`, `_4-ON.md`; LV2 `35/_10.2-LIGHTBRIGHTNESSCHANGED.md` | VERIFIED-doc for the messages; VERIFIED-hardware (K8, 2026-10-27, #17): `ON` with the fan at speed 2 moved `CURRENT_SPEED` to 3, the preset, so it is never sent (§11.1). |
 | V10 | **Keypad LEDs show the pressed target at once** (`MATCH_LED_STATE` fires no programming) and are corrected when the fan answers otherwise or the request fails. | #6 decision 7; ECC C13, R4 | VERIFIED-house: `MATCH_LED_STATE` on driver links (HUE `docs/keypad-design.md`, "Keypad LEDs"; `docs/design.md`, "Keypad and scene dimmer: verified on hardware"). |
-| V11 | **ON and Toggle turn the fan on at the preset speed**: 3, changed with Designate Preset and persisted. ON on a running fan changes nothing. The proxy's `CYCLE_SPEED_UP`/`DOWN` step from the shown speed and stop at 6 and at 1, never off; the **Fan Cycle** link steps up and wraps 6 → 1. | #6 decision 8; FAN `41_fan_proxy_commands/_1-ON.md`, `_3-TOGGLE.md`, `_4-DESIGNATEPRESET.md`, `_6-CYCLESPEEDUP.md`, `_7-CYCLESPEEDDOWN.md`; FAN `43_fan_capabilities/_4-presetspeed.md`; ECC Q4 | VERIFIED-doc: wrapping and stopping are the driver's choice. The wrap of the link is this contract's choice (a single "Cycle" button must not get stuck at 6); Lua only, so cheap to change. |
+| V11 | **ON and Toggle turn the fan on at the preset speed**: 3, changed with Designate Preset and persisted. ON on a running fan changes nothing. The proxy's `CYCLE_SPEED_UP`/`DOWN` step from the shown speed and stop at 6 and at 1, never off; the **Fan Cycle** link steps up and stops at 6 too (the owner's answer, 2026-11-05, #14 item 2, #77; it wrapped 6 → 1 until 1.0). | #6 decision 8; FAN `41_fan_proxy_commands/_1-ON.md`, `_3-TOGGLE.md`, `_4-DESIGNATEPRESET.md`, `_6-CYCLESPEEDUP.md`, `_7-CYCLESPEEDDOWN.md`; FAN `43_fan_capabilities/_4-presetspeed.md`; ECC Q4 | VERIFIED-doc: wrapping and stopping are the driver's choice. The link's stop at 6 is the owner's choice (#77); Lua only. |
 | V12 | **Double taps stay keypad programming** on the button's own events; a fan link acts on every push. No per-button tap, double-tap or colour machine in v1. A button whose double tap sets another speed still lights at that speed: V26. | #6 decision 9; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md` (multi-press over links is newer; older drivers ignore it); ECC C10 | ASSUMED (K6): what a double tap sends over a link. |
 | V13 | **Fan offline** (power cut at the wall, Wi-Fi gone, a stuck module): keep the last state marked not current, the `Online` variable 0, **Fan Offline** once; when it answers again, report what the fan says, **Fan Online** once, and re-send nothing. A command while offline is tried once and dropped. | #6 decision 10; ECM P1–P3, P8, Q1, Q2; ECC R7, R8, U3; LV2 `35/_15-ONLINECHANGED.md` | VERIFIED-doc for the light's `ONLINE_CHANGED`; the fan proxy has no online notion (FPR §1.4). |
 | V14 | **The light turns on at Default On Brightness** (top tap, Toggle from off, `ON`, a Navigator's on). No fades: every target is one level sent at once; a hold steps the level at most every 500 ms. "On at a new level" is the level first, then `lightOn`, never one body. | #6 decision 11; LSR §1.2–§1.6, Q1; MFR §2.3, §9; ECM S3, S4; M0 (the level is kept while off) | VERIFIED: AIO's level-then-on order (MFR §2.3); M0. ASSUMED (K12): a level sent while off does not switch the light on. |
@@ -742,7 +742,7 @@ Several keypads on one link share it (ECC C6).
 | 300 Fan Off | off (sent, V8) | off | tried once | refused; LED unchanged | fan off |
 | 301–306 Fan Speed M | on at M | on at M | tried once | refused | fan on at speed M, or at the speed `Speed M Link Also Lit At` names (V26) |
 | 307 Fan Toggle | on at the preset | off | tried once | refused | fan on |
-| 308 Fan Cycle | on at 1 | N+1, 6 → 1 (V11) | tried once, from the shown speed | refused | fan on |
+| 308 Fan Cycle | on at 1 | N+1, at 6 nothing (V11, #77) | tried once, from the shown speed | refused | fan on |
 
 "Tried once" is ECM P8: sent as the reachability check, dropped if it
 fails, never replayed.
@@ -1217,7 +1217,7 @@ local fp = fanproxy.new({ model = m, on = fn(binding, command, handler), send = 
 fp:late_init()                     -- PRESET_SPEED
 fp:settled(group, st, why)         -- CURRENT_SPEED / DIRECTION when different from what it last sent (or why "start")
 fp:preset() -> 1..6
-fp:speed(n) ; fp:on() ; fp:off() ; fp:toggle() ; fp:cycle(step, wrap) ; fp:direction("forward"|"reverse"|"toggle")
+fp:speed(n) ; fp:on() ; fp:off() ; fp:toggle() ; fp:cycle(step) ; fp:direction("forward"|"reverse"|"toggle")
   -- each -> true | false, why (m:want's); the links call these
 fp:debug() -> { told_fan, told_dir, notify_fan, notify_dir, preset }
 ```
@@ -1761,7 +1761,7 @@ the whole under a minute:
 | F2 | Dev Proxy 5001 `SET_SPEED` 1 … 6 | `fan=on/N`, `told.fan=N`, `notify.fan` up by one per step |
 | F3 | Dev Proxy 5001 `SET_SPEED` 0 | `fan=off`, `told.fan=0`, `leds` 300:1 and 301–308 at 0 |
 | F4 | Dev Press 307 `tap` | `fan=on/<preset>`, `leds` 307:1, 308:1 and only that speed's link at 1 |
-| F5 | Dev Press 308 `tap` `COUNT=3` `EVERY=150` | the preset plus 3, wrapping past 6; `notify.fan` up by one (the burst coalesced) |
+| F5 | Dev Press 308 `tap` `COUNT=3` `EVERY=150` | the preset plus 3, stopping at 6 (#77); `notify.fan` up by one (the burst coalesced) |
 | F6 | Dev Proxy 5002 `SET_BRIGHTNESS_TARGET` 30, 70, then 0 | `light=on/30`, `on/70`, `off`; `changing=0` after each; `told.light` follows |
 | F7 | Dev Press 200 `tap` | `light=on/<Default On Brightness>` |
 | F8 | Dev Proxy commands back to F1's state | F1's `fan=` and `light=` again |
@@ -1928,7 +1928,8 @@ blocks the M3 build.
 2. **The Fan Cycle link wraps** from 6 to 1 (V11), while the proxy's
    `CYCLE_SPEED_UP` stops at 6 as ECC Q4 recommended: a single Cycle button
    that stopped at 6 would need a second button to go down. Default: wrap.
-   Lua only, so cheap to change at any time.
+   Lua only, so cheap to change at any time. **Answered 2026-11-05: stop at
+   6**, as the proxy's Cycle does (#77).
 3. **Custom icons (V24).** The house's device keeps the icons of the build
    that creates it. Default: Control4's own fan and light icons; a yes
    before the first install adds the driver's own.

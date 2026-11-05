@@ -75,7 +75,7 @@ local function fake_fan()
 	function f:off() return self:record({ "off" }) end
 	function f:toggle() return self:record({ "toggle" }) end
 	function f:speed(n) return self:record({ "speed", n }) end
-	function f:cycle(step, wrap) return self:record({ "cycle", step, wrap }) end
+	function f:cycle(step) return self:record({ "cycle", step }) end
 	return f
 end
 
@@ -258,14 +258,14 @@ describe("fan.links", function()
 	end)
 
 	describe("presses (section 5.1)", function()
-		it("each link's push does its intent: Off, Speed 1 to 6, Toggle, Cycle (which wraps)", function()
+		it("each link's push does its intent: Off, Speed 1 to 6, Toggle, Cycle", function()
 			local r = rig()
 			for _, link in ipairs(FAN_IDS) do
 				r.recv(link, "DO_PUSH")
 			end
 			assert.same({
 				{ "off" }, { "speed", 1 }, { "speed", 2 }, { "speed", 3 }, { "speed", 4 }, { "speed", 5 }, { "speed", 6 },
-				{ "toggle" }, { "cycle", 1, true },
+				{ "toggle" }, { "cycle", 1 },
 			}, r.fan.calls)
 		end)
 
@@ -399,22 +399,23 @@ describe("fan.links", function()
 	end)
 
 	describe("the same press through the real proxy (V11, V12, R5)", function()
-		it("Cycle wraps on the link and stops on the proxy", function()
+		it("Cycle stops at 6 on the link as on the proxy (#77)", function()
 			local r = rig({ real_fan = true, shown = { fan_on = true, speed = 6 } })
 			r.recv(5001, "CYCLE_SPEED_UP")
 			assert.same({}, r.model.wants, "the proxy's Cycle stops at 6")
 			r.recv(308, "DO_PUSH")
-			assert.same({ { fan_on = true, speed = 1 } }, r.model.wants, "the link's Cycle goes round to 1")
+			assert.same({}, r.model.wants, "and so does the link's: nothing is sent at 6")
 		end)
 
-		it("Cycle from off goes to 1 on the link, and on from there up to 6 and round", function()
+		it("Cycle from off goes to 1 on the link, and on from there up to 6, where it stays", function()
 			local r = rig({ real_fan = true, shown = { fan_on = false } })
 			local seen = {}
 			for _ = 1, 8 do
 				r.recv(308, "DO_PUSH")
 				seen[#seen + 1] = r.model.wants[#r.model.wants].speed
 			end
-			assert.same({ 1, 2, 3, 4, 5, 6, 1, 2 }, seen)
+			assert.same({ 1, 2, 3, 4, 5, 6, 6, 6 }, seen)
+			assert.equal(6, #r.model.wants, "the seventh and eighth presses send nothing")
 		end)
 
 		it("a double tap on Fan Cycle counts the second step from the first one's target and tells the proxy once", function()
