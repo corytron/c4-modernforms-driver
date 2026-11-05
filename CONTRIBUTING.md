@@ -1,10 +1,10 @@
 # Contributing
 
 This is a personal project for one Control4 home, offered as is: there is no
-roadmap and no support obligation, and on 2026-10-27 there is no release
-yet. Bug reports and pull requests are welcome all the same. This page says
-what a contribution has to respect; the [README](README.md) says what the
-driver is meant to do and how it is built and tested.
+roadmap and no support obligation. Bug reports and pull requests are welcome
+all the same. This page says what a contribution has to respect; the
+[README](README.md) says what the driver does and how it is built and
+tested.
 
 ## License of contributions
 

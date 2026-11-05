@@ -10,14 +10,14 @@ Install every `.c4z` file of the release at once through Driver ▸ "Add or Upda
 
 ### What you get
 
-- **Modern Forms Fan** driver: a Modern Forms ceiling fan and its light in Control4, with keypad Button Links and state that follows the Modern Forms app, the remote and the wall control. What it does in detail, its properties and its actions are in the owner's manual on its Documentation tab.
+- **Modern Forms Fan** driver: a Modern Forms ceiling fan and its light as ordinary Control4 devices. The fan has six speeds (Level 1 to Level 6), off and its direction, and the light dims. Twelve Button Links of the driver's own (each speed, Off, Toggle and Cycle, and the light's Top, Bottom and Toggle) bind keypad buttons whose LEDs follow the fan and the light, in the keypad's colours or one colour per speed. The state follows the Modern Forms app, the remote and the wall control. Find Fans lists the fans on the network, and the driver keeps to the fan it was given, following it to a new address by itself. Fan Offline and Fan Online are events for programming. What it does in detail, its properties and its actions are in the owner's manual on its Documentation tab, which also says how to replace the stock WAC driver by hand.
 
 Each driver's Documentation tab ends with the full list of releases.
 
 ### Requirements
 
-- A Control4 controller on OS 3.x or 4.x, at or above the minimum version the driver declares (its Documentation tab names it).
-- A Modern Forms fan on the controller's LAN, reachable over HTTP. The driver talks to the fan directly, so Control4 keeps working when the Modern Forms cloud is down.
+- A Control4 controller on OS 3.3.0 or newer, managed with Composer Pro. Tried on OS 3.4.3 with Composer Pro 3.4.2; OS 4.x has not been tried.
+- A Modern Forms fan of generation 1, 2 or 3 with six speeds, set up on Wi-Fi with the Modern Forms app, on the controller's network segment. Tried with one Gen 3 fan; a Gen 4 fan is refused. The driver talks to the fan directly, so Control4 keeps working when the Modern Forms cloud is down. A DHCP reservation for the fan is recommended but not required.
 
 ### Verify a download
 

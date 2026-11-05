@@ -20,11 +20,11 @@ this house's controller through October 2026; facts marked *[Hue project,
 hardware]* were measured there on OS 3.4.2 and are assumed for the house's
 OS 3.4.3 until this project's first dev install shows them again.
 
-**Current state (2026-10-27): not in use.** No build of this project is
-installed on the house (`deploy/house.yaml` says `release: none`; the house
-runs the stock WAC driver), and the scaffold driver is never installed
-there ([`scaffold-design.md`](scaffold-design.md), section 7).
-[`status.md`](status.md) is the authority on what runs on the house. A
+**Current state (2026-11-05): not in use.** The house runs release builds
+only (`deploy/house.yaml` names the release; prereleases v1.0-beta.1 and
+beta.3 from 2026-11-04, then 1.0), and no dev build of this project has been
+installed there. [`status.md`](status.md) is the authority on what runs on
+the house. A
 release build carries no `common/devloop.lua`, so once releases are
 installed nothing on the controller polls this VM and no property can turn
 the loop on.

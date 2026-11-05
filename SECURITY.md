@@ -6,8 +6,7 @@ handled in good faith, on a best-effort basis.
 
 ## Supported versions
 
-**None yet: there is no release** (2026-10-27). Once there is, only the
-**latest release** on the
+Only the **latest release** on the
 [Releases page](https://github.com/corytron/c4-modernforms-driver/releases)
 is supported: the `.c4z` attached to it, identified by the build number it
 shows as **Driver Version** in Composer. Older builds get no fixes; update
