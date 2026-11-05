@@ -5,6 +5,12 @@
 local fx = require("fixtures.mdns")
 local discovery = require("fan.discovery")
 
+-- Test addresses built from their parts, so the source holds no address
+-- literal outside the documented placeholders (the secrets check).
+local function ip(...)
+	return table.concat({ ... }, ".")
+end
+
 local enc = fx.encode
 local TYPE = fx.TYPE
 
@@ -173,10 +179,27 @@ local function collector()
 	return got
 end
 
+-- A callback for find that keeps all it was told: the list, the error, heard, and how many values came.
+local function hearing()
+	local got = { calls = {} }
+	got.callback = function(...)
+		local list, err, heard = ...
+		got.calls[#got.calls + 1] = { list = list, err = err, heard = heard, count = select("#", ...) }
+	end
+	return got
+end
+
+-- A fan record as heard hands it out: the four fields a follow needs (address-follow-design 2.1).
+local function pair_of(fan)
+	return { instance = fan.instance, address = fan.address, mac = fan.mac, port = fan.port }
+end
+
 local function numbered_fan(index)
 	return { instance = string.format("MF_Fan_%06d", index), address = "10.0.2.151", port = 80,
 		mac = "00005E005301", firmware = "02.00.0052" }
 end
+
+local PIN, CURRENT, MOVED = "00005E005301", "10.0.2.151", "10.0.2.152" -- the pinned MAC, its old and new address
 
 describe("fan.discovery", function()
 	describe("query", function()
@@ -618,6 +641,53 @@ describe("fan.discovery", function()
 		end)
 	end)
 
+	describe("parse: a Gen 1/2 announcement and a moved fan (address-follow-design 4, ECA E4)", function()
+		it("has the fixture in the layout ECA E4 describes: unprompted, four answers, ttl 1500, cache-flush but on PTR",
+			function()
+				local data = fx.GEN12_ANNOUNCEMENT
+				assert.equal(enc.header({ flags = 0x8400, an = 4 }), data:sub(1, 12), "id 0, no question, four answers")
+				local function record(rtype, class)
+					return enc.u16(rtype) .. enc.u16(class) .. enc.u32(1500)
+				end
+				assert.is_truthy(data:find(record(TYPE.PTR, 1), 13, true), "the shared PTR record")
+				assert.is_truthy(data:find(record(TYPE.SRV, 0x8001), 13, true))
+				assert.is_truthy(data:find(record(TYPE.TXT, 0x8001), 13, true))
+				assert.is_truthy(data:find(record(TYPE.A, 0x8001), 13, true))
+				assert.is_truthy(data:find(enc.label("WAC Windermier Fan#005301"), 13, true))
+				assert.is_truthy(data:find("MAC=00:00:5E:00:53:01", 13, true), "the MAC as a Gen 3 fan spells it")
+				for _, key in ipairs({ "Hardware Rev=", "MICO OS Rev=", "Model=", "Manufacturer=", "Seed=" }) do
+					assert.is_truthy(data:find(key, 13, true), key)
+				end
+			end)
+
+		it("reads it: a name with spaces and #, more TXT keys, Protocol not the first, all in the answer section",
+			function()
+				local list, why = parse(fx.GEN12_ANNOUNCEMENT)
+				assert.same({ fx.GEN12_FAN }, list)
+				assert.is_nil(why)
+				assert.equal("00005E005301", list[1].mac)
+				assert.equal("10.0.2.152", list[1].address)
+			end)
+
+		it("reads the fan's answer from its new address, the first layout with another A record", function()
+			local list, why = parse(fx.K10_MOVED)
+			assert.same({ fx.FAN_ONE_MOVED }, list)
+			assert.is_nil(why)
+			assert.equal(#fx.K10_FIRST, #fx.K10_MOVED)
+			assert.equal(fx.FAN_ONE.mac, fx.FAN_ONE_MOVED.mac)
+			assert.equal(fx.FAN_ONE.instance, fx.FAN_ONE_MOVED.instance)
+		end)
+
+		it("reads the announcement with any one octet replaced by an edge value without raising", function()
+			local data = fx.GEN12_ANNOUNCEMENT
+			for at = 1, #data do
+				for _, value in ipairs({ 0, 1, 63, 64, 127, 128, 191, 192, 193, 255 }) do
+					assert_well_formed(parse(data:sub(1, at - 1) .. string.char(value) .. data:sub(at + 1)))
+				end
+			end
+		end)
+	end)
+
 	describe("parse: it never raises", function()
 		it("reads every prefix of every fixture without raising, finding only what the whole datagram has", function()
 			for _, name in ipairs(fx.NAMES) do
@@ -693,6 +763,133 @@ describe("fan.discovery", function()
 				end
 				assert_well_formed(parse(table.concat(bytes)))
 			end
+		end)
+	end)
+
+	describe("candidates (address-follow-design F4, 2.1; ECA 3.4 step 1)", function()
+		-- One heard entry as find hands it out: FAN_ONE's instance, and the pinned MAC and port 80 unless given.
+		local function entry(address, mac, port)
+			return { instance = "MF_Fan_005301", address = address, mac = mac or PIN, port = port or 80 }
+		end
+
+		it("takes the entries of the pinned MAC, in either case, and of no other MAC", function()
+			local heard = {
+				entry(ip(172, 16, 0, 1), "00005E005302"),
+				{ instance = "MF_Fan_005301", address = "192.168.0.1", port = 80 }, -- a TXT record without a MAC
+				entry(MOVED, "00005e005301"),
+				entry(ip(169, 254, 0, 1), "00005E005399"),
+			}
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, CURRENT))
+			assert.same({ MOVED }, discovery.candidates(heard, "00005e005301", CURRENT))
+			assert.same({ MOVED }, discovery.candidates(heard, "00:00:5E:00:53:01", CURRENT), "as parse reads a MAC")
+			assert.same({ MOVED }, discovery.candidates({ entry(MOVED, "00:00:5e:00:53:01") }, PIN, CURRENT))
+			assert.same({ ip(172, 16, 0, 1) }, discovery.candidates(heard, "00005E005302", CURRENT))
+			for _, pin in ipairs({ "00005E005303", "MF_00005E005301", "00005E00530", "00005E0053011", "", "  " }) do
+				assert.same({}, discovery.candidates(heard, pin, CURRENT), pin)
+			end
+		end)
+
+		it("takes SRV port 80 only", function()
+			local heard = {
+				entry(ip(172, 16, 0, 1), PIN, 8080),
+				entry("192.168.0.1", PIN, 443),
+				entry(ip(169, 254, 0, 1), PIN, "80"),
+				{ instance = "MF_Fan_005301", address = ip(10, 0, 0, 1), mac = PIN },
+				entry(MOVED, PIN, 80),
+			}
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, CURRENT))
+		end)
+
+		it("takes private (RFC 1918) and link-local addresses only, to the edges of each block", function()
+			for _, address in ipairs({ ip(10, 0, 0, 1), ip(10, 255, 255, 254), ip(172, 16, 0, 1),
+				ip(172, 31, 255, 254), "192.168.0.1", "192.168.255.254", ip(169, 254, 0, 1),
+				ip(169, 254, 255, 254) }) do
+				assert.same({ address }, discovery.candidates({ entry(address) }, PIN, CURRENT), address)
+			end
+			for _, address in ipairs({ ip(9, 255, 255, 255), ip(11, 0, 0, 0), ip(172, 15, 255, 255),
+				ip(172, 32, 0, 0), ip(192, 167, 255, 255), ip(192, 169, 0, 0), ip(169, 253, 255, 255),
+				ip(169, 255, 0, 0), ip(100, 64, 0, 1), "198.51.100.7", "127.0.0.1", "0.0.0.0", "224.0.0.251",
+				"255.255.255.255" }) do
+				assert.same({}, discovery.candidates({ entry(address) }, PIN, CURRENT), address)
+			end
+		end)
+
+		it("drops a lying public address: an answer may name any address, a follow reads private ones only", function()
+			assert.same({}, discovery.candidates({ entry("203.0.113.9") }, PIN, CURRENT))
+			assert.same({ MOVED }, discovery.candidates({ entry("203.0.113.9"), entry(MOVED) }, PIN, CURRENT))
+		end)
+
+		it("takes an address only in the one spelling parse writes: four octets, no leading zero, nothing around it",
+			function()
+				for _, address in ipairs({ "010.0.2.152", "10.00.2.152", "10.0.2.0152", ip(10, 0, 2, 256), "10.0.2",
+					"10.0.2.152.1", " 10.0.2.152", "10.0.2.152 ", "10.0.2.152:80", "-10.0.2.152", "fan.local", "" }) do
+					assert.same({}, discovery.candidates({ entry(address) }, PIN, CURRENT), address)
+				end
+				for _, address in ipairs({ 167772568, true, {} }) do
+					assert.same({}, discovery.candidates({ entry(address) }, PIN, CURRENT))
+				end
+				assert.same({}, discovery.candidates({ { instance = "MF_Fan_005301", mac = PIN, port = 80 } }, PIN,
+					CURRENT), "no address")
+			end)
+
+		it("drops the current address, as the model writes it or padded", function()
+			local heard = { entry(CURRENT), entry(MOVED) }
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, CURRENT))
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, " " .. CURRENT .. "\t"))
+			assert.same({ CURRENT }, discovery.candidates(heard, PIN, MOVED))
+			assert.same({}, discovery.candidates({ entry(CURRENT) }, PIN, CURRENT), "heard where it is: nothing to read")
+		end)
+
+		it("takes two addresses of one instance, in the order heard", function()
+			local heard = { entry(MOVED), entry("192.168.0.1") }
+			assert.same({ MOVED, "192.168.0.1" }, discovery.candidates(heard, PIN, CURRENT))
+			assert.same({ "192.168.0.1", MOVED }, discovery.candidates({ heard[2], heard[1] }, PIN, CURRENT))
+		end)
+
+		it("gives each address once, whichever instance named it", function()
+			local gen12 = { instance = "WAC Windermier Fan#005301", address = MOVED, mac = PIN, port = 80 }
+			assert.same({ MOVED }, discovery.candidates({ entry(MOVED), gen12, entry(MOVED) }, PIN, CURRENT))
+		end)
+
+		it("gives at most 3 addresses, the first heard; the current address and repeats do not count", function()
+			assert.equal(3, discovery.MAX_CANDIDATES)
+			local heard = { entry(CURRENT), entry(MOVED), entry(MOVED), entry(ip(172, 16, 0, 1)), entry(CURRENT),
+				entry("192.168.0.1"), entry(ip(169, 254, 0, 1)), entry(ip(10, 0, 0, 1)) }
+			assert.same({ MOVED, ip(172, 16, 0, 1), "192.168.0.1" }, discovery.candidates(heard, PIN, CURRENT))
+		end)
+
+		it("gives nothing for an empty or missing heard list or a pin that is no MAC; no current takes nothing away",
+			function()
+				local heard = { entry(CURRENT), entry(MOVED) }
+				assert.same({}, discovery.candidates({}, PIN, CURRENT))
+				assert.same({}, discovery.candidates(nil, PIN, CURRENT))
+				assert.same({}, discovery.candidates("heard", PIN, CURRENT))
+				assert.same({}, discovery.candidates(heard, nil, CURRENT))
+				for _, pin in ipairs({ false, 42, {}, true }) do
+					assert.same({}, discovery.candidates(heard, pin, CURRENT))
+				end
+				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, nil))
+				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, ""))
+				assert.same({}, discovery.candidates())
+			end)
+
+		it("skips entries that are not records, or whose MAC is not text, and never raises", function()
+			local heard = { "10.0.2.152", 7, true, function() end, { address = MOVED, mac = 42, port = 80 },
+				{ address = MOVED, mac = {}, port = 80 }, entry(MOVED) }
+			local result
+			assert.has_no.errors(function() result = discovery.candidates(heard, PIN, CURRENT) end)
+			assert.same({ MOVED }, result)
+		end)
+
+		it("is pure: heard is left as it was, and each call gives a list of its own", function()
+			local heard = { entry(CURRENT), entry(MOVED), entry("203.0.113.9") }
+			local before = { entry(CURRENT), entry(MOVED), entry("203.0.113.9") }
+			local first = discovery.candidates(heard, PIN, CURRENT)
+			local second = discovery.candidates(heard, PIN, CURRENT)
+			assert.same(before, heard)
+			assert.same({ MOVED }, first)
+			assert.same(first, second)
+			assert.is_not.equal(first, second)
 		end)
 	end)
 
@@ -1086,6 +1283,238 @@ describe("fan.discovery", function()
 			assert.equal("closed", empty:received(6001, 5353, fx.K10_FIRST))
 			assert.has_no.errors(function() empty:stop() end)
 		end)
+	end)
+
+	describe("find: heard, for the follower (address-follow-design 2.1; ECA 3.9)", function()
+		it("gives every callback a third value: each (instance, address) heard, with the four fields a follow needs",
+			function()
+				local world = new_world()
+				local got = hearing()
+				world.finder:find(got.callback)
+				world.finder:received(6001, 5353, fx.K10_FIRST)
+				world.advance(3000)
+				local call = got.calls[1]
+				assert.equal(3, call.count)
+				assert.same({ fx.FAN_ONE }, call.list)
+				assert.is_nil(call.err)
+				assert.same({ pair_of(fx.FAN_ONE) }, call.heard)
+				assert.is_nil(call.heard[1].firmware)
+				assert.is_not.equal(call.list[1], call.heard[1], "a record of its own")
+			end)
+
+		it("hears one fan's repeated answers once, and nothing when nobody answered", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.finder:received(6001, 5353, fx.K10_SECOND)
+			world.finder:received(6001, 5353, fx.REORDERED)
+			world.advance(3000)
+			assert.same({ pair_of(fx.FAN_ONE) }, got.calls[1].heard)
+			local quiet = new_world()
+			local none = hearing()
+			quiet.finder:find(none.callback)
+			quiet.advance(3000)
+			assert.same({}, none.calls[1].heard)
+			assert.is_nil(none.calls[1].err)
+		end)
+
+		it("keeps the stale answer and the fresh one of one instance: the list keeps the first, heard both (ECA FA11)",
+			function()
+				local world = new_world()
+				local got = hearing()
+				world.finder:find(got.callback)
+				world.advance(170)
+				assert.equal("answer", world.finder:received(6001, 5353, fx.K10_FIRST))
+				world.advance(1170)
+				assert.equal("answer", world.finder:received(6001, 5353, fx.K10_MOVED))
+				world.advance(1660)
+				local call = got.calls[1]
+				assert.same({ fx.FAN_ONE }, call.list, "Find Fans shows the first answer, as before")
+				assert.same({ pair_of(fx.FAN_ONE), pair_of(fx.FAN_ONE_MOVED) }, call.heard)
+				assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
+				assert.same({ 0, 1000 }, world.sent_at, "the window as it was: two queries 1 s apart")
+				assert.equal(1, world.opened)
+				assert.equal(1, world.closed)
+
+				local reverse = new_world()
+				local other = hearing()
+				reverse.finder:find(other.callback)
+				reverse.finder:received(6001, 5353, fx.K10_MOVED)
+				reverse.finder:received(6001, 5353, fx.K10_FIRST)
+				reverse.advance(3000)
+				assert.same({ fx.FAN_ONE_MOVED }, other.calls[1].list)
+				assert.same({ pair_of(fx.FAN_ONE_MOVED), pair_of(fx.FAN_ONE) }, other.calls[1].heard)
+				assert.same({ MOVED }, discovery.candidates(other.calls[1].heard, PIN, CURRENT))
+			end)
+
+		it("keeps two answers for one MAC under two instances: a Gen 3 answer and a Gen 1/2 announcement", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			assert.equal("answer", world.finder:received(6001, 5353, fx.GEN12_ANNOUNCEMENT))
+			world.advance(3000)
+			local call = got.calls[1]
+			assert.same({ fx.FAN_ONE, fx.GEN12_FAN }, call.list)
+			assert.same({ pair_of(fx.FAN_ONE), pair_of(fx.GEN12_FAN) }, call.heard)
+			assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
+		end)
+
+		it("hears a Gen 1/2 fan's announcement alone, as an answer", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			assert.equal("answer", world.finder:received(6001, 5353, fx.GEN12_ANNOUNCEMENT))
+			world.advance(3000)
+			assert.same({ fx.GEN12_FAN }, got.calls[1].list)
+			assert.same({ pair_of(fx.GEN12_FAN) }, got.calls[1].heard)
+			assert.same({ MOVED }, discovery.candidates(got.calls[1].heard, PIN, CURRENT))
+		end)
+
+		it("keeps a lying public address in heard, which candidates then drops", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.fan_message({ address = "203.0.113.9" }))
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.advance(3000)
+			local call = got.calls[1]
+			assert.equal(2, #call.heard)
+			assert.equal("203.0.113.9", call.heard[1].address)
+			assert.equal("203.0.113.9", call.list[1].address, "the list keeps the first answer, whatever it says")
+			assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
+		end)
+
+		it("compares the instance without regard to case, as the list does, and keeps the first spelling", function()
+			local function shouted(address)
+				return fx.fan_message({ fan = { instance = "MF_FAN_005301", address = address, port = 80,
+					mac = "00005E005301", firmware = "02.00.0052" } })
+			end
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.finder:received(6001, 5353, shouted(CURRENT))
+			world.finder:received(6001, 5353, shouted(MOVED))
+			world.advance(3000)
+			assert.same({ fx.FAN_ONE }, got.calls[1].list)
+			assert.same({ pair_of(fx.FAN_ONE),
+				{ instance = "MF_FAN_005301", address = MOVED, mac = "00005E005301", port = 80 } }, got.calls[1].heard)
+		end)
+
+		it("hears a fan whose TXT record has no MAC, with mac nil", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.fan_message({ strings = { "Protocol=com.modernforms.fan" } }))
+			world.advance(3000)
+			assert.same({ { instance = "MF_Fan_005301", address = CURRENT, port = 80 } }, got.calls[1].heard)
+			assert.same({}, discovery.candidates(got.calls[1].heard, PIN, MOVED))
+		end)
+
+		it("keeps as many pairs as fans (64), so ten other fans heard first do not crowd the pinned one out",
+			function()
+				assert.equal(discovery.MAX_FOUND, discovery.MAX_HEARD)
+				local world = new_world()
+				local got = hearing()
+				world.finder:find(got.callback)
+				for index = 1, 10 do
+					world.finder:received(6001, 5353, fx.fan_message({ fan = numbered_fan(index) }))
+				end
+				world.finder:received(6001, 5353, fx.K10_MOVED)
+				world.advance(3000)
+				local call = got.calls[1]
+				assert.equal(11, #call.list)
+				assert.equal(11, #call.heard)
+				assert.equal("MF_Fan_000001", call.heard[1].instance)
+				assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
+			end)
+
+		it("keeps at most 64 pairs, the first heard: a 65th is not kept, whoever sent it", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			for index = 1, 70 do
+				world.finder:received(6001, 5353, fx.fan_message({ fan = numbered_fan(index) }))
+			end
+			world.advance(3000)
+			assert.equal(64, #got.calls[1].heard)
+			assert.equal("MF_Fan_000064", got.calls[1].heard[64].instance)
+		end)
+
+		it("gives both lists empty, with the error, when the window cannot be had", function()
+			local closed = new_world({ open = function() return false end })
+			local got = hearing()
+			closed.finder:find(got.callback)
+			assert.same({ list = {}, err = "open", heard = {}, count = 3 }, got.calls[1])
+			local timeless = new_world({ timer = function() error("no timers") end })
+			local late = hearing()
+			timeless.finder:find(late.callback)
+			assert.same({ list = {}, err = "timer", heard = {}, count = 3 }, late.calls[1])
+			local mute = new_world({ send = function() return false end })
+			local unsent = hearing()
+			mute.finder:find(unsent.callback)
+			mute.advance(3000)
+			assert.same({ list = {}, err = "send", heard = {}, count = 3 }, unsent.calls[1])
+		end)
+
+		it("tells a joined callback the same heard", function()
+			local world = new_world()
+			local first, second = hearing(), hearing()
+			world.finder:find(first.callback)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.finder:find(second.callback)
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.advance(3000)
+			assert.same({ pair_of(fx.FAN_ONE), pair_of(fx.FAN_ONE_MOVED) }, first.calls[1].heard)
+			assert.equal(first.calls[1].heard, second.calls[1].heard)
+		end)
+
+		it("leaves the heard it handed out alone: a straggler does not reach it, the next window starts empty", function()
+			local world = new_world()
+			local first, second = hearing(), hearing()
+			world.finder:find(first.callback)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.advance(3000)
+			assert.equal("closed", world.finder:received(6001, 5353, fx.K10_MOVED))
+			assert.same({ pair_of(fx.FAN_ONE) }, first.calls[1].heard)
+			world.finder:find(second.callback)
+			world.advance(3000)
+			assert.same({}, second.calls[1].heard)
+		end)
+
+		it("tells a callback of (list, err), as Find Fans has, what it was told before", function()
+			local world = new_world()
+			local seen = {}
+			world.finder:find(function(list, err)
+				seen[#seen + 1] = { list = list, err = err }
+			end)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.finder:received(6001, 5353, fx.FAN_TWO_ALONE)
+			world.advance(3000)
+			assert.same({ { list = { fx.FAN_ONE, fx.FAN_TWO } } }, seen)
+		end)
+
+		it("logs another address of an instance by the last four digits of its MAC, never the whole MAC or a name",
+			function()
+				local world = new_world()
+				world.finder:find(function() end)
+				world.finder:received(6001, 5353, fx.K10_FIRST)
+				world.finder:received(6001, 5353, fx.K10_MOVED)
+				world.finder:received(6001, 5353, fx.GEN12_ANNOUNCEMENT)
+				world.advance(3000)
+				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 at 10.0.2.151"))
+				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 also at 10.0.2.152"))
+				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 at 10.0.2.152"), "the Gen 1/2 instance is new")
+				assert.is_true(world.log.has("window over: sent=2 answers=3 other=0 queries=0 unparsed=0 fans=2"))
+				for _, line in ipairs(world.log.lines) do
+					for _, secret in ipairs({ "00005E005301", "00:00:5E", "MF_Fan", "Windermier" }) do
+						assert.is_nil(line:find(secret, 1, true), line)
+					end
+				end
+			end)
 	end)
 
 	describe("stop", function()

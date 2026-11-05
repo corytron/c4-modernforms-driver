@@ -1,16 +1,19 @@
 -- fan.discovery: Find Fans, the mDNS side (docs/v1-design.md section 9.10, V5a; K10 in section 11.1).
 --
--- Two halves, neither of which touches Director, so a spec runs them as they are:
+-- Three parts, none of which touches Director, so a spec runs them as they are:
 --
 --   * discovery.query() and discovery.parse(): the one DNS question the driver asks and the reader of the answers.
 --     The wire format is RFC 1035 section 4 as multicast DNS (RFC 6762) uses it, written for the few records this
 --     driver needs. parse reads datagrams that anyone on the LAN may have sent (the MULTICAST binding hears every
 --     mDNS packet of the house, not only the fan's), so every read is bounds checked and nothing in it raises.
+--   * discovery.candidates(): which addresses of a window's answers a follow may read (docs/address-follow-design.md
+--     F4, 2.1).
 --   * discovery.new(): the Find Fans window over four functions the driver wires to a dynamic network binding
 --     (C4:CreateNetworkConnection, C4:NetConnect(binding, 5353, "MULTICAST") to 224.0.0.251, C4:SendToNetwork,
---     K10) and to C4:SetTimer.
+--     K10) and to C4:SetTimer. Find Fans and the follower share it.
 --
--- What it does not do: adopt a fan. The list only offers fans; Use Selected Fan checks the identity (section 3.5).
+-- What it does not do: adopt a fan. The list only offers fans; Use Selected Fan checks the identity (section 3.5),
+-- and a follow reads the fan at a candidate address before anything moves (address-follow-design F4).
 
 local discovery = {}
 
@@ -26,11 +29,17 @@ local MAX_HOPS = 16       -- compression pointers followed in one name (section 
 local MAX_NAME = 255      -- octets of a name on the wire (RFC 1035 section 2.3.4)
 local MAX_DATAGRAM = 9000 -- the largest multicast DNS message (RFC 6762 section 17)
 local MAX_FOUND = 64      -- fans kept in one window; Found Fans lists 16 of them (section 7.3)
+local MAX_HEARD = 64      -- (instance, address) pairs kept in one window for the follower (address-follow-design 2.1):
+                          -- as many as fans kept, so other fans cannot crowd the pinned one out (review of #48);
+                          -- candidates still reads at most MAX_CANDIDATES
+local MAX_CANDIDATES = 3  -- addresses a follow reads after one window (address-follow-design F4)
+local HTTP_PORT = 80      -- the SRV port of a fan's /mf interface, the only one a follow reads (F4; MFR section 7)
 local REPEAT_MS = 1000    -- the query goes out a second time this long after the first (section 9.10)
 local WINDOW_MS = 3000    -- answers are collected this long after the first query (section 2.6)
 
 discovery.GROUP, discovery.PORT = GROUP, PORT
 discovery.MAX_HOPS, discovery.MAX_DATAGRAM, discovery.MAX_FOUND = MAX_HOPS, MAX_DATAGRAM, MAX_FOUND
+discovery.MAX_HEARD, discovery.MAX_CANDIDATES = MAX_HEARD, MAX_CANDIDATES
 discovery.REPEAT_MS, discovery.WINDOW_MS = REPEAT_MS, WINDOW_MS
 
 -- The question ---------------------------------------------------------------------------------------------------
@@ -209,7 +218,10 @@ end
 -- 12 uppercase hex digits from a MAC, by the rule of wire.mac12 (section 9.3), kept here so this module needs no
 -- other: white space trimmed, then 12 hex digits, or six pairs joined by one and the same ":" or "-".
 local function mac12(text)
-	if type(text) ~= "string" then
+	-- A MAC is at most 17 characters; anything much longer is refused before the
+	-- trim, whose pattern would rescan a long run of blanks (the text is a TXT
+	-- record off the network).
+	if type(text) ~= "string" or #text > 64 then
 		return nil
 	end
 	local mac = text:match("^%s*(.-)%s*$")
@@ -353,6 +365,68 @@ function discovery.parse(datagram)
 	return found, why
 end
 
+-- What a follow may read -----------------------------------------------------------------------------------------
+
+-- The four numbers of a dotted quad in the one spelling wire.ipv4 accepts (section 9.3) and ipv4() above writes:
+-- decimal octets of 0 to 255 without a leading zero (a resolver may read "010" as octal). nil for anything else.
+local function octets(text)
+	if type(text) ~= "string" then
+		return nil
+	end
+	local parts = { text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$") }
+	if #parts ~= 4 then
+		return nil
+	end
+	for i, part in ipairs(parts) do
+		if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+			return nil
+		end
+		parts[i] = tonumber(part)
+	end
+	return parts
+end
+
+-- RFC 1918's private blocks (10/8, 172.16/12, 192.168/16) and the link-local block (169.254/16, RFC 3927): the
+-- only addresses a follow reads (address-follow-design F4, F8). Any other, a public one above all, is what a
+-- forged or lying answer would name (ECA FA11, 3.7).
+local function private(o)
+	local a, b = o[1], o[2]
+	return a == 10 or (a == 172 and b >= 16 and b <= 31) or (a == 192 and b == 168) or (a == 169 and b == 254)
+end
+
+-- discovery.candidates(heard, mac12, current) -> { address, ... }: the addresses a follow reads after one window,
+-- F4's first step (address-follow-design 2.1; ECA 3.4 step 1). From find's heard list, the entries whose TXT MAC
+-- is the pinned MAC (12 hex digits, case aside; a MAC with ":" or "-" is read as parse reads one), whose SRV port
+-- is 80 and whose address is a private or link-local IPv4 address other than `current` (the Fan Address in use):
+-- their distinct addresses, in the order heard, at most MAX_CANDIDATES. Pure: heard is left as it was and nothing
+-- is kept. A heard that is not a list, a pin without a MAC and entries that are not records give nothing; a nil
+-- or empty current takes nothing away (the follower does not search then, F5). Never raises.
+function discovery.candidates(heard, pin_mac, current)
+	local found = {}
+	local pin = mac12(pin_mac)
+	if type(heard) ~= "table" or not pin then
+		return found
+	end
+	if type(current) == "string" then
+		current = current:match("^%s*(.-)%s*$") -- as the model trims a typed address (wire.ipv4)
+	end
+	local taken = {}
+	for _, entry in ipairs(heard) do
+		if #found >= MAX_CANDIDATES then
+			break
+		end
+		if type(entry) == "table" and entry.port == HTTP_PORT and mac12(entry.mac) == pin then
+			local address = entry.address
+			local o = octets(address)
+			if o and private(o) and address ~= current and not taken[address] then
+				taken[address] = true
+				found[#found + 1] = address
+			end
+		end
+	end
+	return found
+end
+
 -- The Find Fans window -------------------------------------------------------------------------------------------
 
 local Finder = {}
@@ -408,10 +482,10 @@ function Finder:send_query(w)
 	end
 end
 
--- Closes the window: the binding once, the timers, then the callbacks with the list and an error word that is nil
+-- Closes the window: the binding once, the timers, then the callbacks with the list, an error word that is nil
 -- unless nothing could be done: "open" (no binding), "timer" (no window possible) or "send" (no query went out and
--- no fan was heard), each a case for text L10 (section 7.2). Callbacks run after the window is gone, so one may
--- call find again.
+-- no fan was heard), each a case for text L10 (section 7.2), and the heard list. Callbacks run after the window is
+-- gone, so one may call find again.
 function Finder:finish(w, err)
 	if self.window ~= w then
 		return
@@ -423,11 +497,11 @@ function Finder:finish(w, err)
 	if err == nil and w.sent == 0 and #w.list == 0 then
 		err = "send"
 	end
-	local heard = w.heard
+	local tally = w.tally
 	self:say("debug", "Find Fans: window over: sent=%d answers=%d other=%d queries=%d unparsed=%d fans=%d%s",
-		w.sent, heard.answer, heard.other, heard.query, heard.unparsed, #w.list, err and (" failed=" .. err) or "")
+		w.sent, tally.answer, tally.other, tally.query, tally.unparsed, #w.list, err and (" failed=" .. err) or "")
 	for _, callback in ipairs(w.callbacks) do
-		local ok, problem = pcall(callback, w.list, err)
+		local ok, problem = pcall(callback, w.list, err, w.heard)
 		if not ok then
 			self:say("error", "Find Fans: the callback failed: %s", tostring(problem))
 		end
@@ -435,11 +509,14 @@ function Finder:finish(w, err)
 end
 
 -- find(callback): opens the binding, sends the query at once and again REPEAT_MS later, collects answers for
--- WINDOW_MS, closes the binding and calls callback(list, err) once: the fans as parse describes them, de-duplicated
--- by instance, and err as finish says. The callback also runs, at once, when the window cannot open. A find while
--- one runs adds its callback to that window: one binding, two queries, every callback told. Returns false for a
--- callback that is not a function. The first query goes out as soon as open returns; if a controller drops it
--- because the binding is not yet ONLINE (K10 saw 7 ms), the second one, a second later, is the answer to that.
+-- WINDOW_MS, closes the binding and calls callback(list, err, heard) once: the fans as parse describes them,
+-- de-duplicated by instance (the first answer wins: what Find Fans shows), err as finish says, and heard, every
+-- distinct (instance, address) pair of the window, up to MAX_HEARD, in the order heard, each { instance, address,
+-- mac, port } (mac nil when the TXT record has none), for the follower (address-follow-design 2.1). Both lists
+-- are empty when the window could not open. The callback also runs, at once, when the window cannot open. A find
+-- while one runs adds its callback to that window: one binding, two queries, every callback told the same. Returns
+-- false for a callback that is not a function. The first query goes out as soon as open returns; if a controller
+-- drops it because the binding is not yet ONLINE (K10 saw 7 ms), the second one, a second later, answers that.
 function Finder:find(callback)
 	if type(callback) ~= "function" then
 		return false, "callback"
@@ -453,8 +530,10 @@ function Finder:find(callback)
 		callbacks = { callback },
 		list = {},
 		seen = {},
+		heard = {},
+		heard_seen = {},
 		sent = 0,
-		heard = { answer = 0, other = 0, query = 0, unparsed = 0 },
+		tally = { answer = 0, other = 0, query = 0, unparsed = 0 },
 	}
 	self.window = w
 
@@ -492,6 +571,23 @@ function Finder:stop()
 	pcall(self.close)
 end
 
+-- One answer's pair for the heard list: kept when the window has not heard this instance at this address before
+-- and holds fewer than MAX_HEARD. The list keeps an instance's first answer only, so a stale address heard first
+-- would hide the fresh one (ECA FA11, 3.9); this keeps both. The instance compares as the list's does, the first
+-- spelling is kept, and each entry is a record of its own, so the list's records stay the list's. `known` says
+-- the instance was in the list before this answer: the one case the list's debug line does not cover.
+local function hear(finder, w, key, fan, known)
+	local pair = key .. "\0" .. fan.address -- neither a cleaned instance nor an address holds a NUL
+	if w.heard_seen[pair] or #w.heard >= MAX_HEARD then
+		return
+	end
+	w.heard_seen[pair] = true
+	w.heard[#w.heard + 1] = { instance = fan.instance, address = fan.address, mac = fan.mac, port = fan.port }
+	if known then
+		finder:say("debug", "Find Fans: %s also at %s", tail(fan.mac), fan.address)
+	end
+end
+
 -- received(binding, port, data, from): ReceivedFromNetwork for the discovery binding. The sender (`from`) comes
 -- only from OS 4.0.0 (API 32_serial_network_device/_15-ReceivedFromNetwork.md) and is not needed: the A record
 -- carries the fan's address. Everything outside a window, the controller's own query echoed back, other
@@ -502,31 +598,33 @@ function Finder:received(_binding, _port, data, _from)
 	if not w then
 		return "closed"
 	end
-	local heard = w.heard
+	local tally = w.tally
 	if data == QUERY then
-		heard.query = heard.query + 1
+		tally.query = tally.query + 1
 		return "query"
 	end
 	local list, why = discovery.parse(data)
 	if #list > 0 then
-		heard.answer = heard.answer + 1
+		tally.answer = tally.answer + 1
 		for _, fan in ipairs(list) do
 			local key = fan.instance:lower()
-			if not w.seen[key] and #w.list < MAX_FOUND then
+			local known = w.seen[key]
+			if not known and #w.list < MAX_FOUND then
 				w.seen[key] = true
 				w.list[#w.list + 1] = fan
 				self:say("debug", "Find Fans: %s at %s", tail(fan.mac), fan.address)
 			end
+			hear(self, w, key, fan, known)
 		end
 		return "answer"
 	elseif why == "query" then
-		heard.query = heard.query + 1
+		tally.query = tally.query + 1
 		return "query"
 	elseif why then
-		heard.unparsed = heard.unparsed + 1
+		tally.unparsed = tally.unparsed + 1
 		return "unparsed"
 	end
-	heard.other = heard.other + 1
+	tally.other = tally.other + 1
 	return "other"
 end
 

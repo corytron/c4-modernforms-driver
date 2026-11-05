@@ -72,7 +72,8 @@ is recorded in [`migration-design.md`](migration-design.md).
   "Example Room".
 - **Put everything back.** At the end the settings these steps change read
   as they did: Default On Brightness 100, the fan item's Preset Level
-  Level 3, every `Speed N Link Also Lit At` at `No other speed`, the test
+  Level 3, every `Speed N Link Also Lit At` at `No other speed`, `Follow
+  Address Changes` On, `Fan Address` the fan's address, the test
   buttons restored, `Debug Mode` Off, and the two items' names as they were
   before step 6 (the driver changes them in steps 6 and 7; they are put back
   by hand in step 48).
@@ -106,8 +107,10 @@ installed, the keypad moved to its links and the stock device was deleted
    device: a re-added device has a new device id and an empty store, and its
    connections and every programming line that names it are gone.
    - **Expect:** `Driver Version` shows the new build; `Fan Address`, `Poll
-     Interval (s)`, every `Speed N Link Also Lit At`, `Fan ID`, `Debug Mode`,
-     the preset speed and the light's Default On Brightness read as before;
+     Interval (s)`, every `Speed N Link Also Lit At`, `Follow Address
+     Changes`, `Fan ID`, `Debug Mode`, the preset speed and the light's
+     Default On Brightness read as before (an update from a build without
+     `Follow Address Changes` shows the new row as `On`);
      `Status` reads `Online: …` again within a minute; `Keypad Links` still
      lists every binding and the Navigators still show both tiles.
    - **If Composer asked "Restart Director?"**: reboot the controller as
@@ -130,8 +133,10 @@ installed, the keypad moved to its links and the stock device was deleted
    to `fan.local`, then to nothing, then back to the fan's address.
    - **Expect:** `Status` `Fan Address "fan.local" is not an IPv4 address`
      (nothing is sent); then `Not set up: Find Fans, or enter the fan's
-     address in Fan Address`; then `Online: …` again with `Fan ID` unchanged
-     (the identity was kept) and `Last Action` still the line of step 3.
+     address in Fan Address`, and the row stays empty (the driver never fills
+     an empty `Fan Address` by itself, #39); then `Online: …` again with `Fan
+     ID` unchanged (the identity was kept) and `Last Action` still the line
+     of step 3.
    - **Done:** open.
 5. **Find Fans.** Actions tab: **Find Fans**. Read `Found Fans` and `Last
    Action` after about 5 seconds.
@@ -188,7 +193,8 @@ installed, the keypad moved to its links and the stock device was deleted
 
 8. **The rows.** Read the fan item's whole **Properties** tab, in order.
    - **Expect:** `Driver Version` the build, `Status` `Online: …`, `Last
-     Action`, `Fan Address` the address, `Found Fans`, `Fan ID`, `Fan Model`
+     Action`, `Fan Address` the address, `Found Fans`, `Follow Address
+     Changes` `On` (a list of `On` and `Off`; #39), `Fan ID`, `Fan Model`
      (for example `Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30,
      Breeze`: the product name of the model number the fan reports; a model
      the driver has no name for would read `Gen 3, fan <model>, light kit
@@ -455,6 +461,9 @@ installed, the keypad moved to its links and the stock device was deleted
       the `Fan Offline` event fired once (step 35's script ran once; the
       `Online` variable reads 0); the light's controls are greyed out on the
       Navigator; the fan tile and the keypad LEDs keep their last state.
+      `Fan Address` still reads the fan's address and `Last Action` has no
+      `Followed fan …` line: the driver's search for a fan that moved
+      (#39) finds it nowhere and changes nothing.
     - **Done:** open.
 40. **Reboot Fan while it is away.** While the power is still off and `Status`
     says `Not answering`, click **Reboot Fan**, then click **Name Items After
@@ -489,6 +498,9 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** `Status` `Another fan (...<last four digits>) answers at
       10.0.2.152; nothing is sent`; `Fan Offline` fires; a press on a bound
       button does nothing and its LED keeps its state; `Fan ID` is unchanged.
+      `Fan Address` keeps the typed `10.0.2.152` and no `Followed fan …`
+      line appears, although the first fan still answers at its own address:
+      an address you type wins until the pinned fan answers there (#39).
       Set the first fan's address back: `Online: …` and `Fan Online`. Optional
       and only if meant: pick the second fan in `Found Fans` and click **Use
       Selected Fan** (`Now using fan MF_00005E005302 (was MF_00005E005301)`;
@@ -500,14 +512,43 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** `Status` `<address> answers, but not as a Modern Forms fan;
       nothing is sent` (or, if that device answers every request with a page,
       `No usable answer from <address> since <time>; state unknown` after
-      about 45 seconds: record which); `Fan Offline` fires; the fan's own
+      about 45 seconds: record which); `Fan Offline` fires; `Fan Address`
+      keeps the typed address (no `Followed fan …` line, #39); the fan's own
       address back restores `Online: …`.
     - **Done:** open.
-45. **A new address.** Parked, never blocking: only if the router can give the
-    fan a second address cheaply. The old address then shows `Not answering`;
-    **Find Fans** lists the fan at the new address as this device's fan; **Use
-    Selected Fan** reads `Same fan MF_00005E005301, now at 10.0.2.152` and the
-    device carries on. Otherwise leave it open: the specs cover it.
+45. **A new address, followed by the driver (#39).** Optional and never
+    blocking; the driver needs a minute or two, which the Windows session
+    waits out. (a) *By hand, only if the router can do it cheaply:* give the
+    fan another address (change its DHCP reservation), then switch the fan's
+    power off at the wall for 10 seconds and on again so that it takes the
+    new address. The Windows session reads `Status`, `Fan Address` and `Last
+    Action` every 15 seconds for 3 minutes. Afterwards put the reservation
+    back if you changed it, and read the same rows again until the driver has
+    followed the fan back. (b) *A typed address wins.* Set `Fan Address` to a
+    free address of the network on which nothing answers, read `Status`,
+    `Fan Address` and `Last Action` after about a minute, then set the fan's
+    own address back. (c) Set `Follow Address Changes` to `Off` (Set), then
+    back to `On` (Set).
+    - **Expect:** (a) `Status` `Not answering at 10.0.2.151 since <time>; …`
+      (or `Another fan …` if something took the old address) for about a
+      minute, then `Waiting for the fan at 10.0.2.152` and `Online: …`;
+      `Fan Address` now `10.0.2.152`, written by the driver; `Last Action`
+      `Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)`; `Fan
+      Offline` and `Fan Online` fired once each (step 35's scripts, while
+      they are there); `Fan ID`, `Found Fans`, the item names and the
+      bindings unchanged. Record the seconds from the power coming back to
+      `Online: …`. Putting the reservation back gives a second `Followed fan
+      …` line, back to the old address. If nothing is followed within 3
+      minutes, record `Status` and `Last Action` and click **Find Fans**:
+      whether the fan is listed at its new address tells a network that
+      keeps multicast from the controller apart from a driver fault. (b)
+      After about 50 seconds `Status` `Not answering at <free address> since
+      <time>; showing last state` and `Fan Offline`; `Fan Address` keeps the
+      typed address and no `Followed fan …` line appears, although the fan
+      answers at its own address; then `Online: …` and `Fan Online` once the
+      fan's own address is back. (c) Nothing visible changes, the row reads
+      `On` at the end, and the Lua tab shows no `[ERROR]` line. Without (a)
+      the specs carry the follow itself (`fan_driver_spec`).
     - **Done:** open.
 46. **A firmware change.** Parked, never blocking: after the next firmware
     update of the fan, `Firmware` reads `<version> (motor <version>) since
@@ -524,7 +565,9 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Done:** open.
 48. **Put the settings back.** Default On Brightness 100, the fan item's
     Preset Level Level 3, every `Speed N Link Also Lit At` at `No other
-    speed`, `Debug Mode` Off; the restore check R-K on any borrowed button
+    speed`, `Follow Address Changes` On, `Fan Address` the fan's address
+    (after step 45 (a), the address it was followed to is right), `Debug
+    Mode` Off; the restore check R-K on any borrowed button
     that is still open; the two items' names back to what step 6 noted, by
     hand in Composer (**Fan** and **Fan Light** on the house; a throw-away
     device from step 7 is deleted instead), then File » Refresh Navigators.

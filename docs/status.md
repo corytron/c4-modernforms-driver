@@ -11,10 +11,11 @@ Links and the stock device was removed (deploy issue #30, the round in
 Discussion #34). The owner tests it from 2026-11-05. v1.0-beta.2
 (build 29, the colour per speed of #31) is published but was not installed;
 the next install is v1.0-beta.3 with the colours, the fan's product name
-(#37, merged with #42) and without the Migration Report, the Migration and
-Stock Device rows (#45: one-off tooling for the house's cutover, which is
-done; the owner's rule since 2026-11-04 keeps such tooling out of the
-driver).
+(#37, merged with #42), following the fan to a new address by itself (#39,
+PR #48: built, reviewed by an Opus agent, its findings fixed) and without
+the Migration Report, the Migration and Stock Device rows (#45: one-off
+tooling for the house's cutover, which is done; the owner's rule since
+2026-11-04 keeps such tooling out of the driver).
 
 ## What runs on the house
 

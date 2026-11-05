@@ -48,13 +48,14 @@ texts.MAX_FOUND = 16
 texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign", "gen4", "notfan" }
 
 -- Keys texts.result understands, in the contract's order (section 9.6), then
--- the eight answers of the rename job, L22 to L29 (fan-name-design 2.3).
+-- the eight answers of the rename job, L22 to L29 (fan-name-design 2.3), then
+-- the address follower's two, L30 and L31 (address-follow-design 2.4).
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use", "found",
 	"found_none", "find_failed", "reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
 	"away_off", "away_already", "learning_off", "learning_already", "not_answering", "not_taken", "not_picked",
 	"name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin",
-	"name_busy",
+	"name_busy", "followed", "follow_refused",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -669,7 +670,8 @@ end
 -- The fields a result text reads, from args and, for what args lacks, from
 -- args.pin (the model may hand over the identity whole):
 --   client_id, generation, address   the fan (L1 to L4, L21, ...)
---   was                              the previous client id, or a pin (L3)
+--   was                              the previous client id, or a pin (L3);
+--                                    the previous address (L30)
 --   count, or list                   fans found (L8)
 --   find_fans                        the build has Find Fans (L7)
 --   at, now                          seconds: when the reboot was sent (L11, L20)
@@ -728,6 +730,19 @@ function RESULTS.now_using(f)
 		return string.format("Now using fan %s (was %s)", val(f.client_id), f.was)
 	end
 	return string.format("Now using fan %s at %s", val(f.client_id), val(f.address))
+end
+
+-- L30: the follower found the pinned fan at a new address (address-follow-design F6).
+function RESULTS.followed(f)
+	if f.was ~= "" then
+		return string.format("Followed fan %s to %s (was %s)", val(f.client_id), val(f.address), f.was)
+	end
+	return string.format("Followed fan %s to %s", val(f.client_id), val(f.address))
+end
+
+-- L31: the flap guard refused a fourth follow in an hour (F6), said once.
+function RESULTS.follow_refused(f)
+	return string.format("Fan %s moved 3 times in an hour; not following", val(f.client_id))
 end
 
 -- L4.

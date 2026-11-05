@@ -19,9 +19,9 @@
 --     fields is wanted or in flight, and is reported only once it is not
 --     (R5), so a burst's intermediate answers fire nothing.
 --   * One request is in flight at a time. What goes next is, in this order: the
---     pending Use Selected Fan read, a reboot, the contact (an info read, then
---     a state read) while one is due, a command (one group per request, fan,
---     direction, light), the due poll (section 4.3).
+--     pending Use Selected Fan read (or a follow's), a reboot, the contact (an info
+--     read, then a state read) while one is due, a command (one group per request,
+--     fan, direction, light), the due poll (section 4.3).
 --   * A failure of any request makes the next one a contact, so a command is
 --     never sent to a fan whose identity has not been read again since it last
 --     went quiet (V5, ECM N3). A command wanted while a contact is due makes
@@ -35,7 +35,9 @@
 --     section 6.2); a command given up in the meantime never turns into a
 --     second try (ECM P8).
 --   * Beyond section 9.5 the model has on_idle(), which the transport calls
---     when its gap ends, and request() for the Dev Request command.
+--     when its gap ends, request() for the Dev Request command, and follow(),
+--     Use Selected Fan's read restricted to the pinned fan, for fan/follow.lua
+--     (docs/address-follow-design.md 2.2).
 --
 -- Persistent keys (section 8): mf_identity, mf_info, mf_online (written here);
 -- mf_preset_speed is the fan proxy's. Nothing private is ever kept: the
@@ -83,6 +85,8 @@ local FIELD_NAME = {
 	fan_on = "fan", speed = "speed", direction = "direction", light_on = "light", level = "light level",
 }
 local IDENTITY_PHASES = { foreign = true, gen4 = true, notfan = true }
+-- Section 6.1's offline-like phases: the only ones a follow starts from (address-follow-design F2).
+local OFFLINE_LIKE = { offline = true, foreign = true, gen4 = true, notfan = true }
 
 -- Helpers -------------------------------------------------------------------
 
@@ -302,6 +306,7 @@ function model.new(opts)
 	self.contact = nil
 	self.inflight = nil
 	self.use, self.off_req, self.reb, self.reboot_req = nil, nil, nil, false
+	self.giving_up = false      -- a read under way is being given up: its callback runs
 	self.reboot_expired = false
 	self.timers = {}
 	self.events, self.flushing, self.pumping = {}, false, false
@@ -1765,7 +1770,8 @@ function Model:abandon()
 	local u = self.use
 	self.use = nil
 	if u then
-		pcall(u.cb, "no_answer", { address = u.address })
+		-- A follow given up by the owner's edit or stop() hears no_answer (ECA CA2).
+		self:give_up_use(u, "no_answer")
 	end
 end
 
@@ -1865,10 +1871,18 @@ function Model:use_fan(address, mac12, cb)
 		pcall(cb, "nothing_to_use", { find_fans = true })
 		return
 	end
+	self:begin_use({ address = addr, mac12 = upper(mac12), cb = cb })
+end
+
+-- The one info read of Use Selected Fan, and of a follow (address-follow-design 2.2):
+-- a read already under way is given up (a click takes a follow's place, ECA CA6), so is
+-- the request on the wire, and the transport points at the target with a new epoch.
+-- The read goes before anything else (next_request); nothing else goes while it is out.
+function Model:begin_use(u)
 	local old = self.use
 	self.use = nil
 	if old then
-		pcall(old.cb, "no_answer", { address = old.address })
+		self:give_up_use(old, old.follow and "busy" or "no_answer")
 	end
 	self:abandon_inflight()
 	self:reconcile({})
@@ -1882,25 +1896,36 @@ function Model:use_fan(address, mac12, cb)
 		self.log.warn("Reboot Fan cancelled before it was sent: Use Selected Fan came first")
 		self:set_phase("waiting")
 	end
-	self.use = { address = addr, mac12 = upper(mac12), cb = cb, prev_address = self.address, sent = false }
-	self.t:set_address(addr)
+	u.prev_address, u.sent = self.address, false
+	self.use = u
+	self.t:set_address(u.address)
 	self:pump()
 	self:flush()
+end
+
+-- A read under way is given up (another click, the owner's edit, stop()): its callback
+-- hears it once. A follow asked for from inside that callback is refused (busy): the
+-- caller has not finished changing the model, and would leave such a read stranded.
+function Model:give_up_use(u, key)
+	local was = self.giving_up
+	self.giving_up = true
+	if u.follow then
+		self:finish_use(u, key, { address = u.address })
+	else
+		pcall(u.cb, key, { address = u.address })
+	end
+	self.giving_up = was
 end
 
 function Model:finish_use(u, key, args)
 	local ok, err = pcall(u.cb, key, args)
 	if not ok then
-		self.log.error("the Use Selected Fan callback failed: %s", tostring(err))
+		self.log.error("the %s callback failed: %s", u.follow and "follow" or "Use Selected Fan", tostring(err))
 	end
 end
 
-function Model:after_use(result, outcome)
-	local u = self.use
-	self.use = nil
-	if not u then
-		return
-	end
+-- Use Selected Fan's verdict on its read (section 3.5): L2 to L6 and L21.
+function Model:use_verdict(u, result, outcome)
 	local key, info
 	local args = { address = u.address }
 	if outcome == "timeout" or outcome == "connect" then
@@ -1923,8 +1948,31 @@ function Model:after_use(result, outcome)
 			end
 		end
 	end
-	if key == "moved" or key == "now_using" then
-		self:adopt(u, key, info)
+	return key, info, args
+end
+
+function Model:after_use(result, outcome)
+	local u = self.use
+	self.use = nil
+	if not u then
+		return
+	end
+	local key, info, args
+	if u.follow then
+		local ok, k, i, a = pcall(self.follow_verdict, self, u, result, outcome)
+		if ok then
+			key, info, args = k, i, a
+		else
+			-- An answer that cannot be read shows no pinned fan; the callback is still told once.
+			self.log.error("the follow's answer could not be read: %s", tostring(k))
+			key, args = "not_same", { address = u.address }
+		end
+	else
+		key, info, args = self:use_verdict(u, result, outcome)
+	end
+	if key == "moved" or key == "now_using" or key == "followed" then
+		-- A follow is adopted as the "moved" path is (address-follow-design F6), never re-pointed.
+		self:adopt(u, key == "now_using" and key or "moved", info)
 	else
 		-- Nothing changes: the transport goes back to where it was, with a contact.
 		self.t:set_address(u.prev_address)
@@ -1962,6 +2010,82 @@ function Model:adopt(u, key, info)
 	self:set_phase("waiting")
 	self:reconcile({})
 	self:announce_info()
+end
+
+-- Following the pinned fan (address-follow-design 2.2) -----------------------
+
+-- RFC 1918's private blocks and the link-local block (RFC 3927): the only addresses a follow
+-- reads (F8). discovery.candidates checks the same; this is the last step before the request.
+local function private_address(addr)
+	local a, b = addr:match("^(%d+)%.(%d+)%.%d+%.%d+$")
+	a, b = tonumber(a), tonumber(b)
+	if not a then
+		return false
+	end
+	return a == 10 or (a == 172 and b >= 16 and b <= 31) or (a == 192 and b == 168) or (a == 169 and b == 254)
+end
+
+-- Use Selected Fan's one info read at `address`, restricted to the pinned fan, for
+-- fan/follow.lua. `mac12` is the MAC the fan's multicast DNS answer carried there (F1).
+-- cb(key, args), once, through pcall:
+--   "followed"  { address, was, client_id }: the pinned fan answers there. Adopted as the
+--               "moved" path does (F6): the transport stays at `address` on the epoch its
+--               read began, pin.address, mf_identity and the firmware record are stored,
+--               the phase is waiting, all before the callback; the contact follows.
+--   "not_same"  { address, other_client_id }: another fan, a MAC that is not the pin's, an
+--               answer that is no fan's (a 404, no client id or no MAC), or an address that
+--               cannot be the pinned fan's new one (not IPv4, the one in use).
+--   "no_answer" { address }: silence or an error (FA15: worth a read later), or the owner's
+--               edit or stop() gave the read up (ECA CA2).
+--   "busy"      { address }: refused at once (F2): stopped, a read under way, a phase that is
+--               not offline-like (rebooting among them), no pin with a MAC; or a Use Selected
+--               Fan click took the read's place (ECA CA6).
+-- All but "followed" leave the model as a failed Use Selected Fan does: the previous address
+-- back, with a contact. Never "now_using", never another fan pinned, never a Last Action:
+-- the driver writes L30.
+function Model:follow(address, mac12, cb)
+	cb = type(cb) == "function" and cb or noop
+	local addr = type(address) == "string" and self.wire.ipv4(address) or nil
+	local args = { address = addr or address }
+	local tell = { cb = cb, follow = true }
+	local pin = self.pin
+	if self.stopped or self.use or self.giving_up or not OFFLINE_LIKE[self.phase_] or not (pin and pin.mac) then
+		return self:finish_use(tell, "busy", args)
+	end
+	local mac = self.wire.mac12(mac12)
+	if not addr or not private_address(addr) or addr == self.address or not mac or mac ~= self.wire.mac12(pin.mac) then
+		-- F4, F8: nothing is read where the pinned fan's own answer did not put it, and never
+		-- outside the private and link-local blocks, whatever the caller was told.
+		return self:finish_use(tell, "not_same", args)
+	end
+	self:begin_use({ address = addr, mac12 = mac, cb = cb, follow = true })
+end
+
+-- F4 (ECA 3.4 step 2): accepted only as the pinned fan, by its client id (case-insensitive)
+-- and the pin's MAC, which must also be the one its announcement carried. Silence and an
+-- error may pass (no_answer); a 404 (Gen 4 or no fan, FA14), an answer that is no fan's,
+-- another fan and a mismatch will not (not_same).
+function Model:follow_verdict(u, result, outcome)
+	local args = { address = u.address }
+	if outcome == "timeout" or outcome == "connect" or outcome == "http" or outcome == "empty" then
+		return "no_answer", nil, args
+	elseif outcome ~= "ok" then
+		return "not_same", nil, args
+	end
+	local w, pin = self.wire, self.pin
+	local info = w.info(result.json)
+	if type(info) ~= "table" then
+		return "not_same", nil, args
+	end
+	local mac = w.mac12(info.mac)
+	local same = pin ~= nil and w.same_fan(pin, info.client_id)
+	if not (same and mac ~= nil and mac == w.mac12(pin.mac) and mac == u.mac12) then
+		if not same then
+			args.other_client_id = info.client_id
+		end
+		return "not_same", nil, args
+	end
+	return "followed", info, { address = u.address, was = u.prev_address, client_id = pin.client_id }
 end
 
 -- Reboot Fan and the fan's automations (V22, V23) ---------------------------

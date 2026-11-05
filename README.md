@@ -89,8 +89,9 @@ the fan does.
   per-speed connections are documented from OS 3.4.2. The author's
   controller runs OS 3.4.3 and is managed with Composer Pro 3.4.2.
 - A Modern Forms fan with Wi-Fi, set up in the Modern Forms app, on the same
-  network as the controller and with a fixed IPv4 address (a DHCP
-  reservation in your router). Which models and firmware versions work is
+  network segment as the controller. A fixed IPv4 address (a DHCP
+  reservation in your router) is recommended but not required: when the
+  fan gets a new address, the driver finds it again by itself. Which models and firmware versions work is
   settled by the research and by testing; only the author's fan will have
   been tried.
 - Nothing in the cloud: the driver is meant to need neither internet access

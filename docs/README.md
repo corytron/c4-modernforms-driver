@@ -39,6 +39,10 @@ specification, and `status.md` says what of them is live.
   its model number, shown in Fan Model, and when the driver names its two
   items after it (#37): Use Selected Fan, guarded, and the action Name Items
   After Fan.
+- [`address-follow-design.md`](address-follow-design.md): following the
+  pinned fan to a new address by itself (#39): when it looks (multicast DNS
+  for the pinned MAC, on a backing-off schedule), what it reads before it
+  moves, the owner's typed address winning, and the switch.
 - [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
   throwaway Composer package built outside `src/` so no release carries it,
   and the Windows session's brief for each check K4–K10 and K14 of
@@ -87,6 +91,9 @@ Read-only research written before a feature's contract, in the same style.
 - [`edge-cases-rename.md`](edge-cases-rename.md): the lifecycle cases of the
   driver renaming its own items in Composer, and the guard that keeps a name
   someone typed (#37).
+- [`edge-cases-address.md`](edge-cases-address.md): the fan's and
+  Control4's cases around a fan whose address changes, the evidence from the
+  house, and the recommendation the contract of #39 rests on.
 
 ## Start here
 

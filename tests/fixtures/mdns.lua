@@ -9,6 +9,8 @@
 --   K10_FIRST   the service name written once, the instance's names pointing to it, the A record pointing into
 --               the SRV record's target;
 --   K10_SECOND  only the last label ("local") shared, the other names written out.
+-- A Gen 1/2 fan announces itself in a third layout (GEN12_ANNOUNCEMENT, docs/edge-cases-address.md E4), and
+-- K10_MOVED is the first layout from the fan at another address, for the follower (docs/address-follow-design.md).
 
 local M = {}
 
@@ -21,6 +23,16 @@ M.FAN_TWO = {
 -- Another device that announces the same service type with a protocol of its own.
 M.OTHER = {
 	instance = "Other_Device_1234", address = "192.0.2.50", port = 80, mac = "00005E005399", firmware = "1.2.3",
+}
+-- FAN_ONE answering from the second address: the same instance and MAC (ECA FA1, FA11).
+M.FAN_ONE_MOVED = {
+	instance = "MF_Fan_005301", address = "10.0.2.152", port = 80, mac = "00005E005301", firmware = "02.00.0052",
+}
+-- A Gen 1/2 fan with FAN_ONE's MAC at the second address (ECA E4): its instance is "WAC Windermier Fan#" and the
+-- last six digits of the MAC, its firmware a Gen 1/2 version (MFR section 1).
+M.GEN12_FAN = {
+	instance = "WAC Windermier Fan#005301", address = "10.0.2.152", port = 80, mac = "00005E005301",
+	firmware = "01.03.0025",
 }
 
 local TYPE_A, TYPE_NS, TYPE_PTR, TYPE_TXT, TYPE_SRV = 1, 2, 12, 16, 33
@@ -123,6 +135,14 @@ end
 
 local function txt_strings(fan)
 	return { "Protocol=com.modernforms.fan", "MAC=" .. colon(fan.mac), "Firmware Rev=" .. fan.firmware }
+end
+
+-- A Gen 1/2 fan's TXT strings: the keys of a Gen 3 fan's and Hardware Rev, MICO OS Rev, Model, Manufacturer and
+-- Seed (ECA E4, MFR section 7), the MAC spelled as a Gen 3 fan spells it. ECA records no order and copies no
+-- value: the order is this file's, with Protocol not first, and the values of the added keys are placeholders.
+local function gen12_strings(fan)
+	return { "MAC=" .. colon(fan.mac), "Firmware Rev=" .. fan.firmware, "Hardware Rev=example",
+		"MICO OS Rev=example", "Model=example", "Protocol=com.modernforms.fan", "Manufacturer=example", "Seed=1" }
 end
 
 local SERVICE = { "_easylink", "_tcp", "local" }
@@ -296,6 +316,25 @@ local function oversized_label(fan)
 	return buf.bytes()
 end
 
+-- A Gen 1/2 fan's announcement (ECA E4): sent unprompted, not as an answer, so no question and id 0; PTR, SRV,
+-- TXT and A all in the answer section, each with a time to live of 1500 s, the cache-flush bit on the SRV, TXT
+-- and A records (RFC 6762 sections 8.3, 10.2), not on the shared PTR record. SRV port 80 (MFR section 7). ECA
+-- records neither the order of the records, nor the SRV target, nor the compression: here the target is
+-- <instance>.local as a Gen 3 fan names it (E1), and each name points back to what came before it.
+local function gen12_announcement(fan)
+	local buf = enc.buffer()
+	buf.put(enc.header({ flags = 0x8400, an = 4 }))
+	local service_at = buf.size()
+	local local_at = service_at + 1 + #SERVICE[1] + 1 + #SERVICE[2]
+	local _, instance_at = enc.rr(buf, enc.name(unpack(SERVICE)), TYPE_PTR, 1, 1500,
+		enc.label(fan.instance) .. enc.ptr(service_at))
+	local _, srv_at = enc.rr(buf, enc.ptr(instance_at), TYPE_SRV, 0x8001, 1500,
+		enc.srv(0, 0, fan.port, enc.label(fan.instance) .. enc.ptr(local_at)))
+	enc.rr(buf, enc.ptr(instance_at), TYPE_TXT, 0x8001, 1500, enc.txt(unpack(gen12_strings(fan))))
+	enc.rr(buf, enc.ptr(srv_at + 6), TYPE_A, 0x8001, 1500, enc.a(fan.address))
+	return buf.bytes()
+end
+
 -- The fixtures, by name; M.NAMES lists them in this order for a spec that runs over all of them. ------------------
 
 M.K10_FIRST = M.fan_message()
@@ -314,10 +353,12 @@ M.TRUNCATED = M.K10_FIRST:sub(1, 200) -- cut inside the TXT record's data
 M.LOOP = looping(M.FAN_ONE)
 M.POINTER_OUT_OF_BOUNDS = out_of_bounds(M.FAN_ONE)
 M.OVERSIZED_LABEL = oversized_label(M.FAN_ONE)
+M.GEN12_ANNOUNCEMENT = gen12_announcement(M.GEN12_FAN)
+M.K10_MOVED = M.fan_message({ fan = M.FAN_ONE_MOVED })
 
 M.NAMES = {
 	"K10_FIRST", "K10_SECOND", "REORDERED", "TWO_FANS", "FAN_TWO_ALONE", "OTHER_EASYLINK", "TXT_NO_PROTOCOL",
-	"TRUNCATED", "LOOP", "POINTER_OUT_OF_BOUNDS", "OVERSIZED_LABEL",
+	"TRUNCATED", "LOOP", "POINTER_OUT_OF_BOUNDS", "OVERSIZED_LABEL", "GEN12_ANNOUNCEMENT", "K10_MOVED",
 }
 
 return M
