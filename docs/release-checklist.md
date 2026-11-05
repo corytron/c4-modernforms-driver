@@ -97,9 +97,12 @@ Install the release files from the GitHub release through `tools/deploy.py
 start` and the brief it writes ("Deploy to the house" below); no "Restart
 Director?" unless a capability changed (then the owner reboots the
 controller from System Manager). The first install of the driver is not an
-update: it replaces the stock WAC driver and follows the migration contract
-(`CLAUDE.md`, Scope), which says what the Windows session redoes and in which
-order. Read:
+update: the new device goes beside the stock WAC device, which is then
+replaced by hand, as
+[chapter 11 of the manual](../src/modernforms_fan/www/documentation.html#ch11)
+says (`CLAUDE.md`, Scope); the house's own cutover of 2026-11-04 is recorded
+in [`migration-design.md`](migration-design.md). Every later install is an
+update in place. Read:
 
 1. `Driver Version` on every Modern Forms Fan device = the build; `Debug
    Mode` reads Off on every device (a dev-loop session often leaves it On,

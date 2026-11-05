@@ -29,11 +29,12 @@ specification, and `status.md` says what of them is live.
   with keypad LEDs, the transport to the fan and the report rules, the
   properties, actions, events and texts, the module interfaces and the
   build split.
-- [`migration-design.md`](migration-design.md): replacing the stock WAC
-  driver on a house: the new device beside the old one, the keypad moved
-  button by button with a way back from every phase, the driver's read-only
-  Migration Report, and the later removal of the stock device and the
-  keypad's LED workaround.
+- [`migration-design.md`](migration-design.md): retired by #45, kept as
+  the record of the house's cutover from the stock WAC driver: the new
+  device beside the old one, the keypad moved button by button with a way
+  back from every phase, and the removal of the stock device and the
+  keypad's LED workaround. The Migration Report it specified is gone from
+  the driver.
 - [`fan-name-design.md`](fan-name-design.md): the fan's product name from
   its model number, shown in Fan Model, and when the driver names its two
   items after it (#37): Use Selected Fan, guarded, and the action Name Items

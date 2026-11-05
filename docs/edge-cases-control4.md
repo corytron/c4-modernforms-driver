@@ -131,12 +131,12 @@ Windows Composer session.
 - Nothing can carry programming across (F19 is read-only; F33 is 4.x-only
   and does not write programming either). The tools are therefore: the new
   device beside the old one, a read-only **Migration Report** from our
-  driver (F19, F20), WS's Composer work (F16, F17), and the owner's hands
-  only for a keypad press or a phone.
+  driver (F19, F20; built, then retired by #45), WS's Composer work (F16,
+  F17), and the owner's hands only for a keypad press or a phone.
 
 ### 2.2 What names the stock device today, and who redoes it
 
-| What | Where it lives | Seen by the Migration Report | Redone by | Basis |
+| What | Where it lives | Seen by the Migration Report (retired by #45) | Redone by | Basis |
 | --- | --- | --- | --- | --- |
 | Keypad speed scripts (Single Tap and Double Tap set speeds) | code items on the keypad's button events; their commands target the stock fan | yes (target device) | WS: disable, then the link, or a Double Tap line (Q3) | [verified: F19 fields] [assumed: keypad events are in the table] |
 | LED lines in those scripts ("Use the on color for …") | the same scripts; they target the keypad only | as lines of a script that also names the stock fan | WS: disabled with the script, deleted in M8 | [assumed] |
@@ -173,14 +173,14 @@ LEDs, which is why they are removed by name, not by the device delete.
 
 | Case | A | O | F | Owner sees |
 | --- | --- | --- | --- | --- |
-| Find the stock devices | at each report run (`GetDevices` by the stock file name) | — | — | `Migration`: "Stock WAC devices: 1 (Example Room, device 123)" |
-| Decide which stock device is this fan's | when its network binding's address equals our fan's (H10) | `Stock Device` (DEVICE_SELECTOR) | — | "Stock device: 123 (matched by address)" |
-| List the programming that names it | — | action `Migration Report` (reads the whole project: never at start-up, never on a timer) | — | rows such as "Keypad ▸ button 2 Single Tap: set speed 2 (enabled)" |
-| Track progress | the last report's counts persist and show after a restart | re-run the report | — | "14 items name the stock fan: 0 enabled, 14 disabled; safe to remove" |
+| Find the stock devices (retired by #45) | at each report run (`GetDevices` by the stock file name) | — | — | `Migration`: "Stock WAC devices: 1 (Example Room, device 123)" |
+| Decide which stock device is this fan's (retired by #45) | when its network binding's address equals our fan's (H10) | `Stock Device` (DEVICE_SELECTOR) | — | "Stock device: 123 (matched by address)" |
+| List the programming that names it (retired by #45) | — | action `Migration Report` (reads the whole project: never at start-up, never on a timer) | — | rows such as "Keypad ▸ button 2 Single Tap: set speed 2 (enabled)" |
+| Track progress (retired by #45) | the last report's counts persist and show after a restart | re-run the report | — | "14 items name the stock fan: 0 enabled, 14 disabled; safe to remove" |
 | Disable, delete or rewrite programming | — | WS, per brief | the driver (no API; F19, F21) | — |
 | Bind keypad links | — | WS drag | the driver's own `C4:Bind` of keypad buttons (Connections stays the one place they are made and read) | `Keypad Links`: "9 of 14 links bound" |
 | Take over the stock device's settings | — | the stock address offered as the first `Fan` entry when H10 can read it | applying it without the click | — |
-| Delete the stock device | — | WS in M8, only once the report says no enabled item names it | `<replaces>`, forever | — |
+| Delete the stock device | — | WS in M8, only once the report (retired by #45) says no enabled item names it | `<replaces>`, forever | — |
 
 ### 2.5 The stock links and their replacements
 
@@ -219,8 +219,9 @@ brief still names the hard-to-undo ones.
   and that speed and light match the fan. A first add needs no reboot
   [assumed: a new device takes its capabilities when created]. The room keeps
   running on the stock programming. Undo: delete the new device.
-- **M2 Migration Report (WS click, read-only).** The stock device(s), their
-  links, every item that names them. WS saves the rows beside the M0 XML.
+- **M2 Migration Report (WS click, read-only; retired by #45, with the
+  report's use in M5, M7 and M8).** The stock device(s), their links, every
+  item that names them. WS saves the rows beside the M0 XML.
 - **M3 Test one binding before building on the links** (HUE
   `composer-remote.md`, "Learned 2026-10-27"). Bind one button (a spare, else
   the first to move), press it (H5, or the owner once), check fan, LED and
@@ -403,14 +404,14 @@ them when our notifications arrive. So the driver owns their timing:
 | `Fan Address` | STRING | 10.0.2.151 |
 | `Fan ID`, `Fan Name`, `Last Seen` | STRING, read-only | MF_00005E005301; the fan's own name; "2026-10-27 18:02" |
 | `Keypad Links` | DYNAMIC_LIST, a pick snaps back | first row "5 of 14 links bound", then "Speed 2 ← device 456, binding 3" |
-| `Stock Device` | DEVICE_SELECTOR (stock file) | only when the automatic match fails |
-| `Migration` | DYNAMIC_LIST | "Stock WAC devices: 1; 14 items name them (14 enabled)", then one row per item |
+| `Stock Device` (retired by #45) | DEVICE_SELECTOR (stock file) | only when the automatic match fails |
+| `Migration` (retired by #45) | DYNAMIC_LIST | "Stock WAC devices: 1; 14 items name them (14 enabled)", then one row per item |
 | LED colours | COLOR_SELECTOR per fan link | on and off colour |
 | `Last Action` | STRING, read-only, wrapped rows | "Use Selected Fan: MF_00005E005301 at 10.0.2.151" |
 | `Driver Version`, `Debug Mode` | as in the scaffold | — |
 
-Actions: `Find Fans`, `Use Selected Fan`, `Forget Fan`, `Migration Report`,
-each with `sort_order`.
+Actions: `Find Fans`, `Use Selected Fan`, `Forget Fan`, `Migration Report`
+(retired by #45), each with `sort_order`.
 
 ## 7. Probes, in order
 
@@ -452,13 +453,15 @@ reports that leave the controller carry placeholders only.
 8. **H8 `GetAllCodeItems` on the house** (dev loop, read-only, counts only):
    size and time; whether keypad events, the Timer agent and the Scheduler
    appear; whether a condition carries its device; the enabled flag after
-   Disable Item and Disable Event.
+   Disable Item and Disable Event. (For the Migration Report; retired with it
+   by #45.)
 9. **H9 Find and Replace** in a Script (WS, read-only): what it offers;
    Cancel.
 10. **H10 `GetBindingsByDevice`** on the stock device (dev loop, read-only):
     does it reveal the fan's address, for the automatic match? T1 of
     `docs/fan-proxy-research.md` shows first whether the stock driver has a
-    network binding at all.
+    network binding at all. (The match was the Migration Report's; retired
+    with it by #45.)
 11. **H11 Duplicate detection**: two of our devices on one fan, each reading
     the other's hidden identity variable.
 12. **H12 At the next reboot (parked):** the proxies' values and events for

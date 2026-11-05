@@ -264,25 +264,6 @@
 				<default>0,0,0</default>
 				<readonly>false</readonly>
 			</property>
-			<!-- docs/migration-design.md section 4: the Migration Report's verdict and
-			     rows; a pick changes nothing. -->
-			<property>
-				<name>Migration</name>
-				<type>DYNAMIC_LIST</type>
-				<readonly>false</readonly>
-			</property>
-			<!-- Names this fan's stock WAC device when the report cannot tell. The item
-			     is the stock package's file name as hardware check K1 read it; that the
-			     Select dialog lists the device under it is assumed (seen at first use)
-			     [FUND 15/_3.1-DEVICESELECTOR.md]. -->
-			<property>
-				<name>Stock Device</name>
-				<type>DEVICE_SELECTOR</type>
-				<items>
-					<item>wac_mf_fan_and_light_controller(v4).c4z</item>
-				</items>
-				<multiselect>false</multiselect>
-			</property>
 			<property>
 				<name>Debug Mode</name>
 				<type>LIST</type>
@@ -348,12 +329,6 @@
 				<name>Turn Off Adaptive Learning</name>
 				<command>Turn Off Adaptive Learning</command>
 				<sort_order>6</sort_order>
-				<params/>
-			</action>
-			<action>
-				<name>Migration Report</name>
-				<command>Migration Report</command>
-				<sort_order>7</sort_order>
 				<params/>
 			</action>
 		</actions>

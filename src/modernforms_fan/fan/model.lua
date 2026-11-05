@@ -948,7 +948,7 @@ function Model:pump()
 	local ph = self.phase_
 	if (ph == nil or ph == "unset") and not self.use then
 		-- With no address nothing goes out, except Use Selected Fan's one read: a fan can
-		-- be picked while Fan Address is empty (section 3.5, Phase 1 of the migration).
+		-- be picked while Fan Address is empty (section 3.5).
 		return
 	end
 	self.pumping = true

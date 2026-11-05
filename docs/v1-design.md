@@ -14,9 +14,9 @@ the light and the structure
 [`light-structure-research.md`](light-structure-research.md) (LSR), the
 lifecycle policy [`edge-cases-modernforms.md`](edge-cases-modernforms.md)
 (ECM) and [`edge-cases-control4.md`](edge-cases-control4.md) (ECC). Where
-they disagree with this file, this file wins. The cutover from the stock
-WAC driver is [`migration-design.md`](migration-design.md#3-phases)'s, and
-so is the Migration Report ([its section 4](migration-design.md#4-the-migration-report)).
+they disagree with this file, this file wins. The house's cutover from the
+stock WAC driver is [`migration-design.md`](migration-design.md#3-phases)'s
+(V16).
 The fan's product name and the naming of the two Composer items after it
 (V28, #37, 2026-11-04) are [`fan-name-design.md`](fan-name-design.md)'s.
 
@@ -67,7 +67,7 @@ properties and the keypad) later the same day.
 | V13 | **Fan offline** (power cut at the wall, Wi-Fi gone, a stuck module): keep the last state marked not current, the `Online` variable 0, **Fan Offline** once; when it answers again, report what the fan says, **Fan Online** once, and re-send nothing. A command while offline is tried once and dropped. | #6 decision 10; ECM P1–P3, P8, Q1, Q2; ECC R7, R8, U3; LV2 `35/_15-ONLINECHANGED.md` | VERIFIED-doc for the light's `ONLINE_CHANGED`; the fan proxy has no online notion (FPR §1.4). |
 | V14 | **The light turns on at Default On Brightness** (top tap, Toggle from off, `ON`, a Navigator's on). No fades: every target is one level sent at once; a hold steps the level at most every 500 ms. "On at a new level" is the level first, then `lightOn`, never one body. | #6 decision 11; LSR §1.2–§1.6, Q1; MFR §2.3, §9; ECM S3, S4; M0 (the level is kept while off) | VERIFIED: AIO's level-then-on order (MFR §2.3); M0. ASSUMED (K12): a level sent while off does not switch the light on. |
 | V15 | **WAC's API License Agreement is not entered.** Every field the driver reads or writes is verified by `aiomodernforms` / Home Assistant code (as MFR cites it) or by M0; WAC's documents are at most corroboration and nothing of them is copied. | #6 decision 12; MFR "Licensing and provenance" | — |
-| V16 | **Migration**: the driver carries the **Migration Report** action and the **Migration** and **Stock Device** properties (§2.5); their behaviour is [`migration-design.md`](migration-design.md#4-the-migration-report)'s. `<replaces>` is never declared. | #6 decision 13; ECC §2.1, D24; XML `15_common_xml/_33.5-replaces.md` | VERIFIED-doc: `<replaces>` deletes the named driver's devices without warning. |
+| V16 | **Migration**: a house moves from the stock driver by hand, the new device beside the stock one until the stock device is deleted (the manual's chapter 11, §14); `<replaces>` is never declared. **The Migration Report was removed in #45 (2026-11-04)**, with the **Migration** and **Stock Device** properties and the module `fan/migration.lua`: the first builds carried them for the house's one cutover, which is done, and a shipped driver gathers no one-off facts about one house (the owner's rule, #45). [`migration-design.md`](migration-design.md) remains the record of the house's cutover. The report's stored verdict is deleted at late init (§8). | #6 decision 13; #45; ECC §2.1, D24; XML `15_common_xml/_33.5-replaces.md` | VERIFIED-doc: `<replaces>` deletes the named driver's devices without warning. |
 | V17 | **1.0 codename "Arrakis"** (in `.github/codenames.json`); every 1.0 build and beta keeps it. | #6 decision 14 | — |
 | V18 | **Direction**: `can_reverse` True and `SET_DIRECTION`/`TOGGLE_DIRECTION` written as `fanDirection`, **if** K11 shows the house fan stays on Wi-Fi after a direction write; otherwise `can_reverse` False and the direction is shown only. Settled before the first install (a static capability). | MFR §8 (a field report of a model dropping off Wi-Fi on every direction write), §9; ECM S5; FAN `43_fan_capabilities/_1-canreverse.md`; K1, K3 (the stock driver declares `can_reverse` True and offers Winter Mode and Summer Mode actions) | M1?: K11, still before the first install: the stock's actions show WAC writes the direction, not that nobody's fan dropped off Wi-Fi doing it. |
 | V19 | **Light capabilities**: as the Hue Light, minus colour, with `click_rates` False (taps are immediate, as V14 needs) and `reduced_als_support` True (the light may join Advanced Lighting Scenes; a static choice that is free to keep and costs a reboot to add later). The stock driver differs: `click_rates` True (250 to 1000 ms; the house's light shows 0.25 s up, 0.75 s down) and `has_leds` False (K1, K2); so the light's settings page loses its click rates and gains LED colours. Default On Brightness keeps the house's 100 (K2). | LSR §1.2; LV2 `5_light_v2_capabilities/_11-CLICKRATES.md`, `22-REDUCEDALSSUPPORT.md`; LV2 `45_Light_V2_advanced_lighting_scene/_1.3-REDUCEDALSSUPPORT.md`; K1, K2 | VERIFIED-house: the Hue Light's set; the stock's `reduced_als_support` True (K1). |
@@ -232,9 +232,7 @@ steps 3 to 5. Reserved, never declared in v1: 203–209 (light),
 | 20 | Speed LED Colors | LIST: `Keypad's own`, `Per speed` | Keypad's own | no | V27, shipped from beta.2 (#31) |
 | 21–26 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | V27: the on colour a speed link shows while the fan runs at that speed (the value is `r,g,b` in decimal, the driver sends it as 6-digit hex) |
 | 27 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | V27: the off colour sent with them |
-| 28 | Migration | DYNAMIC_LIST | "" | — | [`migration-design.md`](migration-design.md#4-the-migration-report) (its verdict and rows) |
-| 29 | Stock Device | DEVICE_SELECTOR, `<items>`: the stock driver's file name as M0 read it, `wac_mf_fan_and_light_controller(v4).c4z` (K1; that the Select dialog lists the device under it is ASSUMED, seen at its first use; another version of WAC's file has its name added by a later build, a property change with no reboot), `<multiselect>false</multiselect>` | "" | no | the fallback that names this fan's stock device when the Migration Report cannot tell (that document's §4.2) |
-| 30 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
+| 28 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
 | dev | Dev Server | STRING | "" | no | DEV-ONLY block, as the scaffold |
 | dev | Dev State | STRING | "" | yes | DEV-ONLY block, [section 12](#12-dev-loop-actions-and-toolsregresssh) |
 
@@ -242,20 +240,11 @@ Types: XML `20_properties/_20-type.md`; DYNAMIC_LIST FUND
 `15_composerpro_interface_into_the_sdk/_2-DYNAMICLISTPROPERTIES.md`;
 RANGED_INTEGER with `<minimum>`/`<maximum>` (XML `20_properties/_40-minimum.md`,
 `_45-maximum.md`); COLOR_SELECTOR, a comma-separated RGB value (FUND
-`_5-COLORSELECTOR.md`), sent as 6-digit hex; DEVICE_SELECTOR, whose items
-the documentation gives as `.c4i` names of proxies or protocols and whose
-value is the chosen device ids, comma-separated (FUND
-`_3.1-DEVICESELECTOR.md`; that a `.c4z` file name works as an item is
-ASSUMED, seen when the Windows session first opens the Select dialog).
-`Stock Device` shows Composer's own selection and no driver text; the texts
-that name it are [migration-design.md](migration-design.md#4-the-migration-report)'s
-verdicts (its §4.5): `Stock Device changed: click Migration Report again`,
-`3 stock WAC devices: pick this fan's in Stock Device` and `Report failed:
-Stock Device 1204 is not a stock WAC device`. Every text the driver writes
+`_5-COLORSELECTOR.md`), sent as 6-digit hex. Every text the driver writes
 stays under about 70 characters (Composer clips near 75; ECC F29). A
 DYNAMIC_LIST item never contains a comma (the list is one comma-separated
 string, `C4:UpdatePropertyList`): a comma in a device name is written as
-`‚` (U+201A), as the Hue drivers and `migration-design.md` do. A `Fan
+`‚` (U+201A), as the Hue drivers do. A `Fan
 Address` edit reaches the driver only through the row's Set button (ECC
 F29). Every property handler also runs in the late-init replay, so the
 settings of rows 12 and 14–27 apply from the start.
@@ -274,7 +263,6 @@ the house keys of [`scaffold-design.md`](scaffold-design.md) section 5.
 | 4 | Reboot Fan | V23, [section 6.4](#64-reboot-fan) |
 | 5 | Turn Off Away Mode | V22: `{"awayModeEnabled":false}` |
 | 6 | Turn Off Adaptive Learning | V22: `{"adaptiveLearning":false}` |
-| 7 | Migration Report | [`migration-design.md`](migration-design.md#4-the-migration-report) |
 
 `sort_order` on every action (XML `30_actions/_45-sortorder.md`; without it
 Composer lists them in reverse, ECC F29). The numbers stay even without
@@ -943,7 +931,6 @@ The longest, S9 with a 15-character address and a date, stays under 75.
 | L27 | Director did not confirm the names | `Rename not confirmed; check the item names in Composer` |
 | L28 | Name Items After Fan, no fan pinned | `Nothing to name the items after: no fan is set up yet` |
 | L29 | Name Items After Fan, a naming is pending | `Naming in progress; try again in a moment` |
-| — | Migration Report | [`migration-design.md`](migration-design.md#4-the-migration-report) |
 
 L22 to L29 are V28's
 ([`fan-name-design.md`](fan-name-design.md#23-fantextslua-changed), 2.3; the
@@ -977,7 +964,6 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | Found Fans | items: `MF_Fan_005301 at 10.0.2.151`, with ` (this device's fan)` when its MAC is the pinned one; at most 16 |
 | Speed N Link Also Lit At | the dealer's choice among `No other speed`, `Speed 1` … `Speed 6`; no driver text |
 | Speed LED Colors (V27) | the dealer's choice among `Keypad's own`, `Per speed`; no driver text |
-| Stock Device | Composer's selection; the texts naming it are the Migration Report's (§2.5) |
 
 ## 8. Persistence and restore
 
@@ -989,7 +975,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | `mf_preset_speed` | 1–6 | `DESIGNATE_PRESET` | late init |
 | `mf_names` | `{ fan = "Aviator 5", light = "Aviator 5 Light", at = <epoch s> }`: the names the driver last wrote and Director confirmed (V28); an item is written only after the read-back matches, so one of the two may be missing | the rename job, per item | the next rename job's guard |
 | device.lua's `preset_level`, `hold_rate_up`, `hold_rate_down`, `button_<n>_<on/off>_color` | as device.lua | as device.lua | as device.lua |
-| the migration's keys | [`migration-design.md`](migration-design.md#4-the-migration-report) | | |
+| `mf_migration` | the Migration Report's verdict, kept by the builds before #45 (V16) | never since #45 | never: deleted at late init (`C4:PersistDeleteValue`, API `26.5_persistence/_2-PersistDeleteValue.md`) |
 
 Read with `(C4:PersistGetValue(key))` (a never-written key returns no value
 at all on the house: HUE #298). Not persisted: the fan's state (FUND
@@ -1351,10 +1337,6 @@ detail). Nothing here changes a decision of section 1.
   `cb(list, err)` takes `err` `"open"`, `"timer"` or `"send"` (all L10); a
   second `find` while one runs joins its window; the instance, address and
   firmware are checked and bounded (at most 64 fans per window).
-- **migration.lua**: the persisted key is `mf_migration`; its `api` table is
-  built in `driver.lua`; every owner-visible string is in `migration.T`
-  (`texts.lua` has none of them); `Last Action` after the action is the
-  verdict.
 - **common/**: `dispatch.binding` raises on a non-numeric id; once a binding
   has a handler table, `dispatch.proxy` no longer serves it (shadowed, not
   merged).
@@ -1394,8 +1376,8 @@ At load every table entry is checked with `valid()`; one that fails is dropped
 `name` attributes of the two proxies in `driver.xml` (§2.2; a spec asserts it).
 `texts.lua` requires this module for `Fan Model` (§7.3, §9.6).
 
-**`fan/rename.lua`** (the job; Director's calls are handed in, as
-`migration.lua` does):
+**`fan/rename.lua`** (the job; Director's calls are handed in, as §9.1 has
+every module take them):
 
 ```lua
 local rename = require("fan.rename")
@@ -1561,7 +1543,7 @@ rule 3):
 
 | # | Check | Who | Settles | Research | When |
 | --- | --- | --- | --- | --- | --- |
-| K1 | Read the stock package's `driver.xml` (names and ids only, nothing copied): proxies, capabilities, connections, `minimum_os_version`, `jit` | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** `light_v2` on 5000 declared first, `fan` on 5001 with class `FAN`; one flat capability block (fan: `discrete_levels` 6, `speed_names` Level 1 to 6, `preset_speed` 1, `can_set_preset` and `can_reverse` True; light: `click_rates` True 250–1000, `has_leds` False, `reduced_als_support` True); 12 links of its own, ids 0–11, no `proxybindingid`, no `proxy_fan_speed_connections`; no `minimum_os_version`; `jit` 1; network connection 6000. Settles V1's `fan`/`FAN`, `speed_names` (§2.3), the spelling, `Stock Device`'s item | FPR T1; LSR H3; ECC H1 | M0, done |
+| K1 | Read the stock package's `driver.xml` (names and ids only, nothing copied): proxies, capabilities, connections, `minimum_os_version`, `jit` | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** `light_v2` on 5000 declared first, `fan` on 5001 with class `FAN`; one flat capability block (fan: `discrete_levels` 6, `speed_names` Level 1 to 6, `preset_speed` 1, `can_set_preset` and `can_reverse` True; light: `click_rates` True 250–1000, `has_leds` False, `reduced_als_support` True); 12 links of its own, ids 0–11, no `proxybindingid`, no `proxy_fan_speed_connections`; no `minimum_os_version`; `jit` 1; network connection 6000. Settles V1's `fan`/`FAN`, `speed_names` (§2.3), the spelling, `Stock Device`'s item (a row until #45, V16) | FPR T1; LSR H3; ECC H1 | M0, done |
 | K2 | The stock device in Composer: tree items, which item has Properties, Actions, Documentation and Lua, the light's settings page, where its links show | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** two items; the first-declared proxy ("Fan Light") is the parent with every property, action and the Documentation tab; the child ("Fan") shows only its proxy's Preset Level (Level 3); both list all 12 links. Settles V1's presentation (§2.2) | LSR H1, H2 | M0, done |
 | K3 | The stock device's properties, actions and Documentation tab; the keypad and the programming that names the fan | Windows session, read-only | **VERIFIED 2026-10-27 (#11):** the fan reached on the LAN by a static address on connection 6000, no SDDP; rows that show Owner, Federated Identity and Device Name; 11 actions (Reboot, Winter and Summer Mode among them); the keypad of §5.4. Settles §5.4, V20's note, the migration's overlap | MFR Q9; ECC §2.3 | M0, done |
 | K4 | The probe in a test room: which item is the parent and carries its rows and actions, whether the light child shows its settings page, where links 200 and 300 show, that a press arrives on each (through a **test button**, above) | Windows session, then R-K if the button was borrowed; one press by the owner unless K7 works | **DONE 2026-10-27 and 2026-11-04 (#17, §11.1):** the fan is the parent with the driver's rows and the light its child with the `light_v2` page alone; `proxybindingid` buys no placement (default none stands); a tap and a hold arrive on 200 and 300 alike. V1 (else §2.8); the links' `proxybindingid` | ECC H2; LSR H1, H2 | M1 |
@@ -1683,9 +1665,7 @@ tabs, `.luacheckrc`, busted style as in `tests/spec/device_spec.lua`.
 | **discovery** (K10 passed, V5a) | `src/modernforms_fan/fan/discovery.lua`, `tests/fixtures/mdns.lua`, `tests/spec/discovery_spec.lua` |
 | coordinator | `src/modernforms_fan/driver.lua`, `src/modernforms_fan/driver.xml`, `tools/build.sh` (`fan/devcmds.lua` in `DEV_ONLY_FILES`), `CLAUDE.md`, `.luacheckrc` (`TestCondition`, `ReceivedFromNetwork`), `tests/spec/fan_driver_spec.lua`, `tests/spec/drivers_spec.lua`, `tests/spec/v1_roundtrip_spec.lua`, `CHANGELOG.md`, `README.md`, `docs/README.md`, `docs/status.md`, `docs/design.md`, `docs/release-checklist.md`, `deploy/house.yaml` |
 
-The migration's module, if `migration-design.md` asks for one, has its
-owner named there. While agents work the dev loop stays pinned (`CLAUDE.md`,
-Commands).
+While agents work the dev loop stays pinned (`CLAUDE.md`, Commands).
 
 ## 14. The manual (Documentation tab)
 
@@ -1726,8 +1706,10 @@ text as section 7 has it:
 9. The fan's own automations: `Fan Automations`, `Last Change By`, the two
    Turn Off actions; schedules and timers are cleared in the app.
 10. Properties and actions, row by row.
-11. Moving from the stock WAC driver: a summary pointing to
-    `migration-design.md` on GitHub.
+11. Moving from the stock WAC driver: a short note on doing it by hand (the
+    new device beside the stock one, the fan found and used, each binding
+    and programming line moved, a check, the stock device deleted), with a
+    link to the house's record on GitHub (V16).
 12. Troubleshooting: a stuck Wi-Fi module (Reboot Fan, else 10 s off at the
     wall), `Poll Interval (s)`, the vendor app open on a phone.
 13. Privacy: what the driver reads and drops.
@@ -1770,7 +1752,6 @@ this file as VERIFIED:
 | `speed_names` | `Level 1,Level 2,Level 3,Level 4,Level 5,Level 6` (the stock's and the house's) | K1 |
 | The parent item | the first-declared proxy; v1 declares the fan first (V1, §2.2) | K2 |
 | The stock driver's links | its own 12, ids 0–11, no `proxybindingid`, no `proxy_fan_speed_connections` | K1 |
-| `Stock Device`'s item | `wac_mf_fan_and_light_controller(v4).c4z` | K1 |
 | The keypad's links and `Also Lit At` | Low → Speed 2, also lit at 1; Medium → 3; Med-High → 4; High → Speed 5, also lit at 6; Off → Fan Off (§5.4) | K3 |
 | The generation, firmware and fields | Gen 3, 02.00.0052, the field lists of §4.1 and §10.1, the level kept while off, mDNS | M0 (VM) |
 
