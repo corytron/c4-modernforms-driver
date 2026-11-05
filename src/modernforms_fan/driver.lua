@@ -36,6 +36,7 @@ local discovery_mod = require("fan.discovery")
 local migration_mod = require("fan.migration")
 local names = require("fan.names")
 local rename_mod = require("fan.rename")
+local follow_mod = require("fan.follow")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -158,9 +159,13 @@ local function result(key, args)
 	show_result(texts.result(key, args))
 end
 
+local function trimmed(value)
+	return (value or ""):match("^%s*(.-)%s*$")
+end
+
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, migration, names_job
+local model, fan, links, light, discovery, migration, names_job, follower
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 local found = { items = {}, list = {} } -- the last Find Fans, row by row
 
@@ -215,6 +220,14 @@ end
 -- the Online variable and the light, detail.event for the two events).
 function listener.phase(phase, detail, old)
 	light:phase(phase, detail)
+	-- The follower (address-follow-design F2, F5): online is the pinned fan
+	-- answering at Fan Address, the contact that ends a pending typed address.
+	if follower then
+		if phase == "online" then
+			follower:contact()
+		end
+		follower:phase_changed(phase)
+	end
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -353,6 +366,44 @@ discovery = discovery_mod.new({
 	log = log,
 })
 
+-- Following the pinned fan to a new address (address-follow-design, #39):
+-- Find Fans windows for the pinned MAC while the fan is not at Fan Address,
+-- one read-only check of what answers, then the model moves.
+follower = follow_mod.new({
+	find = function(cb)
+		return discovery:find(cb)
+	end,
+	candidates = discovery_mod.candidates,
+	follow = function(address, mac12, cb)
+		model:follow(address, mac12, cb)
+	end,
+	phase = function()
+		return model:phase()
+	end,
+	identity = function()
+		return model:identity()
+	end,
+	address = function()
+		return trimmed(Properties["Fan Address"])
+	end,
+	enabled = function()
+		return Properties["Follow Address Changes"] ~= "Off"
+	end,
+	timer = timer,
+	now = now_ms,
+	random = math.random,
+	seed = C4:GetDeviceID(),
+	on_followed = function(address, was)
+		prop("Fan Address", address)
+		result("followed", { pin = model:identity(), address = address, was = was })
+		refresh_status()
+	end,
+	on_refused = function()
+		result("follow_refused", { pin = model:identity() })
+	end,
+	log = log,
+})
+
 -- The Migration Report (migration-design.md section 4): reads the project only
 -- when its action is clicked.
 migration = migration_mod.new({
@@ -412,18 +463,21 @@ migration = migration_mod.new({
 
 -- Properties ---------------------------------------------------------------------
 
-local function trimmed(value)
-	return (value or ""):match("^%s*(.-)%s*$")
-end
-
 -- Fan Address: a new epoch and a contact, or S1 and S3 (section 3.5). Late init
 -- reads the value itself, so an edit before it is ignored.
 dispatch.properties["Fan_Address"] = function(value)
 	if not started then
 		return
 	end
+	-- The owner's typed address wins until the pinned fan answers there (F5).
+	follower:address_edited()
 	model:set_address(value)
 	refresh_status()
+end
+
+-- Follow Address Changes (F7): On by default; Off stops every window.
+dispatch.properties["Follow_Address_Changes"] = function(value)
+	follower:switch(value ~= "Off")
 end
 
 dispatch.properties["Poll_Interval_(s)"] = function(value)
@@ -596,6 +650,7 @@ if devloop and devcmds then
 	local commands, stop = devcmds.new({
 		model = model,
 		names = names_job,
+		follow = follower,
 		fan = fan,
 		links = links,
 		light = light,
@@ -844,6 +899,7 @@ function OnDriverDestroyed()
 	if stop_devcmds then
 		stop_devcmds()
 	end
+	follower:stop()
 	discovery:stop()
 	names_job:stop()
 	links:stop()

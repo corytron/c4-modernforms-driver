@@ -204,11 +204,11 @@ end
 -- The contract's example line (section 12).
 local EXAMPLE = "phase=online seq=231 fan=on/3 dir=forward light=on/40 shown.fan=on/3 shown.light=on/40 busy=- "
 	.. "told.fan=3 told.dir=forward told.light=40 notify.fan=12 notify.dir=1 notify.light=8 changing=0 "
-	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1 ms=310"
+	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1 follow=idle ms=310"
 
 -- The keys of Dev State, in the order section 12 gives them.
 local KEYS = { "phase", "seq", "fan", "dir", "light", "shown.fan", "shown.light", "busy", "told.fan", "told.dir",
-	"told.light", "notify.fan", "notify.dir", "notify.light", "changing", "leds", "ms" }
+	"told.light", "notify.fan", "notify.dir", "notify.light", "changing", "leds", "follow", "ms" }
 
 local PIN = { client_id = "MF_00005E005301", mac = "00005E005301", generation = "3", address = "10.0.2.151" }
 
@@ -220,6 +220,7 @@ local function new_commands(over)
 	for key, value in pairs(over or {}) do env[key] = value end
 	env.commands, env.stop = devcmds.new({
 		model = env.model, fan = env.fan, links = env.links, light = env.light, names = env.names, log = env.log,
+		follow = env.follow or { state = function() return "idle" end },
 		prop = env.prop or function(name, value) env.rows[name] = value end,
 		inject = env.inject or function(binding, command, params)
 			env.injected[#env.injected + 1] = { binding, command, params }

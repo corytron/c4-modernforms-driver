@@ -84,10 +84,11 @@ describe("fan.texts", function()
 			end
 		end)
 
-		it("lists the 21 result keys of section 9.6 and the 8 of fan-name-design 2.3, each with a text of its own", function()
-			assert.equal(29, #texts.RESULT_KEYS)
+		it("lists the 21 result keys of section 9.6, the 8 of fan-name-design 2.3 and the 2 of address-follow-design 2.4,"
+			.. " each with a text of its own", function()
+			assert.equal(31, #texts.RESULT_KEYS)
 			assert.same({ "name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed",
-				"name_no_pin", "name_busy" }, { unpack(texts.RESULT_KEYS, 22) })
+				"name_no_pin", "name_busy", "followed", "follow_refused" }, { unpack(texts.RESULT_KEYS, 22) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				local text = texts.result(key, { client_id = ID1, address = ADDR, count = 2, which = "away", at = T,
@@ -655,6 +656,34 @@ describe("fan.texts", function()
 			assert.equal("The fan did not take it; it still reports adaptive learning on",
 				r("not_taken", { which = "learning" }))
 			assert.equal("The fan did not take it; it still reports it on", r("not_taken", {}))
+		end)
+
+		-- L30 and L31: the address follower (address-follow-design 2.4, F6).
+		describe("L30 and L31, the address follower's lines", function()
+			it("L30 names the fan, its new address and the old one, within 70 characters at 15-character addresses",
+				function()
+					local text = r("followed", { client_id = "MF_00005E005301", address = "10.0.2.152", was = "10.0.2.151" })
+					assert.equal("Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)", text)
+					local long = r("followed", { client_id = "MF_00005E005301", address = "192.168.100.200",
+						was = "192.168.100.201" })
+					assert.equal(69, #long)
+				end)
+
+			it("L30 without the old address leaves out the parenthesis", function()
+				assert.equal("Followed fan MF_00005E005301 to 10.0.2.152",
+					r("followed", { client_id = "MF_00005E005301", address = "10.0.2.152" }))
+			end)
+
+			it("L31 names the fan and says it is not following", function()
+				local text = r("follow_refused", { client_id = "MF_00005E005301" })
+				assert.equal("Fan MF_00005E005301 moved 3 times in an hour; not following", text)
+				assert.is_true(#text <= 70)
+			end)
+
+			it("both read the fan from a pin handed over whole", function()
+				local pin = { client_id = "MF_00005E005301", mac = "00005E005301" }
+				assert.equal("Fan MF_00005E005301 moved 3 times in an hour; not following", r("follow_refused", { pin = pin }))
+			end)
 		end)
 
 		-- L22 to L29: what Name Items After Fan answers (fan-name-design 2.3, ECR 5.5).

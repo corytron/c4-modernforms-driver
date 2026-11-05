@@ -3,7 +3,7 @@
 -- file in DEV_ONLY_FILES, so a release package carries none of it, and
 -- driver.lua loads it only when common/devloop.lua is there:
 --
---   local cmds, stop = devcmds.new({ model = m, fan = fp, links = lk, light = lt, names = job,
+--   local cmds, stop = devcmds.new({ model = m, fan = fp, links = lk, light = lt, names = job, follow = f,
 --                                    prop = dev.prop, inject = fn(binding, command, params), log = log })
 --   devloop.set_signed_commands(cmds)        -- OnDriverDestroyed calls stop()
 --   devloop.set_redactor(devcmds.redactor(function() return m:identity() end))
@@ -154,6 +154,7 @@ end
 --   notify_fan, notify_dir, notify_light, changing   counters and the light's open CHANGING
 --   leds = { [300] = bool, ... }        the links' lit state, nil: never sent
 --   has_light                           false: no light kit, the light's fields read "-"
+--   follow                              the address follower's state (#39): off, idle, armed:N, pending
 function devcmds.format_state(s)
 	local shown = type(s.shown) == "table" and s.shown or {}
 	local kit = s.has_light ~= false
@@ -185,6 +186,7 @@ function devcmds.format_state(s)
 		"notify.light=" .. (number(s.notify_light) or "?"),
 		"changing=" .. flag(s.changing),
 		"leds=" .. table.concat(leds, ","),
+		"follow=" .. ((type(s.follow) == "string" and s.follow:find("^[%w:]+$")) and s.follow or "?"),
 		"ms=" .. (number(s.ms) or "?"),
 	}, " ")
 end
@@ -242,6 +244,9 @@ local function gather(o)
 	local m = o.model
 	local s = {}
 	s.phase = ask(o, m, "phase")
+	if o.follow ~= nil then
+		s.follow = ask(o, o.follow, "state")
+	end
 	local d = debug_of(o, m)
 	s.seq, s.ms = d.seq, d.ms or d.last_ms
 	local st = ask(o, m, "confirmed")
@@ -516,6 +521,7 @@ end
 function devcmds.new(opts)
 	opts = type(opts) == "table" and opts or {}
 	local o = { model = opts.model, fan = opts.fan, links = opts.links, light = opts.light, names = opts.names,
+		follow = opts.follow,
 		log = opts.log or require("common.log") }
 	local log = o.log
 	local pending = {} -- timers armed and not yet fired

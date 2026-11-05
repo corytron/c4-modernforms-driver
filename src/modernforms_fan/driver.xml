@@ -55,6 +55,18 @@
 				<type>DYNAMIC_LIST</type>
 				<readonly>false</readonly>
 			</property>
+			<!-- docs/address-follow-design.md F7: the pinned fan is followed to a new
+			     address it announces itself; Off keeps the typed address only. -->
+			<property>
+				<name>Follow Address Changes</name>
+				<type>LIST</type>
+				<items>
+					<item>On</item>
+					<item>Off</item>
+				</items>
+				<default>On</default>
+				<readonly>false</readonly>
+			</property>
 			<property>
 				<name>Fan ID</name>
 				<default></default>

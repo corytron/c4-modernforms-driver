@@ -173,7 +173,8 @@ describe("Modern Forms Fan driver", function()
 			function()
 				local names = {}
 				for body in bare:gmatch("<property>(.-)</property>") do names[#names + 1] = field(body, "name") end
-				assert.same({ "Driver Version", "Status", "Last Action", "Fan Address", "Found Fans", "Fan ID",
+				assert.same({ "Driver Version", "Status", "Last Action", "Fan Address", "Found Fans",
+					"Follow Address Changes", "Fan ID",
 					"Fan Model", "Firmware", "Last Seen", "Last Change By", "Fan Automations", "Poll Interval (s)",
 					"Keypad Links", "Speed 1 Link Also Lit At", "Speed 2 Link Also Lit At", "Speed 3 Link Also Lit At",
 					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
@@ -650,6 +651,96 @@ describe("Modern Forms Fan driver", function()
 			use_selected(env, c4)
 			assert.same({}, c4.calls_to("RenameDevice"))
 			assert.equal("Aviator 5", name_of(fan_id))
+		end)
+	end)
+
+	describe("following the pinned fan to a new address (address-follow-design, #39)", function()
+		local MOVED = "10.0.2.152"
+
+		-- Runs the fake clock 100 ms at a time for `ms`: every open request to FAN
+		-- fails (the fan has gone), a request to MOVED gets the fan's answers, and
+		-- each Find Fans query is answered by the fan from MOVED (announce false: none).
+		local function run(env, c4, ms, announce)
+			local queries = #c4.calls_to("SendToNetwork")
+			for _ = 1, ms / 100 do
+				for _, t in ipairs(c4.open_transfers()) do
+					if t.url:find("//" .. FAN .. "/", 1, true) then
+						t:fail(-1, "timeout")
+					elseif t.url:find("//" .. MOVED .. "/", 1, true) then
+						if t.data == '{"queryStaticShadowData":1}' then
+							t:respond(200, mf.INFO)
+						else
+							t:respond(200, mf.state({ fanOn = true, fanSpeed = 3 }))
+						end
+					end
+				end
+				local now = #c4.calls_to("SendToNetwork")
+				if now > queries then
+					queries = now
+					if announce ~= false then
+						fake.network_receive(env, 6001, 5353, mdns.K10_MOVED, MOVED)
+					end
+				end
+				c4.advance(100)
+			end
+		end
+
+		it("declares Follow Address Changes, On by default, after Found Fans", function()
+			local env = online_driver()
+			assert.equal("On", env.Properties["Follow Address Changes"])
+		end)
+
+		it("follows the fan when it stops answering and announces itself at another address", function()
+			local env, c4 = online_driver()
+			run(env, c4, 120000)
+			assert.equal(MOVED, env.Properties["Fan Address"])
+			assert.equal("Followed fan MF_00005E005301 to " .. MOVED .. " (was " .. FAN .. ")",
+				env.Properties["Last Action"])
+		end)
+
+		it("does not look while the fan answers", function()
+			local env, c4 = online_driver()
+			local before = #c4.calls_to("SendToNetwork")
+			c4.advance(120000)
+			assert.equal(before, #c4.calls_to("SendToNetwork"))
+			assert.equal(FAN, env.Properties["Fan Address"])
+		end)
+
+		it("stays at the typed address with Follow Address Changes Off", function()
+			local env, c4 = online_driver({ ["Follow Address Changes"] = "Off" })
+			run(env, c4, 120000)
+			assert.equal(FAN, env.Properties["Fan Address"])
+			assert.equal(0, #c4.calls_to("SendToNetwork"))
+		end)
+
+		it("does not follow a fan whose answer at the new address is another fan", function()
+			local env, c4 = online_driver()
+			local other = mf.INFO:gsub("00005E005301", "00005E005302")
+			local queries = 0
+			for _ = 1, 1200 do
+				for _, t in ipairs(c4.open_transfers()) do
+					if t.url:find("//" .. FAN .. "/", 1, true) then
+						t:fail(-1, "timeout")
+					elseif t.url:find("//" .. MOVED .. "/", 1, true) then
+						t:respond(200, other)
+					end
+				end
+				local now = #c4.calls_to("SendToNetwork")
+				if now > queries then
+					queries = now
+					fake.network_receive(env, 6001, 5353, mdns.K10_MOVED, MOVED)
+				end
+				c4.advance(100)
+			end
+			assert.equal(FAN, env.Properties["Fan Address"])
+		end)
+
+		it("stops with the driver", function()
+			local env, c4 = online_driver()
+			env.OnDriverDestroyed()
+			local before = #c4.calls_to("SendToNetwork")
+			c4.advance(300000)
+			assert.equal(before, #c4.calls_to("SendToNetwork"))
 		end)
 	end)
 
