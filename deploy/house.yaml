@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: none            # no build of these drivers is installed yet (the house runs the stock WAC driver)
-build: none
+release: v1.0-beta.1       # prerelease of 1.0 "Arrakis", the first build to try on the house beside the stock WAC driver (#26)
+build: 25
 drivers: modernforms_fan
 debug_mode: Off
