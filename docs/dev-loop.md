@@ -660,8 +660,12 @@ the dev key signed, and the key never crosses the wire.
   `told.fan`, `told.dir`, `told.light` (what the proxies were last told),
   `notify.fan`, `notify.dir`, `notify.light` (the notifications sent since
   late init), `changing` (1 while the light's `CHANGING` is open), `leds`
-  (links 300 to 308, then 200 to 202, as `303:1`) and `ms` (the last
-  request's time). A fan or light reads `on/3`, `on/40` or `off`; `?` is
+  (links 300 to 308, then 200 to 202, as `303:1`), `follow` (the address
+  follower of #39, [`address-follow-design.md`](address-follow-design.md):
+  `off` while `Follow Address Changes` is Off, `pending` while a typed `Fan
+  Address` has not answered yet, `armed:N` while it looks for the fan with
+  window N due or under way, `idle` otherwise, `?` in a build without a
+  follower) and `ms` (the last request's time). A fan or light reads `on/3`, `on/40` or `off`; `?` is
   unknown (a module that cannot say, before the first contact), `-` is none
   (`busy=-`, nothing told yet, `light=-` for a fan without a light kit). The
   light's buttons follow [the contract's LED rule](v1-design.md#52-light-links-200202)
@@ -671,7 +675,7 @@ the dev key signed, and the key never crosses the wire.
   shown.light=on/40 busy=- told.fan=3 told.dir=forward told.light=40
   notify.fan=12 notify.dir=1 notify.light=8 changing=0
   leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1
-  ms=310` (one line; broken here for reading).
+  follow=idle ms=310` (one line; broken here for reading).
 - **A forwarded device's `DEV_LOG`** (dormant) must stay reachable through
   `ExecuteCommand`, since the devices send it with `C4:SendToDevice`: the
   polling driver's handler only prints one line under the sender's name,

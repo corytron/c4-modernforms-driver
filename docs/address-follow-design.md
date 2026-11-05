@@ -92,7 +92,7 @@ waits for it or shares it (one binding, one window).
 ECA 3.8: [`v1-design.md`](v1-design.md) (V5, V5a, 2.5, 3.5, 7.2, 9.1, 9.5,
 9.10, 14, 15), [`edge-cases-modernforms.md`](edge-cases-modernforms.md) (N1,
 N3, Q3), [`edge-cases-control4.md`](edge-cases-control4.md) (D19),
-[`composer-checklist.md`](composer-checklist.md) (steps 42 to 44),
+[`composer-checklist.md`](composer-checklist.md) (steps 43 to 45 since #45),
 `SECURITY.md` (F9), the manual (the DHCP reservation becomes a
 recommendation: not required, the driver finds the fan again by itself,
 usually within a minute or two, on one network segment, tried on Gen 3 only;

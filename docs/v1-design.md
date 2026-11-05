@@ -19,6 +19,8 @@ stock WAC driver is [`migration-design.md`](migration-design.md#3-phases)'s
 (V16).
 The fan's product name and the naming of the two Composer items after it
 (V28, #37, 2026-11-04) are [`fan-name-design.md`](fan-name-design.md)'s.
+Following the pinned fan to a new address by itself (V29, #39, 2026-11-04)
+is [`address-follow-design.md`](address-follow-design.md)'s.
 
 **Status key**, as in [`design.md`](design.md) ("Method"): **VERIFIED**
 names its primary source (an SDK file, the house, M0, or `aiomodernforms` /
@@ -55,8 +57,8 @@ properties and the keypad) later the same day.
 | V2 | **The driver's own Button Links**: light Top/Bottom/Toggle on 200–202, fan Off 300, Speed 1–6 on 301–306, Toggle 307, Cycle 308. Each takes `DO_PUSH`/`DO_CLICK`/`DO_RELEASE` and sends `MATCH_LED_STATE`. `proxy_fan_speed_connections` is **not** declared; K5 records how it behaves for a later version. Ids 203–209 and 309–319 stay free for later links (connections can only ever be added). | #6 decision 2; FPR §3, §6, §7; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`; FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` | VERIFIED-house: the mechanism on the Hue Light (HUE `docs/keypad-design.md`, "Hardware findings"); the stock driver declares its own 12 links the same way, ids 0–11 without `proxybindingid`, and **no** `proxy_fan_speed_connections`, and Composer lists all 12 under both of its items (K1, K2). ASSUMED (K6): that a press arrives on a fan-proxy driver's link (the stock's links were dead in its own Lua). M1?: `proxybindingid` on the links (K4). |
 | V3 | **Minimum OS 3.3.0** in `driver.xml`, and a run-time check of `C4:GetVersionInfo()`: on an older controller the Status says so and the driver runs on. | #6 decision 3; LSR §3; LV2 `3_whats_new/_12-WHATSNEWIN330.md` (the brightness target); KP `3_whats_new/_20-WhatwasNewinOS3.md` (Button Linking); API `35_url/_10-Post.md` (3.0.0); FUND `14_updating_released_drivers/_1-UPDATINGRELEASEDDRIVERS.md` (the tag is documented as an auto-update gate only); API `5_director_command/_2-GetVersionInfo.md` | VERIFIED-doc. VERIFIED-hardware (K9, 2026-11-04, #17): Composer Pro refuses to add a package whose minimum is above the controller's OS (an "Incompatible Driver" dialog, no device created), so the XML tag gates installs; the run-time check stays as the second line (an update over an installed driver was not tried). |
 | V4 | **Gen 1–3 fans with six speeds** (`POST /mf`). A Gen 4 fan (HTTP 404 on `/mf`, then `fan_g4` from `/device`) is refused with a Status and never sent a command. | #6 decision 4; MFR §1, §4; ECM H2, H7 | VERIFIED: AIO's generation detection (MFR §1); M0: the house fan is Gen 3 with six speeds. |
-| V5 | **Adding a fan**: the owner types `Fan Address`; the driver pins the fan's identity (client id and station MAC) at first contact; a different fan at that address gets nothing until **Use Selected Fan** accepts it; a new address of the pinned fan is followed when the owner types it or picks it, never on its own; no subnet scan, ever. **Find Fans** (an mDNS query) is in v1: K10 passed on the house (V5a). | #6 decision 5; M0 (mDNS); ECM N1–N10, Q3; ECC D18–D20 | VERIFIED: `clientId` in every answer (M0; MFR §2.4). See V5a. |
-| V5a | **mDNS from a driver, verified in part.** Documented: a dynamic network binding (`C4:CreateNetworkConnection`, API `32_serial_network_device/_1-CreateNetworkConnection.md`, from 1.6.0, needing no XML connection), `C4:NetConnect` with the IP type `UDP` or `MULTICAST` (`_23-NetConnect.md`), `C4:NetPortOptions` with `MIRROR_UDP_PORT` (`_25-NetPortOptions.md`), `C4:SendToNetwork` (`_20-SendToNetwork.md`) and `ReceivedFromNetwork` (`_15-ReceivedFromNetwork.md`; its sender parameter only from 4.0.0). Not documented: which group a `MULTICAST` connection joins, which local port it binds, and whether a datagram from another address (the fan's answer) reaches `ReceivedFromNetwork`. A UDP server (`33_server_sockets/_2-CreateServer.md`) receives from any sender, but its send to an address is documented only from 4.0.0 (`_6-ServerSend.md`); `C4:SendBroadcast` (`_18-SendBroadcast.md`) broadcasts, which is not mDNS. Hence K10. Adding Find Fans later costs only Lua, a property and an action: no connection, no capability, no reboot. | M0; API as named | VERIFIED: the calls exist. VERIFIED-hardware (K10, 2026-10-27, #17): on OS 3.4.3 a `MULTICAST` and a `UDP` (`MIRROR_UDP_PORT` off) dynamic binding to 224.0.0.251:5353 each sent the query and received the fan's answers, the first 0.17 s later (§11.1). |
+| V5 | **Adding a fan**: the owner types `Fan Address`; the driver pins the fan's identity (client id and station MAC) at first contact; a different fan at that address gets nothing until **Use Selected Fan** accepts it; a new address of the pinned fan is followed when the owner types it or picks it, and, **since #39 (2026-11-04), by itself** when the pinned fan's own multicast DNS answer names it and one read-only read there shows the pinned fan (V29); another fan is never taken by itself; no subnet scan, ever. **Find Fans** (an mDNS query) is in v1: K10 passed on the house (V5a). | #6 decision 5; #39; M0 (mDNS); ECM N1–N10, Q3; ECC D18–D20 | VERIFIED: `clientId` in every answer (M0; MFR §2.4). See V5a and V29. |
+| V5a | **mDNS from a driver, verified in part.** Documented: a dynamic network binding (`C4:CreateNetworkConnection`, API `32_serial_network_device/_1-CreateNetworkConnection.md`, from 1.6.0, needing no XML connection), `C4:NetConnect` with the IP type `UDP` or `MULTICAST` (`_23-NetConnect.md`), `C4:NetPortOptions` with `MIRROR_UDP_PORT` (`_25-NetPortOptions.md`), `C4:SendToNetwork` (`_20-SendToNetwork.md`) and `ReceivedFromNetwork` (`_15-ReceivedFromNetwork.md`; its sender parameter only from 4.0.0). Not documented: which group a `MULTICAST` connection joins, which local port it binds, and whether a datagram from another address (the fan's answer) reaches `ReceivedFromNetwork`. A UDP server (`33_server_sockets/_2-CreateServer.md`) receives from any sender, but its send to an address is documented only from 4.0.0 (`_6-ServerSend.md`); `C4:SendBroadcast` (`_18-SendBroadcast.md`) broadcasts, which is not mDNS. Hence K10. Adding Find Fans later costs only Lua, a property and an action: no connection, no capability, no reboot. Since #39 the same query also runs without a click, in the follower's windows, for the pinned fan's MAC only, and never writes `Found Fans` (V29). | M0; API as named; #39 | VERIFIED: the calls exist. VERIFIED-hardware (K10, 2026-10-27, #17): on OS 3.4.3 a `MULTICAST` and a `UDP` (`MIRROR_UDP_PORT` off) dynamic binding to 224.0.0.251:5353 each sent the query and received the fan's answers, the first 0.17 s later (§11.1); the Gen 3 answer's TXT record carries the MAC. ASSUMED until seen on the house: the follower's use of it ([`address-follow-design.md`](address-follow-design.md#5-assumed-until-seen-on-the-house), K20 to K22). |
 | V6 | **Transport**: `C4:url():Post()` to `http://<address>/mf`, one request in flight per device, commands before reads, 250 ms between the end of one request and the start of the next. Every body is built from an allow-list; a received shadow is never sent back. | #6 decision 6; MFR §2.3, §10, §11; API `35_url/*`; [section 3](#3-transport) | VERIFIED-doc for the API; M0 for the answers; the gap ASSUMED (K13). |
 | V7 | **Polling**: every `Poll Interval (s)` while idle (10 to 120, default 15), every 2 s for 20 s after any change, backing off 10, 20, 40, then 60 s on failures; offline after 3 failures in a row. | #6 decision 6; ECM P1, Q4; MFR §8 (Home Assistant moved from 5 s to 15 s because fans froze) | VERIFIED: HA's 15 s (MFR §5). The rest is policy. |
 | V8 | **State model**: per field a confirmed value, an in-flight value and a wanted ("dirty") value; the shown state is wanted over in flight over confirmed. Sequence numbers and an epoch on every request; the command's own answer is the authority; a read that contradicts a just-commanded value is believed only when the next read agrees (2.5 s settle); bursts coalesce, latest wins; Control4's commands are always sent, even when they equal the confirmed state. | #6 decision 6; MFR §6; ECC R2, R3, R5; ECM S7, S8, S11 | Policy; the fan-side causes of disagreement ASSUMED (K16). |
@@ -80,6 +82,7 @@ properties and the keypad) later the same day.
 | V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button (single tap speed 2) is lit at speed 1, its double tap, and the High button (single tap 5) at speed 6 (K1–K3, §5.4); with one Follow Connection link per button and V12 they would be dark there. On the house: `Speed 2 Link Also Lit At` = `Speed 1`, `Speed 5 Link Also Lit At` = `Speed 6`. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
 | V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | VERIFIED-hardware (K6, 2026-11-04, #17): the house keypad applies `BUTTON_COLORS` over a link. **Shipped (2026-11-04, #31):** the owner asked for the keypad to match how it is today, which includes blue at speed 1 and `#ff6000` at 6; the default stays `Keypad's own`. |
 | V28 | **The fan's product name, and naming the two items after it** (#37, 2026-11-04; the contract is [`fan-name-design.md`](fan-name-design.md#1-decisions), N1 to N9). The name is looked up by the exact `fanType` in a table shipped with the driver (`fan/names.lua`: no prefix, family or fuzzy match, no guess; an unknown model has no name) and shown in `Fan Model` (§7.3). The driver renames its fan item and its light item (`<Name>` and `<Name> Light`, ASCII, at most 19 characters for `<Name>`) on two clicks only: **Use Selected Fan**, when it leaves a fan pinned (L2, L3, L4), *guarded*: only while both items still carry a shipped default name or the name the driver last wrote and Director confirmed (`mf_names`, §8), else both stay and the line ends `; names kept`; and the new action **Name Items After Fan** (§2.6), *forced*: both items whatever they are called, from the stored pin and model so also while the fan is silent, refused without a pin or a known name, idempotent. Nothing else renames: not start-up, late init, an update, a restore, a poll, a new address typed in `Fan Address` (the first contact included), a firmware or light-kit change, and never after the app's `deviceName` (V20). Two fans of one model get the same name: no suffix, number or room. The job runs from a timer, not inside the click, and reads the names back before it records them. On the house the items keep "Fan" and "Fan Light" (N8). Row D15 of [`edge-cases-control4.md`](edge-cases-control4.md) is changed to match (N9). | #37, the owner's request of 2026-11-04; [`fan-name-design.md`](fan-name-design.md), [`edge-cases-rename.md`](edge-cases-rename.md), [`fan-names-research.md`](fan-names-research.md); API `22_miscellaneous/_32-RenameDevice.md`, `22_miscellaneous/_25.2-SafeUsageTable.md` (unsafe before late init), `32_serial_network_device/_6-GetDeviceDisplayName.md` | VERIFIED-doc: the calls and their limits (ECR RF1 to RF3). VERIFIED-house: the Hue drivers renamed a proxy with `C4:RenameDevice` on this house (ECR RF6). ASSUMED until the first click on the house ([`fan-name-design.md`](fan-name-design.md#5-assumed-until-the-first-click-on-the-house)): the call on the fan proxy of a two-proxy device, an open Composer repainting its tree, Navigators following without File » Refresh Navigators. |
+| V29 | **Following the pinned fan to a new address by itself** (#39, 2026-11-04; the contract is [`address-follow-design.md`](address-follow-design.md#1-decisions), F1 to F9). The device is pinned to a fan, not an address. When the model's phase is offline (three failed polls, about 45 s), foreign, gen4 or notfan, while `Follow Address Changes` is On (§2.5), `Fan Address` is not empty, the pin has a MAC and the typed address is not pending, the follower (`fan/follow.lua`, §9.14) asks the network for the pinned MAC with the Find Fans query (V5a) in windows: the first 2 s after arming plus a per-device slot of up to about 25 s, then 30 s, 1, 2, 5, 10 min, then every 15 min, each ±20 %. A heard entry with the pinned MAC in its TXT record, SRV port 80 and a private (RFC 1918) or link-local address other than the current one (at most 3 a window) is read once, read-only (`queryStaticShadowData`); only an answer with the pin's client id and MAC moves the device: the model adopts the address as Use Selected Fan's "moved" path does (new epoch, `mf_identity`, phase waiting), then the driver rewrites `Fan Address` and writes L30 (§7.2). Programming sees one Fan Offline / Fan Online pair; no new event, variable or command. A typed `Fan Address` wins until the pinned fan has answered there (typing the pin's own address back resumes); an empty one stops everything; a fourth follow within an hour is refused (L31, once). Never a subnet scan, another fan, a public address, a match by name, model or address, or an announcement acted on without the read. The read checks identity, it does not authenticate (SECURITY.md). | #39, the owner's request of 2026-11-04; [`edge-cases-address.md`](edge-cases-address.md) (ECA); ECM N1, N3, Q3; ECC D19; K10 | VERIFIED-hardware (K10): the query and the TXT MAC on the house's Gen 3 fan. VERIFIED-code: the specs of `follow.lua`, `discovery.candidates`, `model:follow` and `fan_driver_spec` (address-follow-design 4). ASSUMED until seen on the house ([`address-follow-design.md`](address-follow-design.md#5-assumed-until-seen-on-the-house), K20 to K22): Gen 1/2 answer a query as Gen 3 does (their announcement layout is a fixture, ECA E4), the fan re-announces after a lease change, about 100 windows a day are harmless, a driver-written `Fan Address` survives a restart. One network segment only: multicast DNS does not cross routers. |
 
 ## 2. Structure and `driver.xml`
 
@@ -218,21 +221,22 @@ steps 3 to 5. Reserved, never declared in v1: 203–209 (light),
 | 1 | Driver Version | STRING | "" | yes | as the scaffold |
 | 2 | Status | STRING | "" | yes | one line, §7.1 |
 | 3 | Last Action | STRING | "" | yes | §7.2 |
-| 4 | Fan Address | STRING | "" | no | the fan's IPv4 address (V5; the manual asks for a DHCP reservation) |
-| 5 | Found Fans | DYNAMIC_LIST | "" | no | only in a build with Find Fans (V5a); the pick waits for Use Selected Fan |
-| 6 | Fan ID | STRING | "" | yes | §7.3 |
-| 7 | Fan Model | STRING | "" | yes | §7.3 |
-| 8 | Firmware | STRING | "" | yes | §7.3 |
-| 9 | Last Seen | STRING | "" | yes | §7.3 |
-| 10 | Last Change By | STRING | "" | yes | §7.3 |
-| 11 | Fan Automations | STRING | "" | yes | §7.3 |
-| 12 | Poll Interval (s) | RANGED_INTEGER, 10–120 | 15 | no | V7 |
-| 13 | Keypad Links | DYNAMIC_LIST | "" | no (a pick snaps back to the first row) | §7.3 |
-| 14–19 | Speed 1 Link Also Lit At … Speed 6 Link Also Lit At | LIST: `No other speed`, `Speed 1` … `Speed 6` | No other speed | no | V26; picking the link's own speed is the same as `No other speed` |
-| 20 | Speed LED Colors | LIST: `Keypad's own`, `Per speed` | Keypad's own | no | V27, shipped from beta.2 (#31) |
-| 21–26 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | V27: the on colour a speed link shows while the fan runs at that speed (the value is `r,g,b` in decimal, the driver sends it as 6-digit hex) |
-| 27 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | V27: the off colour sent with them |
-| 28 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
+| 4 | Fan Address | STRING | "" | no | the fan's IPv4 address (V5; the manual recommends a DHCP reservation, no longer requires one); the driver rewrites it when it follows the pinned fan (V29) |
+| 5 | Found Fans | DYNAMIC_LIST | "" | no | only in a build with Find Fans (V5a); the pick waits for Use Selected Fan; the follower never writes it (V29) |
+| 6 | Follow Address Changes | LIST: `On`, `Off` | On | no | V29 ([`address-follow-design.md`](address-follow-design.md#1-decisions) F7): On, the pinned fan is followed to a new address it announces itself; Off, the behaviour before #39 (a typed or picked address only). A property addition: no capability, no reboot |
+| 7 | Fan ID | STRING | "" | yes | §7.3 |
+| 8 | Fan Model | STRING | "" | yes | §7.3 |
+| 9 | Firmware | STRING | "" | yes | §7.3 |
+| 10 | Last Seen | STRING | "" | yes | §7.3 |
+| 11 | Last Change By | STRING | "" | yes | §7.3 |
+| 12 | Fan Automations | STRING | "" | yes | §7.3 |
+| 13 | Poll Interval (s) | RANGED_INTEGER, 10–120 | 15 | no | V7 |
+| 14 | Keypad Links | DYNAMIC_LIST | "" | no (a pick snaps back to the first row) | §7.3 |
+| 15–20 | Speed 1 Link Also Lit At … Speed 6 Link Also Lit At | LIST: `No other speed`, `Speed 1` … `Speed 6` | No other speed | no | V26; picking the link's own speed is the same as `No other speed` |
+| 21 | Speed LED Colors | LIST: `Keypad's own`, `Per speed` | Keypad's own | no | V27, shipped from beta.2 (#31) |
+| 22–27 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | V27: the on colour a speed link shows while the fan runs at that speed (the value is `r,g,b` in decimal, the driver sends it as 6-digit hex) |
+| 28 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | V27: the off colour sent with them |
+| 29 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
 | dev | Dev Server | STRING | "" | no | DEV-ONLY block, as the scaffold |
 | dev | Dev State | STRING | "" | yes | DEV-ONLY block, [section 12](#12-dev-loop-actions-and-toolsregresssh) |
 
@@ -247,7 +251,7 @@ string, `C4:UpdatePropertyList`): a comma in a device name is written as
 `‚` (U+201A), as the Hue drivers do. A `Fan
 Address` edit reaches the driver only through the row's Set button (ECC
 F29). Every property handler also runs in the late-init replay, so the
-settings of rows 12 and 14–27 apply from the start.
+settings of rows 6, 13 and 15–28 apply from the start.
 
 After every install the Windows session reads back `Driver Version`,
 `Debug Mode` (Off), `Poll Interval (s)` and `Status` (starting "Online:"):
@@ -453,15 +457,22 @@ wanted meanwhile wait for the contact's identity check, and are dropped
 | no identity pinned yet | the fan is learned and pinned (#6 decision 5); `Last Action` L1 |
 | the pinned fan, at the address it answered at before | normal |
 | the pinned fan at an address the owner typed or picked | followed; the identity's address updated; L2 |
+| the pinned fan at an address its own multicast DNS answer named, after the follower's read (V29) | followed by itself; the identity's address updated, `Fan Address` rewritten by the driver; L30 |
 | another Modern Forms fan | **foreign**: nothing sent, every command refused, the last state kept, Status S11; read again every 60 s, since the right fan may come back (ECM N3) |
 | HTTP 404, then `fan_g4` from `/device` | **Gen 4**: S12, nothing sent (V4) |
 | HTTP 404, then anything else; or an answer that is not a fan's, repeatedly | **not a fan**: S13 |
 | no answer | the failure streak of §3.4 |
 
 **`Fan Address` edited** (after late init): trimmed; empty stops every
-request (phase unset, S1, the pin kept, so typing the old address back
-resumes); not a dotted IPv4 address: S3 and nothing sent; otherwise a new
-epoch and a contact at the new address. Hostnames are not accepted in v1.
+request and every follower window (phase unset, S1, the pin kept, so typing
+the old address back resumes; the driver never fills the row, V29); not a
+dotted IPv4 address: S3 and nothing sent; otherwise a new epoch and a
+contact at the new address. Hostnames are not accepted in v1. A typed
+address wins over the follower: after the edit the follower is pending and
+stays off until a contact at that address succeeds, except when the typed
+address is the pin's (the address the pinned fan was last seen at), which
+leaves the follower as it was
+([`address-follow-design.md`](address-follow-design.md#1-decisions) F5).
 On a new device, typing `Fan Address` is all it takes: the first contact
 pins the fan (L1), with no further click; a pick in `Found Fans` takes Use
 Selected Fan ([`migration-design.md`](migration-design.md#3-phases), Phase
@@ -482,8 +493,15 @@ sent:
 | (a pick, and the fan answering there has another MAC than the pick's) | L21, nothing changes |
 
 The pick is cleared after any outcome. Matching by name, model or address,
-adopting by itself and scanning the subnet are forbidden (ECM N1, N3; ECC
-D18).
+adopting another fan by itself and scanning the subnet are forbidden (ECM
+N1, N3; ECC D18). Following the **pinned** fan by itself is V29's: only to
+an address its own multicast DNS answer names (private or link-local, port
+80, the pinned MAC in the TXT record), and only after one read-only info
+read there returns the pin's client id and MAC
+([`address-follow-design.md`](address-follow-design.md#1-decisions) F1,
+F4, F8). The follower's read is Use Selected Fan's read restricted to the
+pinned fan (`m:follow`, §9.5): it never re-points, and a click's read takes
+its place.
 
 After L2, L3 or L4 (the fan is pinned) the click starts the guarded rename of
 V28 from a timer, never inside its own callback, and about 2 s later writes
@@ -837,7 +855,10 @@ keeps the record and [its phases](migration-design.md#3-phases) the order):
 | foreign, Gen 4, not a fan | §3.5, §3.6 | "0" | false | Fan Offline, as for offline | refused |
 
 "Offline-like" is offline, foreign, Gen 4 and not a fan. `mf_online` is
-written on every change of the Online variable.
+written on every change of the Online variable. An offline-like phase is
+also what arms the follower (V29, §9.14); a follow shows as offline-like,
+then waiting at the new address, then online, so programming sees one Fan
+Offline / Fan Online pair and nothing else.
 
 ### 6.2 Offline (#6 decision 10)
 
@@ -931,6 +952,15 @@ The longest, S9 with a 15-character address and a date, stays under 75.
 | L27 | Director did not confirm the names | `Rename not confirmed; check the item names in Composer` |
 | L28 | Name Items After Fan, no fan pinned | `Nothing to name the items after: no fan is set up yet` |
 | L29 | Name Items After Fan, a naming is pending | `Naming in progress; try again in a moment` |
+| L30 | the follower moved the device to the pinned fan's new address (V29) | `Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)` |
+| L31 | the flap guard refused a fourth follow within an hour, written once (V29) | `Fan MF_00005E005301 moved 3 times in an hour; not following` |
+
+L30 and L31 are V29's
+([`address-follow-design.md`](address-follow-design.md#24-fantextslua-changed-after-37s-l22-to-l29),
+2.4; texts keys `followed` and `follow_refused`): at most 70 characters with
+15-character addresses (exactly 70 with a `WAC_` id). The follower writes no
+Last Action for a window that found nothing, and no new Status text: the
+owner reads S7 (or S11 to S13), then S4 at the new address, then S5.
 
 L22 to L29 are V28's
 ([`fan-name-design.md`](fan-name-design.md#23-fantextslua-changed), 2.3; the
@@ -1010,9 +1040,10 @@ src/modernforms_fan/
   fan/links.lua       the fan links (300-308), their LEDs, the Keypad Links bookkeeping
   fan/light.lua       the light_v2 side (5002) on common/device.lua
   fan/devcmds.lua     dev builds only: signed development commands, Dev State, Dev Names Plan, the redactor
-  fan/discovery.lua   only with V5a: the mDNS query and its parser
+  fan/discovery.lua   only with V5a: the mDNS query, its parser, and candidates() for the follower (V29)
   fan/names.lua       pure: the fanType -> product name table and the name rules (V28, section 9.13)
   fan/rename.lua      the job that names the two items after the fan (V28, section 9.13)
+  fan/follow.lua      pure: following the pinned fan to a new address it announces (V29, section 9.14)
 src/common/           dispatch.lua (per-binding routing), device.lua (proxy binding option), log.lua, devloop.lua
 ```
 
@@ -1033,7 +1064,7 @@ without the others and without new fake-runtime calls.
 | `ExecuteCommand` (LUA_ACTION) | — | `dispatch.commands` (the actions) |
 | `OnPropertyChanged` | — | `dispatch.properties` |
 | `TestCondition` | — | `driver.lua` (§2.7) |
-| `ReceivedFromNetwork` | 6001 | `fan/discovery.lua` (V5a only) |
+| `ReceivedFromNetwork` | 6001 | `fan/discovery.lua` (V5a only); Find Fans and the follower (V29) share the one binding and its window |
 
 ### 9.2 `common/dispatch.lua` and `common/device.lua` (changes)
 
@@ -1121,6 +1152,12 @@ m:want(fields) -> true | false, why
   -- fields: { fan_on, speed } | { direction } | { light_on, level } (any of the three groups at once)
   -- why: "unset"|"invalid address"|"foreign"|"gen4"|"notfan"|"rebooting"|"no light kit"|"no <key>"|"range"
 m:use_fan(address, mac12_or_nil, cb)   -- Use Selected Fan; cb(result_key, args) for texts.result
+m:follow(address, mac12, cb)     -- V29, address-follow-design 2.2: use_fan restricted to the pinned fan. One
+  -- queryStaticShadowData to address; cb("followed", { address, was, client_id }) after the adoption of the
+  -- "moved" path (new epoch, pin.address, mf_identity, firmware, phase waiting, persisted before the callback);
+  -- otherwise cb("not_same"), cb("no_answer") or cb("busy") (a click's read under way, the phase not
+  -- offline-like, no pin with a MAC), never now_using; a refused read restores the previous address as a failed
+  -- Use Selected Fan does
 m:reboot(cb)                     -- cb(result_key, args)
 m:turn_off(which, cb)            -- which "away"|"learning"; cb(result_key, args)
 m:phase() -> phase, detail       -- detail = { since, address, other_client_id, failure = "timeout"|"data", sent }
@@ -1136,7 +1173,7 @@ m:debug() -> table               -- seq, phase, told per group, busy groups, las
 listener.settled(group, st, why)      -- why "start"|"command"|"outside"|"online" (section 4.5)
 listener.idle(group, st)              -- the group went from busy to not busy
 listener.shown(shown)                 -- the shown state changed
-listener.phase(phase, detail, old)    -- section 6.1
+listener.phase(phase, detail, old)    -- section 6.1; driver.lua hands it to the follower too (V29, section 9.14)
 listener.info(pin, info)              -- identity, model or firmware learned or changed
 listener.seen(at_s, ms)               -- an answer arrived
 listener.outside(groups, user_data, at_s)   -- a change Control4 did not make
@@ -1157,7 +1194,8 @@ texts.result(key, args) -> string   -- keys "learned" L1, "moved" L2, "now_using
                                     -- "not_answering" L18, "not_taken" L19, "not_picked" L21,
                                     -- "name_renamed" L22, "name_same" L23, "name_unknown" L24,
                                     -- "name_no_type" L25, "name_no_ids" L26, "name_unconfirmed" L27,
-                                    -- "name_no_pin" L28, "name_busy" L29 (V28)
+                                    -- "name_no_pin" L28, "name_busy" L29 (V28),
+                                    -- "followed" L30, "follow_refused" L31 (V29)
 texts.rename_suffix(outcome) -> string   -- V28: "renamed" -> "; items renamed", "kept" -> "; names kept",
                                     -- "no_name"|"no_type"|"no_ids"|"unconfirmed"|"busy" -> "; not renamed", else ""
 texts.fan_id(pin) ; texts.fan_model(pin, info, has_wind) ; texts.firmware(info)
@@ -1209,7 +1247,7 @@ lk:debug() -> { leds = { [300] = false, ... }, bound = n }
 kind)` with kind COMMAND for `MATCH_LED_STATE` and NOTIFY for
 `BUTTON_COLORS` (as device.lua); `list` writes `Keypad Links`
 (`C4:UpdatePropertyList(name, items joined by ",", items[1])`). The
-coordinator's property handlers parse rows 14–27 (`Speed 2` → 2, `0,0,255` →
+coordinator's property handlers parse rows 15–28 (`Speed 2` → 2, `0,0,255` →
 `0000ff`) and call `set_also` and `set_colors`.
 
 ### 9.9 `fan/light.lua`
@@ -1229,10 +1267,11 @@ spec may stub exactly these.
 
 ### 9.10 `fan/devcmds.lua` and `fan/discovery.lua`
 
-`devcmds.new({ model, fan, links, light, prop, inject = fn(binding, command, params), names, log })`
+`devcmds.new({ model, fan, links, light, prop, inject = fn(binding, command, params), names, follow, log })`
 returns the table for `devloop.set_signed_commands` ([section 12](#12-dev-loop-actions-and-toolsregresssh));
 `names` is the rename job of [section 9.13](#913-fannameslua-and-fanrenamelua-v28-37), which only `Dev Names Plan`
-uses (it prints `names:plan(mode)` and renames nothing).
+uses (it prints `names:plan(mode)` and renames nothing); `follow` is the follower of
+[section 9.14](#914-fanfollowlua-v29-39), whose `state()` is Dev State's `follow=` (section 12).
 `devcmds.redactor(get_pin)` returns the function for `devloop.set_redactor`
 (§3.7). `tools/build.sh` adds `fan/devcmds.lua` to its `DEV_ONLY_FILES`.
 
@@ -1260,6 +1299,17 @@ additional record, a second answer of 299 bytes followed with the same four
 records. The controller's own queries were not echoed back and nothing else
 arrived in the 3 s, so `parse` and `received` still skip every other record
 and datagram.
+
+For V29 ([`address-follow-design.md`](address-follow-design.md#21-fandiscoverylua-changed)
+2.1): `find`'s callback gets a third value, `heard`, every distinct
+(instance, address) pair of the window, each `{ instance, address, mac, port
+}`, beside the unchanged first-answer-wins list (Find Fans and its spec stay
+as they are); and `discovery.candidates(heard, mac12, current) -> { address,
+... }`, pure, keeps the entries whose TXT MAC is the pinned MAC, whose SRV
+port is 80 and whose address is private (RFC 1918) or link-local and not
+`current`: their distinct addresses in the order heard, at most 3. A Find
+Fans click during a follower window joins it (one binding, one window), and
+the follower never writes `Found Fans` or the pick.
 
 ### 9.11 Message flows
 
@@ -1347,7 +1397,7 @@ detail). Nothing here changes a decision of section 1.
   own.
 - **driver.lua**: `Found Fans` has a first row, `Pick a fan`, that is no pick
   (the list's default row would otherwise count as one); a pick is cleared
-  after Use Selected Fan; the V27 rows (20 to 27 of 2.5) are in
+  after Use Selected Fan; the V27 rows (21 to 28 of 2.5) are in
   `driver.xml` since #31 (the colour rows are read together by `apply_colors`, `r,g,b` to hex); `can_reverse` is True (K11).
 
 ### 9.13 `fan/names.lua` and `fan/rename.lua` (V28, #37)
@@ -1424,6 +1474,76 @@ empty, writes the same line again with the suffix; `OnDriverDestroyed` calls
 `job:stop()`; `devcmds` gets the job as `names` (`Dev Names Plan`, §12). The
 specs are `names_spec`, `rename_spec`, and additions to `texts_spec`,
 `devcmds_spec` and `fan_driver_spec` (`fan-name-design.md` section 4, §10.2).
+
+### 9.14 `fan/follow.lua` (V29, #39)
+
+Added after the M3 build (#39, 2026-11-04) and numbered after 9.13 so that no
+earlier section moves. The contract is
+[`address-follow-design.md`](address-follow-design.md#23-fanfollowlua-new-pure),
+section 2.3; the interface is repeated here so that this section stays
+complete, and where the two differ that file wins. The decisions are V29
+(F1 to F9 there); the cases behind them are
+[`edge-cases-address.md`](edge-cases-address.md) (ECA) sections 1 to 3.
+
+**`fan/follow.lua`** (pure like `fan/discovery.lua`: no Director; every
+option is called in `pcall`, so nothing raises from it):
+
+```lua
+local follow = require("fan.follow")
+local f = follow.new({
+	find = fn(cb(list, err, heard)),        -- discovery:find
+	candidates = discovery.candidates,
+	follow = fn(address, mac12, cb),        -- model:follow
+	phase = fn() -> string,                 -- the model's phase
+	identity = fn() -> pin|nil,             -- model:identity()
+	address = fn() -> string,               -- the current Fan Address
+	enabled = fn() -> bool,                 -- Follow Address Changes is On
+	timer = fn(ms, cb) -> handle, now = fn() -> ms, random = fn() -> 0..1,   -- random: tests only; else its own
+	seed = fn() -> number,                  -- the device id, read at the first arm: the slot and the generator's seed
+	on_followed = fn(address, was),         -- driver.lua: the row, Last Action L30
+	on_refused = fn(),                      -- the guard, L31 once
+	log = log,
+})
+f:phase_changed(phase)   -- the model's listener.phase
+f:address_edited()       -- the owner typed Fan Address: pending (F5), disarmed
+f:clicked()              -- a Use Selected Fan click: the open window's candidates are dropped (F4)
+f:contact()              -- a contact succeeded at the current address: pending cleared
+f:switch(on)             -- Follow Address Changes
+f:state() -> "off" | "idle" | "armed:N" | "pending"   -- Dev State
+f:stop()
+```
+
+Armed when the phase becomes offline, foreign, gen4 or notfan (§6.1) and
+the switch is On, `Fan Address` is not empty, the pin has a MAC (none is
+derived from the client id), the typed address is not pending, no Use
+Selected Fan read runs and the model is not stopped or rebooting; never on
+the first failed poll. Disarmed (timers cancelled, back to the first window)
+on online, waiting, unset, rebooting, a `Fan Address` edit, Off or `stop()`.
+Windows are Find Fans windows (the query twice 1 s apart, 3 s of answers,
+the binding closed between windows): the first 2 s after arming plus a slot
+of 3.5 s per device (device id mod 8) plus 0 to 0.5 s, then 30 s, 1, 2, 5
+and 10 min after the previous window closed, then every 15 min, each ±20 %,
+never closer than 30 s; each follower draws from a generator of its own,
+seeded from the device id and the clock at its first arm. A candidate heard
+but not verified is read again at +10, +30 and +90 s without a new window.
+Before each read the phase, the switch, the guard and "no owner edit or
+click since the window opened" are checked again; the read is the accept,
+so a switch to Off during a read (at most 5 s) lets it finish. Nothing is
+persisted: the ladder, the pending flag and the guard live in memory, and a
+restart starts them afresh.
+
+**Wiring** (`driver.lua`, `driver.xml`, `fan/devcmds.lua`; address-follow-design
+2.5): the property `Follow Address Changes` (§2.5 row 6) and its late-init
+replay; the follower built after the model and discovery; the model's
+`listener.phase` and the contact feeding it; the `Fan_Address` handler calls
+`f:address_edited()`; `on_followed` writes `Fan Address` with
+`prop("Fan Address", address)` (the model has already moved, and
+`OnPropertyChanged` does not run for the driver's own write) and
+`texts.result("followed", …)` (L30); `on_refused` writes L31;
+`OnDriverDestroyed` calls `f:stop()`; Dev State gains `follow=` (section
+12). The specs are `follow_spec`, and additions to `discovery_spec`,
+`model_spec`, `texts_spec`, `devcmds_spec` and `fan_driver_spec`
+(address-follow-design section 4).
 
 ## 10. Tests: fixtures and the fake runtime
 
@@ -1624,8 +1744,11 @@ run "<name>" KEY=value`; only a signed `execute` reaches them,
 shown.light=on/40 busy=- told.fan=3 told.dir=forward told.light=40
 notify.fan=12 notify.dir=1 notify.light=8 changing=0
 leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1
-ms=310` (`?` for unknown, `-` for none; `busy` lists groups by name;
-`notify.*` count the notifications sent since late init).
+follow=idle ms=310` (`?` for unknown, `-` for none; `busy` lists groups by
+name; `notify.*` count the notifications sent since late init; `follow` is
+the follower's `state()` of §9.14, V29: `off` with `Follow Address Changes`
+Off, `pending` while a typed `Fan Address` has not answered, `armed:N` with
+window N due or under way, else `idle`).
 
 `tools/regress.sh --fan` (opt-in, since it moves the fan; the generic checks
 stay as they are and run first), each step waiting at most 5 s for `busy=-`,
@@ -1675,10 +1798,13 @@ text as section 7 has it:
 1. What it is: one driver for a Modern Forms Gen 1–3 fan and its light, over
    the fan's local interface, without the vendor's cloud; the trademark and
    non-affiliation lines.
-2. Before you start: a DHCP reservation for the MAC shown in `Fan ID`; the
-   fan and the controller on one network; set up in the Modern Forms app
-   first; one Control4 device per fan, one controller per fan, no other
-   driver polling it.
+2. Before you start: a DHCP reservation for the MAC shown in `Fan ID`,
+   recommended but no longer required (V29: without one the driver finds
+   the fan again by itself, usually within a minute or two, programming
+   seeing one Fan Offline / Fan Online pair; on one network segment only;
+   the fan's answer seen from Gen 3 fans only); the fan and the controller
+   on one network; set up in the Modern Forms app first; one Control4
+   device per fan, one controller per fan, no other driver polling it.
 3. Adding the fan: add the driver to the room, type `Fan Address` (or Find
    Fans when present), what Status shows (S1–S13); the names of the two items
    (V28): the product name in `Fan Model`, the two clicks that rename and the
@@ -1699,7 +1825,12 @@ text as section 7 has it:
    holds stepping twice a second, Advanced Lighting Scenes, the settings page.
 7. When the fan is offline: what Control4 shows, what happens when power
    returns (nothing is re-sent).
-8. A new address, a replaced or reset fan: `Fan Address`, Use Selected Fan;
+8. A new address, a replaced or reset fan: the pinned fan followed to a new
+   address by itself (V29: when, what the owner sees, `Fan Address`
+   rewritten, L30 and L31, one Fan Offline / Fan Online pair, a typed
+   address wins, an empty one stops it, `Follow Address Changes`, one
+   network segment, private addresses only); `Fan Address` and Use Selected
+   Fan as the fallback and for another fan;
    never delete and re-add the device; the items follow a replacement's model
    unless the owner named them, and a firmware or light-kit change leaves the
    names alone.
@@ -1712,7 +1843,8 @@ text as section 7 has it:
     link to the house's record on GitHub (V16).
 12. Troubleshooting: a stuck Wi-Fi module (Reboot Fan, else 10 s off at the
     wall), `Poll Interval (s)`, the vendor app open on a phone.
-13. Privacy: what the driver reads and drops.
+13. Privacy: what the driver reads and drops, and the multicast DNS question
+    it asks on the local network (Find Fans, and V29's follower).
 14. The changelog (rendered by `tools/build.sh` at the marker).
 
 ## 15. Not in v1
@@ -1724,8 +1856,11 @@ text as section 7 has it:
   reserved); a tap/double-tap/colour machine per link; more than one extra
   lit speed per link; fan LED colours from the driver, unless K6 and the
   owner bring V27 in.
-- Following a new address by itself, ever; a
-  subnet scan, ever.
+- A subnet scan, ever; following to an address nobody announced, to a
+  public address, or without the read that shows the pinned fan; adopting
+  or learning another fan by itself, ever (V29 follows only the pinned fan:
+  [`address-follow-design.md`](address-follow-design.md#1-decisions) F8).
+  A standing multicast listener; a "Fan Address Changed" event.
 - Renaming the items by itself, ever: at start-up, after an update, a restore,
   a poll, a new address, a firmware or light-kit change, or from the first
   contact of a typed address; naming them after the app's `deviceName`; a
