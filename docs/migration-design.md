@@ -670,7 +670,8 @@ turns the phases into briefs and section 6 collects the ways back.
   every phase, Phase 8 included, done in one sitting on v1.0-beta.1, with no
   press until the owner's own test. Deleting the stock parent removed both stock
   items (the tree lost exactly two rows), as step 4 assumed; the empty
-  "Fan LED Settle" timer stayed for a later yes. The new items were then
+  "Fan LED Settle" timer stayed for a later yes (deleted on 2026-11-05 at
+  the owner's yes, its six event scripts empty). The new items were then
   renamed to the stock names; on the new device the parent item is the fan
   ("Fan"), where the stock device's parent was its light ("Fan Light").
   Migration Report #2 read "nothing enabled names it; safe to remove" and #3

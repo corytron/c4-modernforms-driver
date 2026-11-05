@@ -54,8 +54,9 @@ passed, the follow to a new address included (#58).
   Follow Connection in their own colours (`#8000FF`, Off `#800000`, off
   `#000000`). Programming left: Low's Double Tap sets Level 1 and High's
   Level 6 on the new fan. The LED scripts, the stock fan's Fan Speed Changed
-  script and the Fan LED Settle timer's script are deleted (the empty timer
-  goes at the owner's next yes). `Speed LED Colors` is `Per speed` since
+  script and the Fan LED Settle timer's script are deleted, and the empty
+  timer itself went on 2026-11-05 at the owner's yes (only Composer's
+  default "Every 5 minutes" timer is left). `Speed LED Colors` is `Per speed` since
   beta.3: Speed 1 `0,0,255`, Speeds 2 to 5 `128,0,255` (the keypad's own
   `#8000FF`), Speed 6 `255,96,0`, off `0,0,0`, so Low is blue at speed 1
   and High orange at speed 6 again, as before the cutover.
