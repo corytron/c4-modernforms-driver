@@ -4,8 +4,12 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.0 "Arrakis" is released and runs on the house; the stock driver is
-gone.** v1.0 (build 67) was released and installed in place on 2026-11-05
+**1.1 "Jamis" is the latest release and runs on the house; the stock
+driver is gone.** v1.1 (build 87) was released and installed in place on
+2026-11-05 (deploy issue #84, the round in Discussion #86, the announcement
+in Discussion #85): the Fan Cycle link stops at Level 6 (#77) and the
+driver's own icons (#78), the owner's answers to the last v1 questions
+(#14). Before it, v1.0 (build 67) was released and installed in place on 2026-11-05
 (deploy issue #67, the round in Discussion #70, the announcement in
 Discussion #68): beta.3 plus Breeze in Fan Model after a restart (#59) and
 linear trims (#49), released by the owner without a hardware test of those
@@ -25,12 +29,14 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.0, build 73**, one device: `deploy/house.yaml` and the environment
+- **v1.1, build 87**, one device: `deploy/house.yaml` and the environment
   `house` agree (deployment success, 2026-11-05). Debug Mode Off; `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
-  light kit F4IN-120V-R1-30, Breeze`, from the next start on also before
-  the fan's first answer (#69; the install itself started from build 67's
-  data, which had not stored it).
+  light kit F4IN-120V-R1-30, Breeze`, and the update did not rewrite it
+  (Breeze stored since build 73, #69). The two items keep Control4's own
+  icons: Composer stamps a proxy's icon when the device is created, and
+  this one was created by beta.1 (#78; the List View pixel-identical
+  before and after).
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
