@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.0 "Arrakis", build 73 (2026-11-05)
+
 ### Fixed
 
 - Fan Model shows Breeze from the moment the driver starts, before the fan first answers; until now it lacked it for the first seconds after a restart or an update (#69).
