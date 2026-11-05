@@ -31,7 +31,7 @@ Custom Control4 DriverWorks driver for Modern Forms (WAC Lighting) smart ceiling
 - **Research agents are read-only** and write one new file under `docs/` (for example `docs/*-research.md` or `docs/edge-cases-*.md`), citing the SDK doc file for every API claim and the primary source for every Modern Forms claim.
 - Typical split for a feature: VM-side tooling (Python) / driver-side Lua module plus its spec / changes to existing modules plus their specs / a design or research document. Integration into `driver.lua`, `driver.xml`, `tools/build.sh` and `CLAUDE.md` stays with the coordinator.
 - Don't spawn for quick things (one file, a handful of edits); do it inline. Everything larger is split.
-- Spawn every agent at the highest effort (`effort: "max"`; the owner calls it "ultracode"), whatever the task.
+- Spawn every agent on Opus 5.5 at `effort: "xhigh"` ("Opus extra"; owner, 2026-11-04: not `max`, which "ultracode" meant before), whatever the task. A PreToolUse hook on the VM refuses any other model or effort.
 - While agents run, the coordinator does the integration pieces nobody else owns (`driver.lua`, `driver.xml`, `tools/build.sh`, `CLAUDE.md`) and verifies through the dev loop, rather than waiting idle.
 
 ## Environment

@@ -14,6 +14,9 @@ driver's Documentation tab.
 **This version is written for the first full-featured test build** (the
 build of the M3 split, [`v1-design.md`](v1-design.md#13-m3-build-split)). No
 build of this driver has been checked on the house yet, so every step is open.
+Since #45 (2026-11-04) it has no migration steps: the Migration Report they
+read is gone from the driver, and the house's cutover from the stock driver
+is recorded in [`migration-design.md`](migration-design.md).
 
 ## Before you start
 
@@ -30,21 +33,18 @@ build of this driver has been checked on the house yet, so every step is open.
   of [`composer-remote.md`](composer-remote.md#rules-for-the-windows-session)
   (rule 8) and names the hard-to-undo steps inside it: installs, bindings and
   Disconnects, a Set on a property, a rename of an item or the delete of a
-  throw-away device (steps 7 and 51), the throw-away programming scripts of
-  step 35, the Set on `Stock Device`.
-- **A test button.** The house keypad has no spare button. The Windows
-  session first looks, read-only, for an unused keypad button elsewhere in
-  the project (no programming on its events, no link; one with an LED for the
-  LED steps). If there is none it borrows the house keypad's **Up** for the
-  press-only parts and **Medium** for the LED parts, a minute each, and runs
-  the restore check R-K of
-  [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
-  after each: links disconnected, LED Behavior back to Programmed, colours and
-  scripts as before. A press on a borrowed button also runs its own
-  programming (the fan's light on, or speed 3 through the stock device),
-  which is harmless; say so before you press. When the build allows it, the
-  Windows session can press a bound link without hands (K7 of the same
-  section); the LED steps still need your eyes.
+  throw-away device (steps 7 and 48) and the throw-away programming scripts
+  of step 35.
+- **The test buttons.** Since the cutover (2026-11-04) the house keypad's
+  fan and light buttons are bound to this driver's links
+  ([`status.md`](status.md)), so the steps press those buttons themselves:
+  Low to High and Off for the fan links, Up and Down for the light. Nothing
+  is borrowed or restored. A press also runs what is left of the button's
+  programming (Low's and High's Double Tap set Level 1 and Level 6); say so
+  before you press. When the build allows it, the Windows session can press
+  a bound link without hands (K7 of
+  [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install));
+  the LED steps still need your eyes.
 - **Release builds only, except the first test.** A release reaches the house
   from GitHub ([`release-checklist.md`](release-checklist.md)): the
   coordinator sends the Windows session the install brief, which downloads
@@ -75,13 +75,16 @@ build of this driver has been checked on the house yet, so every step is open.
   Level 3, every `Speed N Link Also Lit At` at `No other speed`, the test
   buttons restored, `Debug Mode` Off, and the two items' names as they were
   before step 6 (the driver changes them in steps 6 and 7; they are put back
-  by hand in step 51).
+  by hand in step 48).
 
-The house on 2026-11-04 ([`status.md`](status.md)): one Modern Forms fan on the
-stock driver `wac_mf_fan_and_light_controller(v4).c4z`, a keypad driven by
-programming (button scripts that set the speeds, LED scripts, a one-second
-settle Timer agent) with no spare button, the throw-away M1 probe still in a
-test room, and nothing of this driver installed.
+The house this version was written for (2026-11-04, before the first
+install): one Modern Forms fan on the stock driver
+`wac_mf_fan_and_light_controller(v4).c4z`, a keypad driven by programming
+(button scripts that set the speeds, LED scripts, a one-second settle Timer
+agent) with no spare button, the throw-away M1 probe still in a test room,
+and nothing of this driver installed. The same day v1.0-beta.1 was
+installed, the keypad moved to its links and the stock device was deleted
+(deploy issue #30); the house as it is now is [`status.md`](status.md).
 
 ## A. Install and update
 
@@ -159,7 +162,7 @@ test room, and nothing of this driver installed.
    - **Done:** open.
 7. **Name Items After Fan, and the guard.** On the device of step 6. On the
    house's own device this renames the items the family knows as **Fan** and
-   **Fan Light** until step 51 puts them back; the brief says whether the
+   **Fan Light** until step 48 puts them back; the brief says whether the
    owner agrees, and if not the step runs on a second device added to a test
    room and deleted afterwards (step 6 is repeated on it first). (a) If step
    6 ended in `; items renamed`, rename the fan item by hand to `Fan (new)`
@@ -194,16 +197,16 @@ test room, and nothing of this driver installed.
      `Last Change By` empty until the fan changes from outside, `Fan
      Automations` (`None` or `Active: …`), `Poll Interval (s)` 15, `Keypad
      Links` (`0 of 12 links bound`), `Speed 1 Link Also Lit At` to `Speed 6
-     Link Also Lit At` all `No other speed`, `Migration` `Not run yet: click
-     Migration Report on the Actions tab`, `Stock Device` empty, `Debug Mode`
-     Off, `Speed LED Colors` `Keypad's own`, `Speed 1 LED Color` to `Speed 6
-     LED Color` `0,0,255` and `Speed LED Off Color` `0,0,0` (V27, #31), and a
-     release build has no `Dev Server` or `Dev State` row.
+     Link Also Lit At` all `No other speed`, `Speed LED Colors` `Keypad's
+     own`, `Speed 1 LED Color` to `Speed 6 LED Color` `0,0,255` and `Speed LED
+     Off Color` `0,0,0` (V27, #31), `Debug Mode` Off, and a release build has
+     no `Dev Server` or `Dev State` row. No `Migration` or `Stock Device` row
+     (gone since #45).
    - **Done:** open.
 9. **The Actions tab.**
-   - **Expect:** seven actions in this order: `Find Fans`, `Use Selected Fan`,
+   - **Expect:** six actions in this order: `Find Fans`, `Use Selected Fan`,
      `Name Items After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off
-     Adaptive Learning`, `Migration Report`.
+     Adaptive Learning` (no `Migration Report` since #45).
    - **Done:** open.
 10. **The Documentation tab.** Open the fan item's **Documentation** tab,
     scroll to the end.
@@ -395,8 +398,9 @@ test room, and nothing of this driver installed.
 34. **A double tap.** Double tap the test button bound to **Fan Speed 2**.
     - **Expect:** the fan ends at Level 2, the LED lit, `Status` online (a
       double tap is two presses and acts twice). Whether the keypad's own
-      Double Tap event fires on a bound button belongs to the cutover sitting
-      ([`migration-design.md`](migration-design.md#8-open-items), item 5).
+      Double Tap event fires on a bound button is still open
+      ([`migration-design.md`](migration-design.md#8-open-items), item 5):
+      the cutover sitting pressed nothing, so record it here.
     - **Done:** open.
 
 ## G. Changes made elsewhere
@@ -404,7 +408,7 @@ test room, and nothing of this driver installed.
 35. **Three throw-away scripts.** The Windows session puts the same one-line
     script, with one harmless and visible effect of its choosing, on the fan's
     speed-changed event, on **Fan Offline** and on **Fan Online** (three
-    drags, each read back with Copy All). They stay until step 50 and let
+    drags, each read back with Copy All). They stay until step 47 and let
     steps 36, 37, 39 and 41 see the events fire.
     - **Expect:** each of the three events lists its one line, enabled.
     - **Done:** open.
@@ -510,58 +514,15 @@ test room, and nothing of this driver installed.
     <date>, was <old version>` and the device works as before.
     - **Done:** open.
 
-## I. Moving from the stock driver (the migration contract)
+## I. Putting everything back
 
-47. **Migration Report before anything moves.** Actions tab: **Migration
-    Report**, then read the `Migration` row and its drop-down (the Windows
-    session reads the dropped list). Nothing else is touched.
-    - **Expect:** the verdict `Stock device <id>: <n> enabled lines name it;
-      keep it` (`<n>` the old lines of the inventory in
-      [`migration-design.md`](migration-design.md#13-programming-that-names-the-stock-device));
-      the rows of
-      [`migration-design.md`](migration-design.md#44-rows): `Report of <date
-      time> by build <N>; it changed nothing`, `Stock: device <id> in <room>
-      (the only one)`, `Speed held by the stock fan: <x>; by this fan: <y>`,
-      `Stock links bound to keypads: 0 of 12`, the line counts, one row per
-      script (the keypad's button scripts, the stock fan's speed-changed
-      script and the settle timer's Expires script among them), and last
-      `Not read here: lighting scenes; favourites; voice`. The project is
-      unchanged (window title and System Design row count as before). Record
-      how long the click took.
-    - **Done:** open.
-48. **Stock Device.** Open the `Stock Device` Select dialog (read; cancel if it
-    does not list the stock device: record that). Pick the stock device, click
-    **Set**, then click **Migration Report** again.
-    - **Expect:** the dialog lists the device of
-      `wac_mf_fan_and_light_controller(v4).c4z`; after the Set the verdict
-      reads `Stock Device changed: click Migration Report again`; after the
-      report it is the verdict of step 47 with the row `Stock: device <id> in
-      <room> (set in Stock Device)`.
-    - **Done:** open.
-49. **Whether the stock driver follows the fan.** Set the fan to another speed
-    from the new device (step 12), wait a minute, click **Migration Report**.
-    - **Expect:** `Speed held by the stock fan: <x>; by this fan: <y>`; the
-      same speed means the stock driver still asks the fan itself
-      ([`migration-design.md`](migration-design.md#2-decisions), G13).
-    - **Done:** open.
-
-The rest of the migration, the buttons moved to links one by one with their
-old lines disabled first, the double taps rebuilt, the LED workaround
-switched off, and later the old lines, the one-second Timer agent and the
-stock device deleted once the report reads `safe to remove`, is the
-migration contract's own checklist
-([`migration-design.md`](migration-design.md#3-phases)). Nothing of the
-stock driver's setup is touched before that.
-
-## J. Putting everything back
-
-50. **Delete the throw-away scripts.** Delete the three scripts of step 35,
+47. **Delete the throw-away scripts.** Delete the three scripts of step 35,
     one line at a time (the prompt "Are you sure you want to delete the code
     item: …" names the line).
     - **Expect:** Programming shows nothing of them; every other script is as
       before the first binding (Copy All equal to the files saved then).
     - **Done:** open.
-51. **Put the settings back.** Default On Brightness 100, the fan item's
+48. **Put the settings back.** Default On Brightness 100, the fan item's
     Preset Level Level 3, every `Speed N Link Also Lit At` at `No other
     speed`, `Debug Mode` Off; the restore check R-K on any borrowed button
     that is still open; the two items' names back to what step 6 noted, by

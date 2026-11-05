@@ -1,5 +1,14 @@
 # Migration from the stock WAC driver (contract)
 
+> **Retired by [#45](https://github.com/corytron/c4-modernforms-driver/issues/45)
+> (2026-11-04).** The house's cutover is done (deploy issue #30, the round in
+> Discussion #34). The Migration Report (section 4), the `Migration` and
+> `Stock Device` properties and `fan/migration.lua` were removed from the
+> driver; another house moves by hand, as
+> [chapter 11 of the manual](../src/modernforms_fan/www/documentation.html#ch11)
+> says. This document stays as the record of how the house was cut over;
+> what it says of the report describes the builds before #45.
+
 Status: contract, 2026-10-27, written for
 [issue #12](https://github.com/corytron/c4-modernforms-driver/issues/12)
 beside the driver's own contract, [`v1-design.md`](v1-design.md), which
