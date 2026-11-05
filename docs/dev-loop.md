@@ -84,7 +84,8 @@ recorded: after a dev install, check that `Dev Server` holds the server's
   token from the dev key file and finds the server through
   `build/dev/server.json`; `log` reads `build/dev/driver.log` directly and
   needs neither.
-- [`tools/regress.sh`](../tools/regress.sh): the read-only regression pass
+- [`tools/regress.sh`](../tools/regress.sh): the regression pass, which presses
+  the fan's links and moves its light on the house fan and puts the state back
   ([Regression pass](#regression-pass)).
 - [`src/common/devloop.lua`](../src/common/devloop.lua): the driver side, in
   every dev package; [`tests/spec/devloop_spec.lua`](../tests/spec/devloop_spec.lua)
@@ -206,7 +207,7 @@ hook; `src/modernforms_fan/driver.lua` and its `driver.xml` have it:
   `Properties["Dev Server"]` holds one, so a reload pushed through the loop
   sees a fully initialised driver.
 - A driver with development-only commands hands them over with
-  `devloop.set_signed_commands({ Fan_Request = fn, ... })` at every load of
+  `devloop.set_signed_commands({ Dev_Fan_State = fn, ... })` at every load of
   its `driver.lua` (a reload's included), never into its dispatch table
   ([Development commands](#development-commands)); a driver that holds a
   secret (a key, a token) installs a redactor with
@@ -440,9 +441,9 @@ for all three tools.
 
 ### Regression pass
 
-[`tools/regress.sh`](../tools/regress.sh) `[--server URL] [--key-file FILE]
-[--state-dir DIR]` is the read-only, generic part of the dev-loop checks of
-[`release-checklist.md`](release-checklist.md), through `devctl.py`:
+[`tools/regress.sh`](../tools/regress.sh) `[--fan [--default-on N]] [--server URL] [--key-file FILE] [--state-dir DIR]`
+is the dev-loop regression pass of [`release-checklist.md`](release-checklist.md), through `devctl.py`.
+Its generic part checks the loop itself and is read-only:
 
 1. status: the server answers, a device polled it within the last 10 s,
    its dev key is the server's, exactly one device polls, and every device
@@ -455,9 +456,63 @@ for all three tools.
    reload in its last 400 lines.
 
 It exits with the number of failed checks, or 2 at once when `devctl.py
-status` fails, and creates, deletes and changes nothing. The fan's own
-actions (each speed, the light, the links and their LEDs, read back from
-what the fan answers) come with the v1 contract, which adds them here.
+status` fails or an argument is wrong. Without `--fan` it creates, deletes
+and changes nothing; every argument but `--fan` and `--default-on` goes to
+each `devctl.py` call.
+
+**`--fan`** adds the fan's own pass, F1 to F9 of [the v1 contract](v1-design.md#12-dev-loop-actions-and-toolsregresssh),
+after the generic checks and only when they all passed. It moves the fan
+and its light, so it is opt-in. It queues the signed development commands
+of [`Dev Fan State`, `Dev Proxy` and `Dev Press`](#development-commands)
+and reads every result back from the `Dev State` row:
+
+| Step | Commands | Passes when |
+| --- | --- | --- |
+| F1 | `Dev Fan State` | `phase=online`, `busy=-`, the fan and the light known: this is the state F8 returns to |
+| F2 | `Dev Proxy` 5001 `SET_SPEED` 1 to 6 | `fan=on/N`, `told.fan=N`, links 300 to 308 lit for speed N, and `notify.fan` one higher than the step before (the same when the speed did not change: one notification per real change) |
+| F3 | `Dev Proxy` 5001 `SET_SPEED` 0 | `fan=off`, `told.fan=0`, link 300 lit and 301 to 308 dark |
+| F4 | `Dev Press` 307 `tap` | the fan on at its preset (any speed from 1 to 6: the pass learns it here), links 307 and 308 and only that speed's link lit |
+| F5 | `Dev Press` 308 `tap` `COUNT=3` `EVERY=150` | the preset plus three, wrapping past 6, `notify.fan` one higher (the burst coalesced into one report) |
+| F6 | `Dev Proxy` 5002 `SET_BRIGHTNESS_TARGET` 30, 70, then 0 | `light=on/30`, `on/70`, `off`; `told.light` the same; `changing=0` after each |
+| F7 | `Dev Press` 200 `tap` | `light=on/N`, `told.light=N`, `changing=0`; N is Default On Brightness, which `--default-on N` pins exactly and which otherwise may be any level (one equal to the 70 F6 left cannot be told from the kept level, and the pass says so) |
+| F8 | `Dev Proxy` back to F1's state | F1's `fan=` and `light=` again |
+| F9 | the shipped log since F1 | no `[ERROR]`, "attempt to", traceback, refusal or failed signed command line |
+
+Every step also wants `busy=-` and what is shown equal to what is confirmed
+(`shown.fan` and `fan`, `shown.light` and `light`), since nothing is left
+wanted or in flight a poll later. A fan without a light kit (`light=-`)
+skips F6 and F7. The pass assumes the default `Speed N Link Also Lit At`
+(`No other speed`): with the house's two extra speeds set, F2 would find
+two links lit at speeds 1 and 6.
+
+- **One poll per step.** Each step is one batch: a `Dev Fan State` read,
+  then the step's commands, then a wait for the last. The read comes
+  first, so it shows what the step before left, one poll (3 s) after that
+  step's commands ran, and the batch checks that step against it. A step
+  costs one poll instead of two, so the 16 batches take about a minute (an
+  estimate: the pass has not run on the house yet). A step that is still
+  busy at its read has taken longer than a poll and fails, where the
+  contract allows 5 s.
+- **F5 depends on how fast the fan answers.** The three taps are 150 ms
+  apart and coalesce into one report only while the cycle group is still
+  busy when the next tap arrives, which holds as long as the fan takes
+  longer than 150 ms to answer the first command (the contract's example
+  line shows 310 ms). A fan that answers in about 100 ms reports twice, and
+  F5 then fails on `notify.fan` alone, with the speed, `told.fan` and the
+  links right.
+- **It stops at the first step that does not read back as expected**,
+  printing the step, what differed and the whole `Dev State` line. On a
+  failed step, a dev loop that stops answering for 20 s, or an interrupt,
+  it queues the commands that put the fan and the light back as F1 found
+  them (not verified) and ends. The exit status is the number of failed
+  checks, so at least 1 after a failure. A pass that fails at F1 has moved
+  nothing.
+- **What it leaves changed**: the light's remembered level (F6 and F7 set
+  it, and F8 cannot restore it when the light started off, since `Dev State`
+  does not show a level for an off light) and nothing else; the fan's preset,
+  direction and every property stay as they were. While it runs, the
+  proxies fire their events for each change (the fan's speed events, the
+  light's), so Control4 programming bound to them runs as for any change.
 
 ### Leaving the loop (production)
 
@@ -571,11 +626,51 @@ the dev key signed, and the key never crosses the wire.
   sits in a driver's dispatch table, any driver in the project can run
   with `C4:SendToDevice`. A dev build adds to that table only what Composer
   itself sends: the DEV-ONLY rows and actions of `driver.xml` (today the
-  `Dev Server` property). Anything that only development needs (an
-  arbitrary request to the fan, a probe of a `C4` call) goes into the
+  `Dev Server` and `Dev State` rows). Anything that only development needs
+  (a keypad press, a proxy command, a probe of a `C4` call) goes into the
   table the driver hands to `devloop.set_signed_commands`, which only a
-  signed `execute` command reaches (`devctl.py run`). The scaffold driver
-  has no development commands.
+  signed `execute` command reaches (`devctl.py run`). The Modern Forms Fan
+  driver builds that table in `fan/devcmds.lua`, a file `tools/build.sh`
+  leaves out of a release package (`DEV_ONLY_FILES`), and hands it over at
+  every load of its `driver.lua` together with the redactor.
+- **The commands** ([the v1 contract, section 12](v1-design.md#12-dev-loop-actions-and-toolsregresssh)),
+  run as `devctl.py run "<name>" KEY=value ...`; the names are the ones
+  `common/dispatch.lua` gives (`Dev Press` finds `Dev_Press`), the
+  parameters arrive as strings:
+
+  | Command | Parameters | Does |
+  | --- | --- | --- |
+  | `Dev Fan State` | none | writes the DEV-ONLY row `Dev State` (described below), which comes back in the `command_done` report that follows (`devctl.py wait` prints it), and logs the same line |
+  | `Dev Press` | `LINK` 200 to 202 or 300 to 308; `ACTION` `tap`, `push`, `click` or `release`; `COUNT` 1 to 100 (default 1); `EVERY` 10 to 60000 ms (default 300) | `ReceivedFromProxy(LINK, command)` with `DO_PUSH`, `DO_CLICK` or `DO_RELEASE`, as a keypad sends them, `COUNT` times, `EVERY` ms apart. A `tap` is a push and, 100 ms later, a click. The first message goes at once and the rest on the controller's own timers, so the spacing is not the loop's 3 s poll; timers still waiting are cancelled when the driver is destroyed |
+  | `Dev Proxy` | `BINDING` 5001 or 5002; `COMMAND`; any other parameters | `ReceivedFromProxy(BINDING, COMMAND, params)` as the proxy would call it, the other parameters as the strings they came as (`SPEED=3`; `LIGHT_BRIGHTNESS_TARGET=70 RATE=0`) |
+  | `Dev Request` | `BODY` | one request through the model's `request`, which the driver wires in and which sends only while the fan is online and nothing else is due (otherwise: `not sent (busy)`): one of the two queries, or a body `wire.body` builds from the fields the driver writes (any key order or spacing; the bytes sent are `wire.body`'s). The answer is logged normalized, `Dev Request #41 command: 200 in 0.31 s: fan on/4 forward, light off/100`, with the client id as `...5301` and nothing else of the answer |
+
+  A parameter outside what a command takes (a link that is none of the
+  twelve, a count of 0 or 101, a body with a key the driver never writes,
+  a mix of groups) is refused: nothing is sent and one warning says why
+  (`Dev Press refused: LINK 399 is not a Button Link (200 to 202, 300 to
+  308); nothing was done`). A refusal does not raise, so the `command_done`
+  report carries no error: read the log.
+- **Dev State.** One line of `key=value` pairs separated by spaces, always
+  in this order: `phase`, `seq`, `fan`, `dir`, `light` (what the fan
+  confirmed), `shown.fan`, `shown.light` (what the LEDs and Toggle work
+  from: wanted over in flight over confirmed), `busy` (the groups with a
+  command wanted or in flight, `fan,direction,light` in that order),
+  `told.fan`, `told.dir`, `told.light` (what the proxies were last told),
+  `notify.fan`, `notify.dir`, `notify.light` (the notifications sent since
+  late init), `changing` (1 while the light's `CHANGING` is open), `leds`
+  (links 300 to 308, then 200 to 202, as `303:1`) and `ms` (the last
+  request's time). A fan or light reads `on/3`, `on/40` or `off`; `?` is
+  unknown (a module that cannot say, before the first contact), `-` is none
+  (`busy=-`, nothing told yet, `light=-` for a fan without a light kit). The
+  light's buttons follow [the contract's LED rule](v1-design.md#52-light-links-200202)
+  (200 and 202 lit while the light is on, 201 while it is off) unless the
+  light module reports its own. An example
+  `phase=online seq=231 fan=on/3 dir=forward light=on/40 shown.fan=on/3
+  shown.light=on/40 busy=- told.fan=3 told.dir=forward told.light=40
+  notify.fan=12 notify.dir=1 notify.light=8 changing=0
+  leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1
+  ms=310` (one line; broken here for reading).
 - **A forwarded device's `DEV_LOG`** (dormant) must stay reachable through
   `ExecuteCommand`, since the devices send it with `C4:SendToDevice`: the
   polling driver's handler only prints one line under the sender's name,
@@ -583,7 +678,22 @@ the dev key signed, and the key never crosses the wire.
   lines of the shipped log.
 - **Redaction.** A driver that comes to hold a secret installs a redactor
   ([The polling device](#the-polling-device)), so even a development
-  command that printed the secret would not put it on the wire.
+  command that printed the secret would not put it on the wire. The fan
+  driver's (`devcmds.redactor`, handed the pinned identity) answers nothing
+  for a line that holds a private key of the fan's answers in quotes
+  (`owner`, `federatedIdentity`, `deviceName`, `SSID`, `BSSID`, `timezone`,
+  `certificateId`, `schedule`, `FrCodes`; any case, single or double
+  quotes, or inside a JSON text inside another) and in any other line
+  replaces every client id (`MF_` or `WAC_` and 12 hex digits, the pinned
+  one or another fan's) with `<client-id>`, every MAC in the colon form and
+  the pinned MAC's twelve digits with `<mac>`, and every IPv4 address with
+  `<ip>`. The last four digits of an id (`...5301`) stay: they are what the
+  log may show. It remembers every identity it was told, so a line
+  buffered before a re-point or after a stop is covered too, and it runs on
+  each line twice (when buffered and when shipped), which it survives
+  unchanged. The contract lets the address be logged; this redactor takes
+  it out of the lines that leave the controller all the same, so
+  `build/dev/driver.log` shows `<ip>` where a line had one.
 - **The one module a reload never replaces.** A change to
   `common/devloop.lua` itself reaches the controller only with a dev `.c4z`
   install or a Director restart ([Gotchas](#gotchas-learned-on-hardware)):

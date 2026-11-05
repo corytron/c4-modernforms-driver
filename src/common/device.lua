@@ -36,15 +36,24 @@
 -- Hue's relative dimming (HUE_DIM) and the scene's holds were never here:
 -- they lived in those drivers' on_hold / on_finish hooks.
 --
--- What the v1 contract decides on top (not built here):
---   * One instance serves one light_v2 proxy on binding 5001 and its three
---     Button Links (200 top, 201 bottom, 202 toggle), and registers its proxy
---     handlers in common/dispatch by command name only. A driver with a fan
---     proxy and a light_v2 proxy needs the bindings told apart first (the
---     handlers get the binding) and the light's proxy binding as an option.
---   * The fan's per-speed links (the fan proxy's proxy_fan_speed_connections,
---     OS 3.4.2) light the active speed only: a link table and an LED rule of
---     their own, where these three links follow on / off.
+-- Changed for the v1 contract (docs/v1-design.md section 9.2), because the
+-- fan driver has a fan proxy and a light_v2 proxy and the handlers get the
+-- binding they came in on:
+--   * The light_v2 proxy's binding is an option (opts.proxy_binding, default
+--     device.PROXY_BINDING, 5001; the fan driver passes 5002). The instance
+--     sends its notifications, the keypad LEDs' BUTTON_INFO and the settings'
+--     answers there and looks its proxy up there.
+--   * The handlers register in common/dispatch per binding (dispatch.binding)
+--     instead of by command name only: on the proxy binding BUTTON_ACTION,
+--     SET_BUTTON_COLOR and each keypad setting's command; on the Button Links
+--     (200 top, 201 bottom, 202 toggle) DO_PUSH, DO_RELEASE, DO_CLICK and
+--     REQUEST_BUTTON_COLORS. A link command on the proxy binding, or the
+--     proxy's command on a link, finds no handler; a SET_BUTTON_COLOR on a
+--     link, which a command-only table would have taken, is logged and
+--     ignored (section 5.1: the same on the fan's links). Nothing is written
+--     to dispatch.proxy.
+-- The fan's own links (300-308), the fan proxy and their LED rule are not
+-- here: they are the driver's (fan/links.lua, fan/fanproxy.lua).
 --
 -- No module-level state: device.new() returns one instance per driver.
 --
@@ -52,6 +61,7 @@
 --       prefix = "Modern Forms Fan", -- the log prefix (log.set_prefix)
 --       noun = "light",              -- what the keypad's log lines call the device
 --       settings = { "hold_up", "hold_down" },  -- the keypad settings its driver.xml declares (SETTINGS)
+--       proxy_binding = 5002,        -- the light_v2 proxy's proxybindingid (default 5001)
 --   })
 --
 -- Hooks the driver assigns once the functions they call exist (they are read
@@ -67,10 +77,11 @@
 -- after_late_init(), late_init(), binding_changed(), replay_bindings(),
 -- show_driver_version(), load_colors(), update_leds(), setting(),
 -- load_settings(), button_action(), holding(), dim_after_on(), link_button()
--- and cancel_timers(). It registers the Driver_Version and Debug_Mode
--- property handlers, the proxy's BUTTON_ACTION, DO_PUSH, DO_RELEASE,
--- DO_CLICK, REQUEST_BUTTON_COLORS and SET_BUTTON_COLOR, and the SET_* command
--- of each keypad setting it takes.
+-- and cancel_timers(), and the field proxy_binding (the binding in use). It
+-- registers the Driver_Version and Debug_Mode property handlers; on the proxy
+-- binding BUTTON_ACTION, SET_BUTTON_COLOR and the SET_* command of each keypad
+-- setting it takes; on the Button Links 200, 201 and 202 DO_PUSH, DO_RELEASE,
+-- DO_CLICK and REQUEST_BUTTON_COLORS (and a SET_BUTTON_COLOR that is ignored).
 --
 -- OnDriverLateInit: load_settings() and load_colors(), replay the properties,
 -- show_driver_version(1), then late_init() (the buffered messages), and
@@ -81,7 +92,8 @@ local dispatch = require("common.dispatch")
 
 local device = {}
 
--- The light_v2 proxy's binding, the proxybindingid its driver.xml gives it.
+-- The light_v2 proxy's binding, the proxybindingid its driver.xml gives it,
+-- when device.new() is not told another (opts.proxy_binding).
 device.PROXY_BINDING = 5001
 local PROXY_BINDING = device.PROXY_BINDING
 
@@ -188,6 +200,22 @@ function device.new(opts)
 
 	log.set_prefix(opts.prefix)
 
+	-- The light_v2 proxy's binding. A value that is no number raises rather
+	-- than falling back to 5001: that would send the light's notifications to
+	-- another proxy [docs/v1-design.md section 9.2].
+	local proxy_binding = PROXY_BINDING
+	if opts.proxy_binding ~= nil then
+		proxy_binding = tonumber(opts.proxy_binding)
+		if proxy_binding == nil then
+			error("device.new: proxy_binding is a binding number, got " .. tostring(opts.proxy_binding), 2)
+		end
+	end
+	dev.proxy_binding = proxy_binding
+
+	-- The handlers of the proxy binding (common/dispatch.binding); the Button
+	-- Links get theirs under "Keypad buttons" below.
+	local proxy_handlers = dispatch.binding(proxy_binding)
+
 	-- Properties and proxy notifies ----------------------------------------
 
 	local function prop(name, value)
@@ -204,7 +232,7 @@ function device.new(opts)
 			table.sort(parts)
 			log.debug("-> proxy %s %s", command, table.concat(parts, " "))
 		end
-		C4:SendToProxy(PROXY_BINDING, command, params)
+		C4:SendToProxy(proxy_binding, command, params)
 	end
 	dev.notify = notify
 
@@ -221,11 +249,11 @@ function device.new(opts)
 		prop("Last Action", text)
 	end
 
-	-- Our light_v2 proxy: the consumer bound to binding 5001, the device
+	-- Our light_v2 proxy: the consumer bound to the proxy binding, the device
 	-- Composer shows and renames [verified: API 32/_3 usage note; hardware,
 	-- the Hue project: the first key of the table]. nil when none.
 	function dev.proxy_id()
-		local bound = C4:GetBoundConsumerDevices(C4:GetDeviceID(), PROXY_BINDING)
+		local bound = C4:GetBoundConsumerDevices(C4:GetDeviceID(), proxy_binding)
 		if type(bound) ~= "table" then
 			return nil
 		end
@@ -385,7 +413,7 @@ function device.new(opts)
 	end
 
 	local function send_button_info(button, on)
-		C4:SendToProxy(PROXY_BINDING, "BUTTON_INFO", {
+		C4:SendToProxy(proxy_binding, "BUTTON_INFO", {
 			BUTTON_ID = button,
 			ON_COLOR = button_color(button, "on"),
 			OFF_COLOR = button_color(button, "off"),
@@ -443,7 +471,7 @@ function device.new(opts)
 	local function report_setting(name)
 		local value = tostring(dev.setting(name))
 		log.debug("-> proxy %s %s", SETTINGS[name].notify, value)
-		C4:SendToProxy(PROXY_BINDING, SETTINGS[name].notify, value)
+		C4:SendToProxy(proxy_binding, SETTINGS[name].notify, value)
 	end
 
 	-- A setting outside its range is never taken: a preset level of 0 would
@@ -498,7 +526,7 @@ function device.new(opts)
 
 	for _, name in ipairs(setting_names) do
 		local s = SETTINGS[name]
-		dispatch.proxy[s.command] = function(_, params) save_setting(name, params[s.param]) end
+		proxy_handlers[s.command] = function(_, params) save_setting(name, params[s.param]) end
 	end
 
 	-- Keypad press, click and release ----------------------------------------
@@ -624,7 +652,9 @@ function device.new(opts)
 	-- notification]; a keypad button bound to one of the driver's Button Link
 	-- connections (200 top, 201 bottom, 202 toggle) delivers DO_PUSH,
 	-- DO_RELEASE and DO_CLICK on that binding [verified: public light_v2
-	-- drivers]. Both end in the machine above, dev.button_action.
+	-- drivers]. Both end in the machine above, dev.button_action. Each route
+	-- registers on its own bindings (common/dispatch.binding), so a second proxy
+	-- of the driver can use the same command names [docs/v1-design.md 9.2].
 
 	local function link_button(binding, command)
 		local button = LINK_BUTTON[tonumber(binding)]
@@ -635,7 +665,7 @@ function device.new(opts)
 	end
 	dev.link_button = link_button
 
-	dispatch.proxy["BUTTON_ACTION"] = function(_, params)
+	proxy_handlers["BUTTON_ACTION"] = function(_, params)
 		local button, action = tonumber(params.BUTTON_ID), tonumber(params.ACTION)
 		if not button or not action then
 			return log.warn("BUTTON_ACTION without BUTTON_ID/ACTION")
@@ -644,23 +674,27 @@ function device.new(opts)
 		dev.button_action(button, action)
 	end
 
-	dispatch.proxy["DO_PUSH"] = function(binding)
+	-- What the Button Links hear: one set for the three bindings, each handler
+	-- told the binding it came in on, which names the button.
+	local link_handlers = {}
+
+	link_handlers["DO_PUSH"] = function(binding)
 		local button = link_button(binding, "DO_PUSH")
 		if button then dev.button_action(button, ACT_PRESS) end
 	end
 
-	dispatch.proxy["DO_RELEASE"] = function(binding)
+	link_handlers["DO_RELEASE"] = function(binding)
 		local button = link_button(binding, "DO_RELEASE")
 		if button then dev.button_action(button, ACT_RELEASE) end
 	end
 
-	dispatch.proxy["DO_CLICK"] = function(binding)
+	link_handlers["DO_CLICK"] = function(binding)
 		local button = link_button(binding, "DO_CLICK")
 		if button then dev.button_action(button, ACT_CLICK) end
 	end
 
 	-- A keypad on a link asks for its button's colours and the LED state.
-	dispatch.proxy["REQUEST_BUTTON_COLORS"] = function(binding)
+	link_handlers["REQUEST_BUTTON_COLORS"] = function(binding)
 		local button = link_button(binding, "REQUEST_BUTTON_COLORS")
 		if not button then
 			return
@@ -669,9 +703,26 @@ function device.new(opts)
 		C4:SendToProxy(tonumber(binding), "MATCH_LED_STATE", { STATE = dev.is_on() == true }, "COMMAND")
 	end
 
+	-- A command-only table would have let a SET_BUTTON_COLOR on a link set the
+	-- colours as the proxy's does. The link protocol documents the command
+	-- without saying who sends it or what its button means there (Keypad
+	-- reference, button link bindings), so it is logged and left alone, as on
+	-- the fan's links [docs/v1-design.md 5.1, 9.2].
+	link_handlers["SET_BUTTON_COLOR"] = function(binding)
+		log.debug("SET_BUTTON_COLOR on binding %s ignored: the colours are set on the %s's own proxy",
+			tostring(binding), noun)
+	end
+
+	for _, binding in ipairs(LINK_BINDINGS) do
+		local handlers = dispatch.binding(binding)
+		for command, fn in pairs(link_handlers) do
+			handlers[command] = fn
+		end
+	end
+
 	-- The proxy stores a button's on or off colour (the docs print the names
 	-- with spaces; both spellings are accepted).
-	dispatch.proxy["SET_BUTTON_COLOR"] = function(_, params)
+	proxy_handlers["SET_BUTTON_COLOR"] = function(_, params)
 		local button = tonumber(params.BUTTON_ID or params["BUTTON ID"])
 		if not (button and COLOR_DEFAULTS[button]) then
 			return log.warn("SET_BUTTON_COLOR without a known BUTTON_ID (%s)", tostring(params.BUTTON_ID))

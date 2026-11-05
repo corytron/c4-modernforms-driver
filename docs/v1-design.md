@@ -1256,6 +1256,66 @@ A top tap with the light off, its kept level 100, Default On Brightness 50:
 `CHANGING {0 → 50}`, LEDs on at once → `{"lightBrightness":50}` → answer
 (off, 50) → `{"lightOn":true}` → answer (on, 50) → `CHANGED {50}`.
 
+### 9.12 As built (M3, #26)
+
+The modules were built to the interfaces above by separate agents; where the
+build differs or adds, this is the list (the code and its specs are the
+detail). Nothing here changes a decision of section 1.
+
+- **model.lua**: `m:on_idle()` (the transport's `on_idle` calls it) and
+  `m:request(req, cb)` (Dev Request, only when online and idle) are added; the
+  phase `detail` carries `online` (what the Online variable and the light's
+  `ONLINE_CHANGED` take) and `event` (`"online"` or `"offline"`: what fires
+  Fan Online and Fan Offline), so `driver.lua` only applies them. Settled
+  reports are told while online, or by the contact that ends a gap (R7, 6.2),
+  and settled events come before the phase event on coming back online. The
+  backoff after the k-th failure is 10, 20, 40 and then 60 s (3.4 read
+  literally); 9.11's "reads every 60 s" is the steady state. A command on the
+  wire when the address changes, Use Selected Fan runs, a reboot starts or the
+  model stops is dropped and logged, not re-sent; a Reboot Fan not yet sent is
+  cancelled if Use Selected Fan comes first.
+- **wire.lua**: `wire.state` clamps (speed above 6 to 6, a level of 0 while on
+  to 1, above 100 to 100) and lists what it changed in `st.adjusted`;
+  `wire.decode` drops the private keys (`owner`, `federatedIdentity`,
+  `deviceName`, `SSID`, `BSSID`, `timezone`, `certificateId`, `FrCodes`) and
+  refuses a body over 64 KB. `wire.ipv4` rejects leading zeros.
+- **transport.lua**: a 404 on `/mf` is `err = "http"` with `code = 404` (the
+  model decides on the Gen 4 probe, not the transport); a request given up by
+  `set_address` or `stop()` frees the slot and its late answer is dropped; the
+  callback runs with the slot already in its gap, so a `send` from inside it is
+  `"busy"` and `on_idle` follows 250 ms later.
+- **fanproxy.lua**: with the fan state unknown, `ON` counts as off (goes to the
+  preset) and Toggle, Cycle and Toggle Direction are refused (`"unknown"`); a
+  refused `DESIGNATE_PRESET` is not stored but `PRESET_SPEED` with the kept
+  preset is still sent, so the Preset Level page snaps back.
+- **links.lua**: `send` takes the kind (`"COMMAND"` for `MATCH_LED_STATE`,
+  `"NOTIFY"` for `BUTTON_COLORS`); the click rule is per link and shared by the
+  keypads on it; the nine links are lit whether or not a keypad is bound.
+- **light.lua**: ON always goes to Default On Brightness (the level-then-on
+  two-step is the model's); the third argument of `light:phase` is read as the
+  kit word only when it is a boolean, else from `model:info()`; `device.lua`'s
+  existing `dev.on_end_hold` hook is used.
+- **discovery.lua**: the query id is 0 (RFC 6762) and the class QM; `find`'s
+  `cb(list, err)` takes `err` `"open"`, `"timer"` or `"send"` (all L10); a
+  second `find` while one runs joins its window; the instance, address and
+  firmware are checked and bounded (at most 64 fans per window).
+- **migration.lua**: the persisted key is `mf_migration`; its `api` table is
+  built in `driver.lua`; every owner-visible string is in `migration.T`
+  (`texts.lua` has none of them); `Last Action` after the action is the
+  verdict.
+- **common/**: `dispatch.binding` raises on a non-numeric id; once a binding
+  has a handler table, `dispatch.proxy` no longer serves it (shadowed, not
+  merged).
+- **texts.lua**: `Fan Automations` with every item active is 84 characters in
+  7.3's long forms, so past 72 characters `away mode` and `adaptive learning`
+  read `away` and `learning`; S9 with a 15-character address and a date is
+  exactly 75; texts for degenerate input (`?`, `fan unknown`) are the module's
+  own.
+- **driver.lua**: `Found Fans` has a first row, `Pick a fan`, that is no pick
+  (the list's default row would otherwise count as one); a pick is cleared
+  after Use Selected Fan; the V27 rows (20 to 27 of 2.5) are not in
+  `driver.xml` (#14 is open); `can_reverse` is True (K11).
+
 ## 10. Tests: fixtures and the fake runtime
 
 ### 10.1 Fixtures (`tests/fixtures/`, loaded as `require("fixtures.mf_gen3")`)

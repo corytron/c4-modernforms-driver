@@ -3,6 +3,10 @@
 -- the colour maths. Two loaded drivers are two instances of the fan driver
 -- (the project ships one driver); a driver with a proxy is one the spec
 -- describes with fake.define_driver.
+--
+-- The fan driver declares two proxies (the fan on 5001, the light on 5002), so
+-- every runtime of it owns two proxy devices, 3001 and 3002, and the first
+-- proxy AddDevice hands out in a spec with one runtime is 3003.
 
 local fake = require("helpers.fake_c4")
 local log = require("common.log")
@@ -25,6 +29,36 @@ local FAN_XML = [[
 		<proxy proxybindingid="5002" name="Example Fan">fan</proxy>
 	</proxies>
 </devicedata>]]
+
+-- A combo driver names itself as its proxy and has no proxy device; a driver
+-- with two proxies, in the order the fan driver declares its own; and one
+-- written with a bare <proxy> element, which sits on the default 5001.
+local COMBO_XML = [[
+<devicedata>
+	<name>Example Combo</name>
+	<proxies>
+		<proxy proxybindingid="5001" name="Example Combo">example_combo</proxy>
+	</proxies>
+</devicedata>]]
+local PAIR_XML = [[
+<devicedata>
+	<name>Example Pair</name>
+	<proxies>
+		<proxy proxybindingid="5001" name="Example Pair" primary="True">fan</proxy>
+		<proxy proxybindingid="5002" name="Example Pair Light">light_v2</proxy>
+	</proxies>
+</devicedata>]]
+local BARE_XML = [[
+<devicedata>
+	<name>Example Bare</name>
+	<proxies>
+		<proxy>light_v2</proxy>
+		<proxy proxybindingid="5003" name="Example Bare Fan">fan</proxy>
+	</proxies>
+</devicedata>]]
+
+-- The proxy ids a runtime of the fan driver holds (see the top), and the next.
+local FAN_PROXY, LIGHT_PROXY, NEXT_PROXY = 3001, 3002, 3003
 
 -- The binding fake.pair makes when a spec asks for one.
 local BIND = { provider_binding = 1, consumer_binding = 1, class = "EXAMPLE_LINK" }
@@ -49,6 +83,17 @@ local function clear(t)
 	for i = #t, 1, -1 do t[i] = nil end
 end
 
+-- The ids of the protocol devices in the project: everything but the proxies,
+-- which every runtime of the fan driver brings along.
+local function protocols()
+	local out = {}
+	for id, rec in pairs(fake.project.devices) do
+		if not rec.protocol_id then out[#out + 1] = id end
+	end
+	table.sort(out)
+	return out
+end
+
 -- Record every OnBindingChanged of an env as { who, ...its five params }.
 local function watch_bindings(env, who, into)
 	env.OnBindingChanged = function(...) into[#into + 1] = { who, ... } end
@@ -59,11 +104,17 @@ describe("fake C4 harness", function()
 		log.sink = function() end
 		fake.define_driver("example_light", LIGHT_XML)
 		fake.define_driver("example_fan", FAN_XML)
+		fake.define_driver("example_combo", COMBO_XML)
+		fake.define_driver("example_pair", PAIR_XML)
+		fake.define_driver("example_bare", BARE_XML)
 	end)
 
 	after_each(function()
 		fake.define_driver("example_light", nil)
 		fake.define_driver("example_fan", nil)
+		fake.define_driver("example_combo", nil)
+		fake.define_driver("example_pair", nil)
+		fake.define_driver("example_bare", nil)
 	end)
 
 	describe("pairs", function()
@@ -182,8 +233,13 @@ describe("fake C4 harness", function()
 		end)
 
 		it("reads the declared properties and defaults, the DEV-ONLY ones included", function()
-			assert.same({ ["Driver Version"] = "", ["Debug Mode"] = "Off", ["Dev Server"] = "" },
-				fake.declared_properties(FAN))
+			local props = fake.declared_properties(FAN)
+			assert.equal("", props["Driver Version"])
+			assert.equal("Off", props["Debug Mode"])
+			assert.equal("", props["Dev Server"], "a DEV-ONLY row is in the source xml")
+			assert.equal("15", props["Poll Interval (s)"])
+			assert.equal("No other speed", props["Speed 3 Link Also Lit At"])
+			assert.is_nil(props["No Such Row"])
 		end)
 	end)
 
@@ -194,29 +250,42 @@ describe("fake C4 harness", function()
 			assert.same({ 7 }, keys(fake.project.rooms))
 			assert.equal(7, c4:RoomGetId())
 			assert.equal("Modern Forms Fan", c4:GetDeviceDisplayName())
-			assert.same({ name = "Modern Forms Fan", room_id = 7, c4i = "modernforms_fan.c4z",
-				driver_name = "Modern Forms Fan" }, fake.project.devices[15])
-			assert.same({ 15 }, keys(fake.project.devices), "a combo driver: no proxy device")
+			local own = fake.project.devices[15]
+			assert.same({ "Modern Forms Fan", 7, "modernforms_fan.c4z", "Modern Forms Fan" },
+				{ own.name, own.room_id, own.c4i, own.driver_name })
+			assert.same({ 15 }, protocols())
+			assert.same({ 15, FAN_PROXY, LIGHT_PROXY }, keys(fake.project.devices),
+				"the fan driver's two proxies come with it")
 			assert.equal("modernforms_fan.c4z", c4:GetDriverFileName())
+		end)
+
+		it("gives a combo driver, whose proxy is the driver itself, no proxy device", function()
+			local c4 = fake.install_c4()
+			c4:AddDevice("example_combo.c4z", 7, "Combined", function() end)
+			assert.same({ name = "Combined", room_id = 7, c4i = "example_combo.c4z", driver_name = "Example Combo" },
+				fake.project.devices[2001])
+			assert.same({ 15, 2001 }, protocols())
+			assert.is_nil(c4:GetBoundConsumerDevices(2001, 5001))
+			assert.is_nil(c4:GetDevices({ DeviceIds = "2001" })[2001].proxies)
 		end)
 
 		it("gives a driver with a proxy its proxy device on the binding its xml names", function()
 			local _, c4 = fake.load_driver(FAN, {})
 			c4:AddDevice("example_light.c4z", 7, "Ceiling Light", function() end)
-			assert.same({ name = "Ceiling Light", room_id = 7, c4i = "example_light.c4z", proxy_id = 3001,
+			assert.same({ name = "Ceiling Light", room_id = 7, c4i = "example_light.c4z", proxy_id = NEXT_PROXY,
 				proxy_binding = 5001, driver_name = "Example Light" }, fake.project.devices[2001])
 			assert.same({ name = "Ceiling Light", room_id = 7, c4i = "light_v2.c4i", protocol_id = 2001,
-				driver_name = "Example Light" }, fake.project.devices[3001])
-			assert.same({ [3001] = "Example Light" }, c4:GetBoundConsumerDevices(2001, 5001))
-			assert.equal(2001, c4:GetBoundProviderDevice(3001, 5001))
-			assert.is_nil(c4:GetBoundProviderDevice(3001, 1))
+				driver_name = "Example Light" }, fake.project.devices[NEXT_PROXY])
+			assert.same({ [NEXT_PROXY] = "Example Light" }, c4:GetBoundConsumerDevices(2001, 5001))
+			assert.equal(2001, c4:GetBoundProviderDevice(NEXT_PROXY, 5001))
+			assert.is_nil(c4:GetBoundProviderDevice(NEXT_PROXY, 1))
 			assert.equal(0, #c4.bindings, "the proxy binding is implied, not listed")
 
 			c4:AddDevice("example_fan.c4z", 7, "Ceiling Fan", function() end)
-			assert.same({ name = "Ceiling Fan", room_id = 7, c4i = "example_fan.c4z", proxy_id = 3002,
+			assert.same({ name = "Ceiling Fan", room_id = 7, c4i = "example_fan.c4z", proxy_id = NEXT_PROXY + 1,
 				proxy_binding = 5002, driver_name = "Example Fan" }, fake.project.devices[2002])
-			assert.equal("fan.c4i", fake.project.devices[3002].c4i)
-			assert.same({ [3002] = "Example Fan" }, c4:GetBoundConsumerDevices(2002, 5002))
+			assert.equal("fan.c4i", fake.project.devices[NEXT_PROXY + 1].c4i)
+			assert.same({ [NEXT_PROXY + 1] = "Example Fan" }, c4:GetBoundConsumerDevices(2002, 5002))
 			assert.is_nil(c4:GetBoundConsumerDevices(2002, 5001))
 		end)
 
@@ -229,7 +298,9 @@ describe("fake C4 harness", function()
 
 			local id = fake.pair(provider, consumer)
 			assert.equal(2001, id)
-			assert.same({ 15, 2001 }, keys(fake.project.devices))
+			assert.same({ 15, 2001 }, protocols())
+			assert.same({ 15, 2001, 3001, 3002, 3003, 3004 }, keys(fake.project.devices),
+				"the consumer's proxies follow the provider's: the placeholder's ids went back")
 			assert.equal("modernforms_fan.c4z", fake.project.devices[15].c4i)
 			assert.equal("Modern Forms Fan", provider.C4:GetDeviceDisplayName(2001))
 			assert.equal(2001, consumer.C4:GetDeviceID())
@@ -240,7 +311,7 @@ describe("fake C4 harness", function()
 			local provider = fake.load_driver(FAN, {})
 			provider.C4:AddDevice("modernforms_fan.c4z", 7, "Second Fan", function() end)
 			fake.pair(provider, consumer, { consumer_id = 2001 })
-			assert.same({ 15, 2001 }, keys(fake.project.devices))
+			assert.same({ 15, 2001 }, protocols())
 			assert.equal("Second Fan", consumer.C4:GetDeviceDisplayName())
 			assert.equal(2002, provider.C4.next_device_id, "consumer_id takes no id from the provider")
 		end)
@@ -252,7 +323,7 @@ describe("fake C4 harness", function()
 			fake.move_device(id, 8)
 			fake.reset_project()
 			assert.same({ 7 }, keys(fake.project.rooms))
-			assert.same({ 15, id }, keys(fake.project.devices))
+			assert.same({ 15, id }, protocols())
 			assert.equal(7, fake.project.devices[id].room_id)
 		end)
 
@@ -260,16 +331,16 @@ describe("fake C4 harness", function()
 			local c4 = fake.install_c4()
 			fake.add_room(8, "Second Room", 4, "Upstairs")
 			c4:AddDevice("example_light.c4z", 8, "Ceiling Light", function() end)
-			assert.same({ name = "Ceiling Light", room_id = 8, c4i = "example_light.c4z", proxy_id = 3001,
+			assert.same({ name = "Ceiling Light", room_id = 8, c4i = "example_light.c4z", proxy_id = NEXT_PROXY,
 				proxy_binding = 5001, driver_name = "Example Light" }, fake.project.devices[2001])
 			assert.same({ name = "Ceiling Light", room_id = 8, c4i = "light_v2.c4i", protocol_id = 2001,
-				driver_name = "Example Light" }, fake.project.devices[3001])
+				driver_name = "Example Light" }, fake.project.devices[NEXT_PROXY])
 
 			-- No room: the caller's; no name: the driver's <name>.
 			c4:AddDevice("example_light.c4z", function() end)
 			assert.equal(7, fake.project.devices[2002].room_id)
 			assert.equal("Example Light", fake.project.devices[2002].name)
-			assert.equal(3002, fake.project.devices[2002].proxy_id)
+			assert.equal(NEXT_PROXY + 1, fake.project.devices[2002].proxy_id)
 
 			-- A driver neither under src/ nor defined: base name, no proxy.
 			c4:AddDevice("driver_properties.c4z", function() end)
@@ -284,11 +355,13 @@ describe("fake C4 harness", function()
 			local c4 = fake.install_c4()
 			fake.add_room(8, "Second Room")
 			c4:AddDevice("example_light.c4z", 7, "Lamp", function() end)
-			fake.move_device(3001, 8)  -- by proxy id: both halves move
+			fake.move_device(NEXT_PROXY, 8)  -- by proxy id: both halves move
 			assert.equal(8, fake.project.devices[2001].room_id)
-			assert.equal(8, fake.project.devices[3001].room_id)
+			assert.equal(8, fake.project.devices[NEXT_PROXY].room_id)
 			fake.move_device(15, 8)
 			assert.equal(8, c4:RoomGetId(), "the room containing this driver")
+			assert.same({ 8, 8 }, { fake.project.devices[FAN_PROXY].room_id, fake.project.devices[LIGHT_PROXY].room_id },
+				"all of its proxies move with it")
 
 			fake.rename_room(8, "Renamed Room")
 			assert.equal("Renamed Room", c4:GetDevices({ DeviceIds = "2001" })[2001].roomName)
@@ -302,6 +375,78 @@ describe("fake C4 harness", function()
 		end)
 	end)
 
+	describe("several proxies per driver", function()
+		it("gives each <proxy> its own proxy device, in the order declared, bound on its own binding", function()
+			local c4 = fake.install_c4()
+			c4:AddDevice("example_pair.c4z", 7, "Pair", function() end)
+			local fan, light = NEXT_PROXY, NEXT_PROXY + 1
+			assert.same({ name = "Pair", room_id = 7, c4i = "example_pair.c4z", driver_name = "Example Pair",
+				proxy_id = fan, proxy_binding = 5001, more_proxies = { { id = light, binding = 5002 } } },
+				fake.project.devices[2001])
+			assert.same({ name = "Pair", room_id = 7, c4i = "fan.c4i", protocol_id = 2001, driver_name = "Example Pair" },
+				fake.project.devices[fan])
+			assert.same({ name = "Pair", room_id = 7, c4i = "light_v2.c4i", protocol_id = 2001,
+				driver_name = "Example Pair" }, fake.project.devices[light])
+			assert.same({ [fan] = "Example Pair" }, c4:GetBoundConsumerDevices(2001, 5001))
+			assert.same({ [light] = "Example Pair" }, c4:GetBoundConsumerDevices(2001, 5002))
+			assert.is_nil(c4:GetBoundConsumerDevices(2001, 5003))
+			assert.equal(2001, c4:GetBoundProviderDevice(fan, 5001))
+			assert.equal(2001, c4:GetBoundProviderDevice(light, 5002))
+			assert.is_nil(c4:GetBoundProviderDevice(fan, 5002), "a proxy is bound on its own binding only")
+			assert.is_nil(c4:GetBoundProviderDevice(light, 5001))
+			assert.equal(0, #c4.bindings, "the proxy bindings are implied, not listed")
+			assert.same({ [fan] = { deviceName = "Pair", driverFileName = "fan.c4i" },
+				[light] = { deviceName = "Pair", driverFileName = "light_v2.c4i" } },
+				c4:GetDevices({ DeviceIds = "2001" })[2001].proxies)
+			assert.same({ [FAN_PROXY] = "Modern Forms Fan", [fan] = "Pair" }, c4:GetDevicesByC4iName("fan.c4i"))
+		end)
+
+		it("answers fake.proxy_id for each binding of a loaded driver, the first declared without one", function()
+			local env = fake.load_driver(FAN, {})
+			assert.equal(FAN_PROXY, fake.proxy_id(env, 5001))
+			assert.equal(LIGHT_PROXY, fake.proxy_id(env, 5002))
+			assert.equal(LIGHT_PROXY, fake.proxy_id(env, "5002"), "a numeric string names the same binding")
+			assert.is_nil(fake.proxy_id(env, 5003))
+			assert.equal(FAN_PROXY, fake.proxy_id(env))
+			assert.is_nil(fake.proxy_id({ C4 = { device_id = 99 } }, 5001), "no such device")
+			assert.same({ [FAN_PROXY] = "Modern Forms Fan" }, env.C4:GetBoundConsumerDevices(15, 5001))
+			assert.same({ [LIGHT_PROXY] = "Modern Forms Fan" }, env.C4:GetBoundConsumerDevices(15, 5002))
+			assert.equal(15, env.C4:GetBoundProviderDevice(LIGHT_PROXY, 5002))
+			assert.is_nil(env.C4:GetBoundProviderDevice(LIGHT_PROXY, 5001))
+		end)
+
+		it("keeps the proxy ids apart across a pair: the consumer's follow the provider's", function()
+			local provider, consumer = pair_up({})
+			assert.same({ FAN_PROXY, LIGHT_PROXY }, { fake.proxy_id(provider, 5001), fake.proxy_id(provider, 5002) })
+			assert.same({ NEXT_PROXY, NEXT_PROXY + 1 }, { fake.proxy_id(consumer, 5001), fake.proxy_id(consumer, 5002) })
+			assert.same({ [NEXT_PROXY + 1] = "Modern Forms Fan" }, consumer.C4:GetBoundConsumerDevices(2001, 5002))
+		end)
+
+		it("reads a bare <proxy> as binding 5001 and mixed forms in document order", function()
+			local c4 = fake.install_c4()
+			c4:AddDevice("example_bare.c4z", 7, "Bare", function() end)
+			local rec = fake.project.devices[2001]
+			assert.same({ NEXT_PROXY, 5001, { { id = NEXT_PROXY + 1, binding = 5003 } } },
+				{ rec.proxy_id, rec.proxy_binding, rec.more_proxies })
+			assert.equal("light_v2.c4i", fake.project.devices[NEXT_PROXY].c4i)
+			assert.equal("fan.c4i", fake.project.devices[NEXT_PROXY + 1].c4i)
+		end)
+
+		it("moves a device with all its proxies, and deletes it with them and the bindings on any of them", function()
+			local c4 = fake.install_c4()
+			fake.add_room(8, "Second Room")
+			c4:AddDevice("example_pair.c4z", 7, "Pair", function() end)
+			fake.move_device(NEXT_PROXY + 1, 8) -- by the second proxy's id
+			assert.same({ 8, 8, 8 }, { fake.project.devices[2001].room_id, fake.project.devices[NEXT_PROXY].room_id,
+				fake.project.devices[NEXT_PROXY + 1].room_id })
+			c4:Bind(NEXT_PROXY + 1, 5002, 7, 1, "LIGHT_V2")
+			local removed = fake.delete_device(2001)
+			assert.equal(NEXT_PROXY, removed.proxy_id)
+			assert.same({ 15, FAN_PROXY, LIGHT_PROXY }, keys(fake.project.devices))
+			assert.equal(0, #c4.bindings, "a binding on the second proxy goes too")
+		end)
+	end)
+
 	describe("GetDevices", function()
 		local c4
 
@@ -309,31 +454,37 @@ describe("fake C4 harness", function()
 			c4 = fake.install_c4()
 			fake.add_room(8, "Second Room")
 			fake.add_room(9, "Third Room", 4, "Upstairs")
-			c4:AddDevice("example_light.c4z", 8, "Ceiling Light", function() end)   -- 2001, proxy 3001
-			c4:AddDevice("example_light.c4z", 9, "Wall Light", function() end)      -- 2002, proxy 3002
+			c4:AddDevice("example_light.c4z", 8, "Ceiling Light", function() end)   -- 2001, proxy NEXT_PROXY
+			c4:AddDevice("example_light.c4z", 9, "Wall Light", function() end)      -- 2002, the proxy after it
 		end)
 
 		it("filters by a comma-delimited DeviceIds string, proxy ids included", function()
-			local got = c4:GetDevices({ DeviceIds = "2001, 3002" })
+			local got = c4:GetDevices({ DeviceIds = "2001, " .. (NEXT_PROXY + 1) })
 			assert.same({
 				[2001] = { deviceName = "Ceiling Light", roomId = 8, roomName = "Second Room",
 					driverFileName = "example_light.c4z",
-					proxies = { [3001] = { deviceName = "Ceiling Light", driverFileName = "light_v2.c4i" } } },
-				[3002] = { deviceName = "Wall Light", roomId = 9, roomName = "Third Room", driverFileName = "light_v2.c4i",
+					proxies = { [NEXT_PROXY] = { deviceName = "Ceiling Light", driverFileName = "light_v2.c4i" } } },
+				[NEXT_PROXY + 1] = { deviceName = "Wall Light", roomId = 9, roomName = "Third Room",
+					driverFileName = "light_v2.c4i",
 					protocol = { [2002] = { deviceName = "Wall Light", driverFileName = "example_light.c4z" } } },
 			}, got)
-			assert.same({ { { DeviceIds = "2001, 3002" } } }, c4.calls_to("GetDevices"))
+			assert.same({ { { DeviceIds = "2001, " .. (NEXT_PROXY + 1) } } }, c4.calls_to("GetDevices"))
 			assert.same({}, c4:GetDevices({ DeviceIds = "99" }))
 		end)
 
-		it("filters by C4iNames: the protocol devices of that driver, no proxies key without proxies", function()
+		it("filters by C4iNames: the protocol devices of that driver, a proxies key only with proxies", function()
 			assert.same({ 2001, 2002 }, keys(c4:GetDevices({ C4iNames = "example_light.c4z" })))
-			assert.same({
-				[15] = { deviceName = "Modern Forms Fan", roomId = 7, roomName = "Example Room",
-					driverFileName = "modernforms_fan.c4z" },
-			}, c4:GetDevices({ C4iNames = "modernforms_fan.c4z" }))
+			local fan = c4:GetDevices({ C4iNames = "modernforms_fan.c4z" })
+			assert.same({ 15 }, keys(fan))
+			assert.same({ [FAN_PROXY] = { deviceName = "Modern Forms Fan", driverFileName = "fan.c4i" },
+				[LIGHT_PROXY] = { deviceName = "Modern Forms Fan", driverFileName = "light_v2.c4i" } },
+				fan[15].proxies, "every proxy of a driver that has two")
+			c4:AddDevice("example_combo.c4z", 7, "Combined", function() end)
+			assert.same({ [2003] = { deviceName = "Combined", roomId = 7, roomName = "Example Room",
+				driverFileName = "example_combo.c4z" } }, c4:GetDevices({ C4iNames = "example_combo.c4z" }),
+				"no proxies key without proxies")
 			assert.same({ 15, 2001, 2002 }, keys(c4:GetDevices({ C4iNames = "modernforms_fan.c4z,example_light.c4z" })))
-			assert.same({ 3001, 3002 }, keys(c4:GetDevices({ C4iNames = "light_v2.c4i" })))
+			assert.same({ LIGHT_PROXY, NEXT_PROXY, NEXT_PROXY + 1 }, keys(c4:GetDevices({ C4iNames = "light_v2.c4i" })))
 		end)
 
 		it("narrows by location: a room, a floor, the building or site", function()
@@ -343,12 +494,13 @@ describe("fake C4 harness", function()
 			assert.same({ 2001, 2002 }, keys(c4:GetDevices(lights, "3,9")))
 			assert.same({ 2001, 2002 }, keys(c4:GetDevices(lights, 2)), "the building")
 			assert.same({}, keys(c4:GetDevices(lights, 99)))
-			assert.same({ 7, 15 }, keys(c4:GetDevices({}, 7)), "the room and the fan in it")
+			assert.same({ 7, 15, FAN_PROXY, LIGHT_PROXY }, keys(c4:GetDevices({}, 7)),
+				"the room, the fan in it and the fan's proxies")
 		end)
 
 		it("returns everything, rooms included, for an empty or missing filter", function()
 			local got = c4:GetDevices({})
-			assert.same({ 7, 8, 9, 15, 2001, 2002, 3001, 3002 }, keys(got))
+			assert.same({ 7, 8, 9, 15, 2001, 2002, FAN_PROXY, LIGHT_PROXY, NEXT_PROXY, NEXT_PROXY + 1 }, keys(got))
 			assert.same({ deviceName = "Second Room", roomId = 8, roomName = "Second Room",
 				driverFileName = "roomdevice.c4i" }, got[8])
 			assert.same(keys(got), keys(c4:GetDevices()))
@@ -370,7 +522,8 @@ describe("fake C4 harness", function()
 			fake.add_room(8, "Second Room")
 			c4:AddDevice("example_light.c4z", 8, "Ceiling Light", function() end)
 			assert.same({ [2001] = "Ceiling Light" }, c4:GetDevicesByC4iName("example_light.c4z"))
-			assert.same({ [3001] = "Ceiling Light" }, c4:GetDevicesByC4iName("light_v2.c4i"))
+			assert.same({ [LIGHT_PROXY] = "Modern Forms Fan", [NEXT_PROXY] = "Ceiling Light" },
+				c4:GetDevicesByC4iName("light_v2.c4i"), "the fan driver's own light proxy is one too")
 			assert.same({ [7] = "Example Room", [8] = "Second Room" }, c4:GetDevicesByC4iName("roomdevice.c4i"))
 			assert.same({}, c4:GetDevicesByC4iName("nothing.c4z"))
 			assert.same({ { "example_light.c4z" } }, { c4.calls_to("GetDevicesByC4iName")[1] })
@@ -395,7 +548,7 @@ describe("fake C4 harness", function()
 			local c4 = fake.install_c4()
 			c4:AddDevice("example_light.c4z", 7, "Ceiling Light", function() end)
 			assert.equal("Ceiling Light", c4:GetDeviceDisplayName(2001))
-			assert.equal("Ceiling Light", c4:GetDeviceDisplayName(3001))
+			assert.equal("Ceiling Light", c4:GetDeviceDisplayName(NEXT_PROXY))
 			assert.equal("Modern Forms Fan", c4:GetDeviceDisplayName())
 			assert.is_nil(c4:GetDeviceDisplayName(99))
 			assert.equal(4, #c4.calls_to("GetDeviceDisplayName"))
@@ -404,12 +557,12 @@ describe("fake C4 harness", function()
 		it("RenameDevice records the rename and applies it to the id named only", function()
 			local c4 = fake.install_c4()
 			c4:AddDevice("example_light.c4z", 7, "Ceiling Light", function() end)
-			c4:RenameDevice(3001, "Fan Light")
-			assert.same({ { id = 3001, name = "Fan Light" } }, c4.renamed)
-			assert.same({ { 3001, "Fan Light" } }, c4.calls_to("RenameDevice"))
-			assert.equal("Fan Light", c4:GetDeviceDisplayName(3001))
+			c4:RenameDevice(NEXT_PROXY, "Fan Light")
+			assert.same({ { id = NEXT_PROXY, name = "Fan Light" } }, c4.renamed)
+			assert.same({ { NEXT_PROXY, "Fan Light" } }, c4.calls_to("RenameDevice"))
+			assert.equal("Fan Light", c4:GetDeviceDisplayName(NEXT_PROXY))
 			assert.equal("Ceiling Light", c4:GetDeviceDisplayName(2001), "the protocol driver keeps its name")
-			assert.equal("Fan Light", c4:GetDevices({ DeviceIds = "2001" })[2001].proxies[3001].deviceName)
+			assert.equal("Fan Light", c4:GetDevices({ DeviceIds = "2001" })[2001].proxies[NEXT_PROXY].deviceName)
 			assert.has_no.errors(function() c4:RenameDevice(99, "Ghost") end)
 			assert.equal(2, #c4.renamed)
 		end)
@@ -465,6 +618,66 @@ describe("fake C4 harness", function()
 		end)
 	end)
 
+	describe("link_keypad and unlink_keypad", function()
+		it("bind a keypad button to a link and tell the driver alone, then take it away", function()
+			local provider, consumer = pair_up({})
+			local seen, saw_c4 = {}, nil
+			watch_bindings(provider, "provider", seen)
+			watch_bindings(consumer, "consumer", seen)
+			local record = provider.OnBindingChanged
+			provider.OnBindingChanged = function(...)
+				saw_c4 = rawget(_G, "C4")
+				record(...)
+			end
+			fake.link_keypad(provider, 200, 77, 3)
+			assert.same({ { "provider", 200, "BUTTON_LINK", true, 77, 3 } }, seen)
+			assert.equal(provider.C4, saw_c4, "the driver ran with its own globals")
+			assert.same({ { provider = 15, provider_binding = 200, consumer = 77, consumer_binding = 3,
+				class = "BUTTON_LINK" } }, provider.C4.bindings)
+			assert.same({ [77] = "Device 77" }, provider.C4:GetBoundConsumerDevices(15, 200))
+			assert.equal(15, provider.C4:GetBoundProviderDevice(77, 3))
+			assert.equal(0, #provider.C4.calls_to("Bind"), "Composer binds, the driver does not")
+			assert.is_nil(provider.C4:GetDeviceDisplayName(77))
+			fake.project.devices[77] = { name = "Example Keypad", room_id = 7, c4i = "keypad.c4i",
+				driver_name = "Example Keypad" }
+			assert.equal("Example Keypad", provider.C4:GetDeviceDisplayName(77))
+			assert.same({ [77] = "Example Keypad" }, provider.C4:GetBoundConsumerDevices(15, 200))
+
+			clear(seen)
+			fake.unlink_keypad(provider, 200, 77, 3)
+			assert.same({ { "provider", 200, "BUTTON_LINK", false, 77, 3 } }, seen)
+			assert.same({}, provider.C4.bindings)
+			assert.is_nil(provider.C4:GetBoundConsumerDevices(15, 200))
+			clear(seen)
+			fake.unlink_keypad(provider, 200, 77, 3)
+			assert.same({}, seen, "nothing linked, nothing said")
+		end)
+
+		it("let several keypads share a link, and unlink by keypad when no binding is named", function()
+			local env = fake.load_driver(FAN, {})
+			local seen = {}
+			watch_bindings(env, "fan", seen)
+			fake.link_keypad(env, 300, 77, 3)
+			fake.link_keypad(env, 300, 78, 3)
+			fake.link_keypad(env, 301, 77, 4)
+			assert.same({ [77] = "Device 77", [78] = "Device 78" }, env.C4:GetBoundConsumerDevices(15, 300))
+			clear(seen)
+			fake.unlink_keypad(env, 300, 77)
+			assert.same({ { "fan", 300, "BUTTON_LINK", false, 77, 3 } }, seen)
+			assert.same({ [78] = "Device 78" }, env.C4:GetBoundConsumerDevices(15, 300))
+			assert.same({ [77] = "Device 77" }, env.C4:GetBoundConsumerDevices(15, 301), "another link is not touched")
+			clear(seen)
+			fake.unlink_keypad(env, 300, 77, 9)
+			assert.same({}, seen, "a binding the keypad does not have")
+		end)
+
+		it("want the arguments that make the binding", function()
+			local env = fake.load_driver(FAN, {})
+			assert.has_error(function() fake.link_keypad(env, 200, 77) end)
+			assert.has_error(function() fake.unlink_keypad(env, 200) end)
+		end)
+	end)
+
 	describe("delete_device", function()
 		it("runs Composer's delete on a paired driver: callbacks, its last message, unbinding, gone", function()
 			local provider, consumer, id = pair_up()
@@ -489,7 +702,8 @@ describe("fake C4 harness", function()
 			assert.equal("Modern Forms Fan", removed.name)
 			assert.equal(0, #consumer.C4.active_timers(), "OnDriverDestroyed kills the timers")
 			assert.same({}, provider.C4.bindings)
-			assert.same({ 15 }, keys(fake.project.devices))
+			assert.same({ 15, FAN_PROXY, LIGHT_PROXY }, keys(fake.project.devices),
+				"the consumer and both its proxies are gone, the provider's stay")
 			assert.is_nil(provider.C4:GetBoundConsumerDevices(15, 1))
 
 			-- Messages to the dead id vanish; the id cannot be deleted twice.
@@ -503,15 +717,15 @@ describe("fake C4 harness", function()
 			c4:AddDevice("example_light.c4z", 7, "Ceiling Light", function() end)
 			c4:Bind(15, 1, 2001, 1, "EXAMPLE_LINK")
 			-- A second binding on the proxy side, as Director wires a light_v2 proxy.
-			c4:Bind(3001, 5001, 7, 1, "LIGHT_V2")
+			c4:Bind(NEXT_PROXY, 5001, 7, 1, "LIGHT_V2")
 			local seen = {}
 			watch_bindings(env, "fan", seen)
-			local removed = fake.delete_device(3001)
+			local removed = fake.delete_device(NEXT_PROXY)
 			assert.equal("Ceiling Light", removed.name)
-			assert.equal(3001, removed.proxy_id)
+			assert.equal(NEXT_PROXY, removed.proxy_id)
 			assert.same({ { "fan", 1, "EXAMPLE_LINK", false, 2001, 1 } }, seen,
 				"the side still in the project hears the unbinding; the proxy's other end is no runtime")
-			assert.same({ 15 }, keys(fake.project.devices))
+			assert.same({ 15, FAN_PROXY, LIGHT_PROXY }, keys(fake.project.devices))
 			assert.equal(0, #c4.bindings)
 			assert.has_error(function() fake.delete_device(99) end)
 		end)
@@ -523,7 +737,8 @@ describe("fake C4 harness", function()
 			watch_bindings(consumer, "consumer", seen)
 			fake.delete_device(15)
 			assert.same({ { "consumer", 1, "EXAMPLE_LINK", false, 15, 1 } }, seen)
-			assert.same({ id }, keys(fake.project.devices))
+			assert.same({ id }, protocols())
+			assert.is_nil(fake.project.devices[FAN_PROXY], "the provider's proxies left with it")
 			assert.is_nil(consumer.C4:GetBoundProviderDevice(id, 1))
 			assert.equal(7, consumer.C4:RoomGetId())
 		end)
@@ -636,6 +851,236 @@ describe("fake C4 harness", function()
 				assert.same({ "PUT", "DELETE", "PATCH" },
 					{ c4.transfers[1].method, c4.transfers[2].method, c4.transfers[3].method })
 			end)
+
+		it("fail ends a transfer with the error and no responses; finished and open_transfers follow", function()
+			local c4 = fake.install_c4()
+			local done = {}
+			local function start(name)
+				c4:url():OnDone(function(_, responses, err, msg) done[name] = { #responses, err, msg } end):Get(URL)
+				return c4.last_transfer()
+			end
+			assert.same({}, c4.open_transfers())
+			c4:url() -- never started: not open
+			local a, b, c = start("a"), start("b"), start("c")
+			assert.is_false(a.finished)
+			local open = c4.open_transfers()
+			assert.same({ a, b, c }, { open[1], open[2], open[3] }, "in the order started")
+
+			a:fail(7, "Couldn't connect to server")
+			assert.same({ 0, 7, "Couldn't connect to server" }, done.a)
+			assert.is_true(a.finished)
+			b:respond(200, "{}")
+			assert.same({ 1, 0 }, done.b)
+			assert.is_true(b.finished)
+			assert.equal(1, #c4.open_transfers())
+			c:Cancel()
+			assert.same({}, c4.open_transfers(), "finished, answered and cancelled transfers are over")
+			assert.is_nil(done.c, "a cancelled transfer is not told")
+		end)
+
+		it("fail needs a real error code; a transfer without OnDone still finishes; an aborted one is over", function()
+			local c4 = fake.install_c4()
+			c4:url():Get(URL)
+			local t = c4.last_transfer()
+			assert.has_error(function() t:fail() end)
+			assert.has_error(function() t:fail(0, "not an error") end)
+			assert.is_false(t.finished)
+			assert.has_no.errors(function() t:fail(28, "Timeout was reached") end)
+			assert.is_true(t.finished)
+
+			c4:url():OnHeaders(function() return true end):Get(URL)
+			local aborted = c4.last_transfer()
+			aborted:respond(503, "busy")
+			assert.is_true(aborted.finished)
+			assert.same({}, c4.open_transfers())
+		end)
+	end)
+
+	describe("advance", function()
+		-- The milliseconds since the runtime started, as a callback sees them.
+		local function clock(c4)
+			local t0 = c4.now_ms
+			return function() return c4:GetTime() - t0 end
+		end
+
+		it("fires the timers that fall due in due order, the one armed first going first at the same time", function()
+			local c4 = fake.install_c4()
+			local t0, since = c4.now_ms, clock(c4)
+			local fired = {}
+			local function mark(name)
+				return function() fired[#fired + 1] = name .. "@" .. since() end
+			end
+			c4:SetTimer(300, mark("c"))
+			c4:SetTimer(100, mark("a"))
+			c4:SetTimer(100, mark("b"))
+			c4:SetTimer(500, mark("late"))
+			c4.advance(350)
+			assert.same({ "a@100", "b@100", "c@300" }, fired)
+			assert.equal(t0 + 350, c4.now_ms)
+			assert.equal(t0 + 350, c4:GetTime())
+			assert.equal(1, #c4.active_timers())
+			c4.advance(150)
+			assert.same({ "a@100", "b@100", "c@300", "late@500" }, fired)
+			assert.equal(0, #c4.active_timers())
+		end)
+
+		it("fires the timers a callback arms when they fall due within the same advance", function()
+			local c4 = fake.install_c4()
+			local since = clock(c4)
+			local fired = {}
+			c4:SetTimer(100, function()
+				fired[#fired + 1] = "first@" .. since()
+				c4:SetTimer(100, function() fired[#fired + 1] = "second@" .. since() end)
+				c4:SetTimer(1000, function() fired[#fired + 1] = "far@" .. since() end)
+			end)
+			c4.advance(250)
+			assert.same({ "first@100", "second@200" }, fired)
+			assert.equal(1, #c4.active_timers())
+			c4.advance(849)
+			assert.equal(2, #fired)
+			c4.advance(1)
+			assert.same({ "first@100", "second@200", "far@1100" }, fired)
+		end)
+
+		it("re-arms a repeating timer, which can fire several times in one advance, until it is cancelled", function()
+			local c4 = fake.install_c4()
+			local since = clock(c4)
+			local fired = {}
+			c4:SetTimer(100, function(timer, skips)
+				fired[#fired + 1] = since()
+				assert.equal(0, skips)
+				if #fired == 4 then timer:Cancel() end
+			end, true)
+			c4.advance(250)
+			assert.same({ 100, 200 }, fired)
+			assert.equal(1, #c4.active_timers())
+			c4.advance(750)
+			assert.same({ 100, 200, 300, 400 }, fired, "cancelled by its fourth firing")
+			assert.equal(0, #c4.active_timers())
+			assert.equal(1000, since())
+		end)
+
+		it("lets a callback cancel a timer that falls due later in the advance, and leaves cancelled ones alone", function()
+			local c4 = fake.install_c4()
+			local t0 = c4.now_ms
+			local fired = {}
+			local later = c4:SetTimer(200, function() fired[#fired + 1] = "later" end)
+			c4:SetTimer(100, function() later:Cancel() fired[#fired + 1] = "canceller" end)
+			local never = c4:SetTimer(50, function() fired[#fired + 1] = "never" end)
+			never:Cancel()
+			c4.advance(500)
+			assert.same({ "canceller" }, fired)
+			assert.equal(t0 + 500, c4.now_ms, "the clock moves with nothing left due")
+		end)
+
+		it("leaves fire_timers as it is: every active timer once; a repeating one then falls due a delay later", function()
+			local c4 = fake.install_c4()
+			local fired = {}
+			c4:SetTimer(1000, function() fired[#fired + 1] = "once" end)
+			c4:SetTimer(60000, function() fired[#fired + 1] = "every" end, true)
+			assert.equal(2, c4.fire_timers())
+			assert.same({ "once", "every" }, fired)
+			c4.advance(59999)
+			assert.same({ "once", "every" }, fired, "not at once: a delay after the firing")
+			c4.advance(1)
+			assert.same({ "once", "every", "every" }, fired)
+		end)
+
+		it("fires what falls due after the spec moved c4.now_ms itself", function()
+			local c4 = fake.install_c4()
+			local fired = 0
+			c4:SetTimer(250, function() fired = fired + 1 end)
+			c4.now_ms = c4.now_ms + 1000
+			c4.advance(0)
+			assert.equal(1, fired)
+		end)
+
+		it("runs a paired driver's timers with its own globals", function()
+			local provider, consumer = pair_up({})
+			local seen
+			fake.as(consumer, function()
+				consumer.C4:SetTimer(100, function() seen = rawget(_G, "C4") end)
+			end)
+			fake.as(provider, function()
+				consumer.C4.advance(100)
+				assert.equal(provider.C4, rawget(_G, "C4"), "the caller's globals are back afterwards")
+			end)
+			assert.equal(consumer.C4, seen)
+		end)
+
+		it("refuses a step backwards, and takes a timer that never stops falling due for a runaway", function()
+			local c4 = fake.install_c4()
+			assert.has_error(function() c4.advance(-1) end)
+			assert.has_error(function() c4.advance("soon") end)
+			c4:SetTimer(1, function() end, true)
+			local ok, err = pcall(c4.advance, 1e9)
+			assert.is_false(ok)
+			assert.truthy(tostring(err):find("more than 100000 timers fired", 1, true))
+		end)
+	end)
+
+	describe("SendToProxy", function()
+		it("records its fourth argument, COMMAND or NOTIFY, and proxy_messages lists one binding in order", function()
+			local c4 = fake.install_c4()
+			c4:SendToProxy(5001, "CURRENT_SPEED", { SPEED = 3 }, "NOTIFY")
+			c4:SendToProxy(300, "MATCH_LED_STATE", { STATE = true }, "COMMAND")
+			c4:SendToProxy(5002, "PRESET_LEVEL", "100")
+			c4:SendToProxy(5001, "ON", {})
+			c4:SendToProxy(300, "MATCH_LED_STATE", { STATE = false }, "COMMAND")
+			assert.same({
+				{ 5001, "CURRENT_SPEED", { SPEED = 3 }, "NOTIFY" },
+				{ 300, "MATCH_LED_STATE", { STATE = true }, "COMMAND" },
+				{ 5002, "PRESET_LEVEL", "100" },
+				{ 5001, "ON", {} },
+				{ 300, "MATCH_LED_STATE", { STATE = false }, "COMMAND" },
+			}, c4.calls_to("SendToProxy"))
+			assert.same({ { "CURRENT_SPEED", { SPEED = 3 }, "NOTIFY" }, { "ON", {} } }, c4.proxy_messages(5001))
+			assert.same({ { "MATCH_LED_STATE", { STATE = true }, "COMMAND" },
+				{ "MATCH_LED_STATE", { STATE = false }, "COMMAND" } }, c4.proxy_messages(300))
+			assert.same({ { "PRESET_LEVEL", "100" } }, c4.proxy_messages("5002"))
+			assert.same({}, c4.proxy_messages(5003))
+		end)
+	end)
+
+	describe("network connections", function()
+		it("record the dynamic connection calls and nothing else", function()
+			local c4 = fake.install_c4()
+			c4:CreateNetworkConnection(6001, "224.0.0.251", "MULTICAST")
+			c4:NetPortOptions(6001, 5353, "UDP", { MIRROR_UDP_PORT = false })
+			c4:NetConnect(6001, 5353, "MULTICAST")
+			c4:SendToNetwork(6001, 5353, "\0\1query")
+			c4:NetDisconnect(6001, 5353)
+			assert.same({ { 6001, "224.0.0.251", "MULTICAST" } }, c4.calls_to("CreateNetworkConnection"))
+			assert.same({ { 6001, 5353, "UDP", { MIRROR_UDP_PORT = false } } }, c4.calls_to("NetPortOptions"))
+			assert.same({ { 6001, 5353, "MULTICAST" } }, c4.calls_to("NetConnect"))
+			assert.same({ { 6001, 5353, "\0\1query" } }, c4.calls_to("SendToNetwork"))
+			assert.same({ { 6001, 5353 } }, c4.calls_to("NetDisconnect"))
+			assert.equal(0, #c4.transfers)
+		end)
+
+		it("network_receive calls the driver's ReceivedFromNetwork with its globals in place, and the sender", function()
+			local provider, consumer = pair_up({})
+			local got, saw_c4
+			provider.ReceivedFromNetwork = function(...)
+				got = { ... }
+				saw_c4 = rawget(_G, "C4")
+			end
+			fake.as(consumer, function()
+				fake.network_receive(provider, 6001, 5353, "\0datagram", "10.0.2.151")
+				assert.equal(consumer.C4, rawget(_G, "C4"), "the caller's globals are back afterwards")
+			end)
+			assert.same({ 6001, 5353, "\0datagram", "10.0.2.151" }, got)
+			assert.equal(provider.C4, saw_c4)
+			got = nil
+			fake.network_receive(provider, 6001, 5353, "x") -- no sender: before OS 4.0.0
+			assert.same({ 6001, 5353, "x" }, got)
+		end)
+
+		it("network_receive is harmless to a driver without ReceivedFromNetwork", function()
+			local env = fake.load_driver(FAN, {})
+			env.ReceivedFromNetwork = nil
+			assert.has_no.errors(function() fake.network_receive(env, 6001, 5353, "x", "10.0.2.151") end)
+		end)
 	end)
 
 	describe("timers, properties, persistence and the rest of the runtime", function()
@@ -710,6 +1155,20 @@ describe("fake C4 harness", function()
 			assert.equal(120000, micro)
 			assert.is_nil(c4:ParseIso8601DateTime(" 2026-10-26T14:02:31Z ", true), "strict: no white space")
 			assert.is_nil(c4:ParseIso8601DateTime("yesterday"))
+		end)
+
+		it("JsonDecode answers nil and a message for invalid JSON, or raises once json_decode_raises is set", function()
+			local c4 = fake.install_c4()
+			local value, err = c4:JsonDecode("{not json")
+			assert.is_nil(value)
+			assert.truthy(err)
+			c4.json_decode_raises = true
+			local ok, raised = pcall(c4.JsonDecode, c4, "{not json")
+			assert.is_false(ok)
+			assert.truthy(raised)
+			assert.same({ a = 1 }, c4:JsonDecode('{"a":1}'), "valid JSON decodes as before")
+			c4.json_decode_raises = false
+			assert.is_nil((c4:JsonDecode("{not json")))
 		end)
 
 		it("the File API: alias directories, handles that open at the end, read, write, list and delete", function()

@@ -21,6 +21,7 @@ end
 -- A fresh instance on a fresh runtime: common.device and common.dispatch
 -- reloaded, so the handlers it registers land in this test's dispatch. The
 -- hooks answer from `st`, which a test changes as the driver would.
+-- opts.proxy_binding and opts.settings go to device.new.
 local function new_device(opts)
 	opts = opts or {}
 	package.loaded["common.device"] = nil
@@ -29,7 +30,8 @@ local function new_device(opts)
 	local device = require("common.device")
 	local dispatch = require("common.dispatch")
 	local st = { on = nil, buttons = {} }
-	local dev = device.new({ prefix = opts.prefix or "Test Device" })
+	local dev = device.new({ prefix = opts.prefix or "Test Device", proxy_binding = opts.proxy_binding,
+		settings = opts.settings })
 	dev.is_on = function() return st.on end
 	dev.button_action = function(button, action) st.buttons[#st.buttons + 1] = { button, action } end
 	return dev, c4, env, dispatch, st, device
@@ -383,12 +385,19 @@ describe("common.device", function()
 			assert.same({ 200, { STATE = true } }, proxied(c4, "MATCH_LED_STATE")[2], "a string binding is fine")
 		end)
 
-		it("REQUEST_BUTTON_COLORS on a binding that is no link warns and sends nothing", function()
+		-- docs/v1-design.md section 9.2: the link commands are registered on the
+		-- links, so on the proxy binding they find no handler (they used to reach
+		-- one and be refused with a warning, when handlers were keyed by command).
+		it("REQUEST_BUTTON_COLORS on the proxy binding is no link command: nothing answered, a debug line only", function()
 			local _, c4, _, dispatch = new_device()
 			local lines = capture_log()
 			dispatch.received_from_proxy(5001, "REQUEST_BUTTON_COLORS", {})
 			assert.equal(0, #c4.calls_to("SendToProxy"))
-			assert.same({ "[WARN] Test Device: REQUEST_BUTTON_COLORS on binding 5001: not a Button Link" }, lines)
+			assert.same({}, lines, "no handler, so no warning either")
+			log.set_debug(true)
+			dispatch.received_from_proxy(5001, "REQUEST_BUTTON_COLORS", {})
+			assert.equal(0, #c4.calls_to("SendToProxy"))
+			assert.truthy(lines[#lines]:find("no proxy handler for REQUEST_BUTTON_COLORS on binding 5001", 1, true))
 		end)
 
 		it("SET_BUTTON_COLOR persists a valid colour under either spelling, echoes it, and warns on a bad one", function()
@@ -440,15 +449,21 @@ describe("common.device", function()
 			assert.equal(0, #c4.calls_to("SendToProxy"), "no echo on the link route")
 		end)
 
-		it("ignores the link commands on a binding that is no link, with a warning", function()
-			local dev, _, _, dispatch, st = new_device()
-			local lines = capture_log()
-			dispatch.received_from_proxy(5001, "DO_CLICK", {})
-			assert.same({}, st.buttons)
-			assert.same({ "[WARN] Test Device: DO_CLICK on binding 5001: not a Button Link" }, lines)
-			assert.equal(1, dev.link_button(201, "x"))
-			assert.is_nil(dev.link_button(nil, "DO_PUSH"))
-		end)
+		it("takes the link commands on the links only: on the proxy binding they reach nothing, not even a warning",
+			function()
+				local dev, _, _, dispatch, st = new_device()
+				local lines = capture_log()
+				for _, command in ipairs({ "DO_PUSH", "DO_RELEASE", "DO_CLICK" }) do
+					dispatch.received_from_proxy(5001, command, {})
+				end
+				assert.same({}, st.buttons)
+				assert.same({}, lines)
+				-- link_button itself still refuses a binding that is no link.
+				assert.is_nil(dev.link_button(5001, "DO_CLICK"))
+				assert.same({ "[WARN] Test Device: DO_CLICK on binding 5001: not a Button Link" }, lines)
+				assert.equal(1, dev.link_button(201, "x"))
+				assert.is_nil(dev.link_button(nil, "DO_PUSH"))
+			end)
 	end)
 
 	-- The keypad press / click / release machine, its hooks recording what
@@ -471,6 +486,7 @@ describe("common.device", function()
 				prefix = "Test Device",
 				noun = opts.noun,
 				settings = opts.settings,
+				proxy_binding = opts.proxy_binding,
 			})
 			local function record(...) st.calls[#st.calls + 1] = { ... } end
 			dev.is_on = function() return st.on end
@@ -732,17 +748,17 @@ describe("common.device", function()
 
 		it("handles only the settings a driver declares; the rest stay without a handler", function()
 			local dev, c4, _, dispatch = new_keypad({ settings = { "hold_up", "hold_down" } })
-			assert.is_function(dispatch.proxy["SET_HOLD_RATE_UP"])
-			assert.is_function(dispatch.proxy["SET_HOLD_RATE_DOWN"])
+			assert.is_function(dispatch.binding(5001)["SET_HOLD_RATE_UP"])
+			assert.is_function(dispatch.binding(5001)["SET_HOLD_RATE_DOWN"])
 			for _, command in ipairs({ "SET_PRESET_LEVEL", "SET_CLICK_RATE_UP", "SET_CLICK_RATE_DOWN" }) do
-				assert.is_nil(dispatch.proxy[command], command)
+				assert.is_nil(dispatch.binding(5001)[command], command)
 			end
 			dev.load_settings()
 			local keys = {}
 			for _, args in ipairs(c4.calls_to("PersistGetValue")) do keys[#keys + 1] = args[1] end
 			assert.same({ "hold_rate_up", "hold_rate_down" }, keys)
 			local _, _, _, none = new_keypad()
-			assert.is_nil(none.proxy["SET_HOLD_RATE_UP"], "no settings declared, none handled")
+			assert.is_nil(none.binding(5001)["SET_HOLD_RATE_UP"], "no settings declared, none handled")
 		end)
 
 		it("is fed by both routes: the Button Links and the proxy's BUTTON_ACTION", function()
@@ -781,6 +797,229 @@ describe("common.device", function()
 			assert.same({}, delays(c4))
 			dev.button_action(1, CLICK)
 			assert.same({ "click", 1 }, st.calls[#st.calls], "the guard went with it")
+		end)
+	end)
+
+	-- docs/v1-design.md section 9.2: the fan driver has a fan proxy on 5001 and
+	-- the light_v2 proxy on 5002, and the handlers are filed per binding.
+	describe("routing by binding", function()
+		local PROXY_COMMANDS = { "BUTTON_ACTION", "SET_BUTTON_COLOR", "SET_CLICK_RATE_DOWN", "SET_CLICK_RATE_UP",
+			"SET_HOLD_RATE_DOWN", "SET_HOLD_RATE_UP", "SET_PRESET_LEVEL" }
+		local LINK_COMMANDS = { "DO_CLICK", "DO_PUSH", "DO_RELEASE", "REQUEST_BUTTON_COLORS", "SET_BUTTON_COLOR" }
+
+		local function names(handlers)
+			local out = {}
+			for name in pairs(handlers) do out[#out + 1] = name end
+			table.sort(out)
+			return out
+		end
+
+		it("files its handlers per binding and writes nothing to the command-only table", function()
+			local _, _, _, dispatch = new_device({ settings = { "preset", "click_up", "click_down", "hold_up", "hold_down" } })
+			assert.same({}, dispatch.proxy)
+			assert.same(PROXY_COMMANDS, names(dispatch.binding(5001)), "the proxy binding")
+			for _, link in ipairs({ 200, 201, 202 }) do
+				assert.same(LINK_COMMANDS, names(dispatch.binding(link)), "link " .. link)
+			end
+			assert.same({}, dispatch.binding(5002), "another proxy's binding is left alone")
+			assert.same({}, dispatch.binding(300), "and the driver's other links")
+		end)
+
+		it("files the proxy's commands under the binding it was given, and the links' under the links", function()
+			local _, _, _, dispatch = new_device({ proxy_binding = 5002,
+				settings = { "preset", "click_up", "click_down", "hold_up", "hold_down" } })
+			assert.same({}, dispatch.proxy)
+			assert.same(PROXY_COMMANDS, names(dispatch.binding(5002)))
+			assert.same({}, dispatch.binding(5001), "the default binding stays free for the fan proxy")
+			for _, link in ipairs({ 200, 201, 202 }) do
+				assert.same(LINK_COMMANDS, names(dispatch.binding(link)), "link " .. link)
+			end
+		end)
+
+		it("ignores a SET_BUTTON_COLOR on a link: nothing stored, nothing sent, a debug line", function()
+			local _, c4, _, dispatch, st = new_device()
+			st.on = true
+			log.set_debug(true)
+			local lines = capture_log()
+			for _, link in ipairs({ 200, 201, 202 }) do
+				dispatch.received_from_proxy(link, "SET_BUTTON_COLOR", { BUTTON_ID = "1", ON_COLOR = "ff0000" })
+			end
+			assert.same({}, c4.persist)
+			assert.equal(0, #c4.calls_to("SendToProxy"))
+			assert.equal(6, #lines, "a trace line and the ignore line for each")
+			for i, link in ipairs({ 200, 201, 202 }) do
+				assert.truthy(lines[2 * i]:find("SET_BUTTON_COLOR on binding " .. link .. " ignored", 1, true), lines[2 * i])
+			end
+			-- The proxy binding still takes it.
+			dispatch.received_from_proxy(5001, "SET_BUTTON_COLOR", { BUTTON_ID = "1", ON_COLOR = "ff0000" })
+			assert.equal("ff0000", c4.persist.button_1_on_color)
+		end)
+
+		it("takes the same command name on two proxies apart: only its own binding reaches the instance", function()
+			local dev, c4, _, dispatch, st = new_device({ proxy_binding = 5002, settings = { "preset" } })
+			local fan = {}
+			dispatch.binding(5001)["SET_PRESET_LEVEL"] = function(binding, params) fan[#fan + 1] = { binding, params.LEVEL } end
+			dispatch.binding(5001)["BUTTON_ACTION"] = function(binding) fan[#fan + 1] = { binding, "BUTTON_ACTION" } end
+
+			dispatch.received_from_proxy(5001, "SET_PRESET_LEVEL", { LEVEL = "30" })
+			dispatch.received_from_proxy(5001, "BUTTON_ACTION", { BUTTON_ID = "0", ACTION = "1" })
+			assert.same({ { 5001, "30" }, { 5001, "BUTTON_ACTION" } }, fan)
+			assert.equal(100, dev.setting("preset"), "the fan proxy's preset command is not the light's")
+			assert.same({}, st.buttons)
+			assert.equal(0, #c4.calls_to("SendToProxy"))
+
+			dispatch.received_from_proxy(5002, "SET_PRESET_LEVEL", { LEVEL = "60" })
+			dispatch.received_from_proxy(5002, "BUTTON_ACTION", { BUTTON_ID = "0", ACTION = "1" })
+			assert.equal(60, dev.setting("preset"))
+			assert.same({ { 0, 1 } }, st.buttons)
+			assert.same({ { 5001, "30" }, { 5001, "BUTTON_ACTION" } }, fan, "the fan proxy heard nothing more")
+		end)
+
+		it("hears a link command on the links of a light on another proxy binding too", function()
+			local _, c4, _, dispatch, st, device = new_device({ proxy_binding = 5002 })
+			dispatch.received_from_proxy(200, "DO_PUSH", {})
+			dispatch.received_from_proxy(201, "DO_RELEASE", {})
+			dispatch.received_from_proxy("202", "DO_CLICK", {})
+			assert.same({ { 0, device.ACT_PRESS }, { 1, device.ACT_RELEASE }, { 2, device.ACT_CLICK } }, st.buttons)
+			-- ...and none of them on either proxy binding.
+			for _, binding in ipairs({ 5001, 5002 }) do
+				dispatch.received_from_proxy(binding, "DO_PUSH", {})
+			end
+			assert.equal(3, #st.buttons)
+			assert.equal(0, #c4.calls_to("SendToProxy"))
+		end)
+
+		it("leaves a message for a link the instance does not own to the driver's other modules", function()
+			local _, _, _, dispatch, st = new_device({ proxy_binding = 5002 })
+			local fan_links = {}
+			dispatch.binding(300)["DO_PUSH"] = function(binding) fan_links[#fan_links + 1] = binding end
+			dispatch.received_from_proxy(300, "DO_PUSH", {})
+			dispatch.received_from_proxy(300, "DO_CLICK", {})
+			assert.same({ 300 }, fan_links)
+			assert.same({}, st.buttons, "the light's machine never saw link 300")
+		end)
+	end)
+
+	describe("a proxy on another binding (the fan driver's light on 5002)", function()
+		local function bindings_of(c4)
+			local seen = {}
+			for _, args in ipairs(c4.calls_to("SendToProxy")) do seen[args[1]] = (seen[args[1]] or 0) + 1 end
+			return seen
+		end
+
+		it("takes the binding as a number or a numeric string, 5001 by default, and keeps it in proxy_binding", function()
+			local dev, _, _, _, _, device = new_device()
+			assert.equal(5001, device.PROXY_BINDING)
+			assert.equal(5001, dev.proxy_binding)
+			assert.equal(5002, (new_device({ proxy_binding = 5002 })).proxy_binding)
+			assert.equal(5002, (new_device({ proxy_binding = "5002" })).proxy_binding)
+		end)
+
+		it("refuses a binding that is no number, rather than sending the light's messages to 5001", function()
+			package.loaded["common.device"] = nil
+			package.loaded["common.dispatch"] = nil
+			fake.install_c4({})
+			local device = require("common.device")
+			local ok, err = pcall(device.new, { proxy_binding = "light" })
+			assert.is_false(ok)
+			assert.truthy(tostring(err):find("proxy_binding is a binding number, got light", 1, true))
+		end)
+
+		it("notify goes to that binding, with the parameter dump as before", function()
+			local dev, c4 = new_device({ proxy_binding = 5002 })
+			local lines = capture_log()
+			dev.notify("LIGHT_BRIGHTNESS_CHANGED", { LIGHT_BRIGHTNESS_CURRENT = 40 })
+			assert.same({ { 5002, { LIGHT_BRIGHTNESS_CURRENT = 40 } } }, proxied(c4, "LIGHT_BRIGHTNESS_CHANGED"))
+			assert.same({}, c4.proxy_messages(5001))
+			assert.same({}, lines)
+			log.set_debug(true)
+			dev.notify("LIGHT_BRIGHTNESS_CHANGING", { RATE = 0, LIGHT_BRIGHTNESS_TARGET = 75, LIGHT_BRIGHTNESS_CURRENT = 40 })
+			assert.same({ "[DEBUG] Test Device: -> proxy LIGHT_BRIGHTNESS_CHANGING"
+				.. " LIGHT_BRIGHTNESS_CURRENT=40 LIGHT_BRIGHTNESS_TARGET=75 RATE=0" }, lines)
+		end)
+
+		it("sends BUTTON_INFO to that binding as a NOTIFY, and the link LEDs to the links as COMMANDs", function()
+			local dev, c4, _, _, st = new_device({ proxy_binding = 5002 })
+			st.on = false
+			dev.update_leds()
+			assert.same({ 5002, 5002, 5002 }, { proxied(c4, "BUTTON_INFO")[1][1], proxied(c4, "BUTTON_INFO")[2][1],
+				proxied(c4, "BUTTON_INFO")[3][1] })
+			assert.equal(3, #proxied(c4, "BUTTON_INFO"))
+			assert.same({ BUTTON_ID = 1, ON_COLOR = "000000", OFF_COLOR = "0000ff", CURRENT_COLOR = "0000ff" },
+				proxied(c4, "BUTTON_INFO")[2][2])
+			for _, message in ipairs(c4.proxy_messages(5002)) do
+				assert.same({ "BUTTON_INFO", "NOTIFY" }, { message[1], message[3] })
+			end
+			assert.same({ { 200, { STATE = false } }, { 201, { STATE = false } }, { 202, { STATE = false } } },
+				proxied(c4, "MATCH_LED_STATE"))
+			for _, link in ipairs({ 200, 201, 202 }) do
+				assert.same({ { "MATCH_LED_STATE", { STATE = false }, "COMMAND" } }, c4.proxy_messages(link))
+			end
+			assert.same({ [5002] = 3, [200] = 1, [201] = 1, [202] = 1 }, bindings_of(c4), "nothing to 5001")
+		end)
+
+		it("answers each setting on that binding, at late init and after a command", function()
+			local dev, c4, _, dispatch = new_device({ proxy_binding = 5002, settings = { "preset", "hold_up", "hold_down" } })
+			c4.persist.hold_rate_down = "2000"
+			dev.load_settings()
+			assert.same({ { 5002, "100" } }, proxied(c4, "PRESET_LEVEL"))
+			assert.same({ { 5002, "5000" } }, proxied(c4, "HOLD_RATE_UP"))
+			assert.same({ { 5002, "2000" } }, proxied(c4, "HOLD_RATE_DOWN"))
+			dispatch.received_from_proxy(5002, "SET_PRESET_LEVEL", { LEVEL = "60" })
+			dispatch.received_from_proxy(5002, "SET_HOLD_RATE_UP", { RATE = "fast" })
+			assert.same({ 5002, "60" }, proxied(c4, "PRESET_LEVEL")[2])
+			assert.same({ 5002, "5000" }, proxied(c4, "HOLD_RATE_UP")[2], "a refused value: the one kept, on the same binding")
+			assert.same({ [5002] = 5 }, bindings_of(c4), "three at load, one per command")
+			-- The proxy that is not ours sends the same commands; they change nothing here.
+			dispatch.received_from_proxy(5001, "SET_PRESET_LEVEL", { LEVEL = "30" })
+			assert.equal(60, dev.setting("preset"))
+			assert.equal(5, #c4.calls_to("SendToProxy"))
+		end)
+
+		it("echoes BUTTON_ACTION on that binding", function()
+			local _, c4, _, dispatch, st = new_device({ proxy_binding = 5002 })
+			dispatch.received_from_proxy(5002, "BUTTON_ACTION", { BUTTON_ID = "0", ACTION = "1" })
+			assert.same({ { 5002, { BUTTON_ID = 0, ACTION = 1 } } }, proxied(c4, "BUTTON_ACTION"))
+			assert.same({ { 0, 1 } }, st.buttons)
+		end)
+
+		it("keeps the Button Links' colours on the links and answers the light's page on its binding", function()
+			local _, c4, _, dispatch, st = new_device({ proxy_binding = 5002 })
+			st.on = true
+			dispatch.received_from_proxy(200, "REQUEST_BUTTON_COLORS", {})
+			assert.same({ { 200, { BUTTON_ID = 0, ON_COLOR = "0000ff", OFF_COLOR = "000000", CURRENT_COLOR = "0000ff" } } },
+				proxied(c4, "BUTTON_COLORS"))
+			assert.same({ { 200, { STATE = true } } }, proxied(c4, "MATCH_LED_STATE"))
+			dispatch.received_from_proxy(5002, "SET_BUTTON_COLOR", { BUTTON_ID = "2", OFF_COLOR = "00FF00" })
+			assert.equal("00ff00", c4.persist.button_2_off_color)
+			assert.same({ 202, { BUTTON_ID = 2, ON_COLOR = "0000ff", OFF_COLOR = "00ff00", CURRENT_COLOR = "0000ff" } },
+				proxied(c4, "BUTTON_COLORS")[2])
+			assert.same({ { 5002, { BUTTON_ID = 2, ON_COLOR = "0000ff", OFF_COLOR = "00ff00", CURRENT_COLOR = "0000ff" } } },
+				proxied(c4, "BUTTON_INFO"))
+			-- Not on the other proxy's binding.
+			dispatch.received_from_proxy(5001, "SET_BUTTON_COLOR", { BUTTON_ID = "0", ON_COLOR = "ff0000" })
+			assert.is_nil(c4.persist.button_0_on_color)
+		end)
+
+		it("proxy_id looks for the consumer on that binding", function()
+			local dev, c4 = new_device({ proxy_binding = 5002 })
+			c4.GetBoundConsumerDevices = function(_, id, binding)
+				assert.equal(15, id)
+				assert.equal(5002, binding)
+				return { [3002] = "Example Light" }
+			end
+			assert.equal(3002, dev.proxy_id())
+			c4.GetBoundConsumerDevices = function() return nil end
+			assert.is_nil(dev.proxy_id())
+		end)
+
+		it("proxy_id finds each proxy of the fan driver's runtime on its own binding", function()
+			local light, _, env, _, _, device = new_device({ proxy_binding = 5002 })
+			local fan = device.new({ prefix = "Test Device" })
+			assert.equal(fake.proxy_id(env, 5002), light.proxy_id())
+			assert.equal(fake.proxy_id(env, 5001), fan.proxy_id())
+			assert.is_number(light.proxy_id())
+			assert.are_not.equal(light.proxy_id(), fan.proxy_id())
 		end)
 	end)
 

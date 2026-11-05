@@ -43,7 +43,7 @@ fi
 # development-only module joins this list; its development-only properties and
 # actions stand in driver.xml between a <!-- DEV-ONLY BEGIN ... --> line and a
 # <!-- DEV-ONLY END --> line, which a release build strips.
-DEV_ONLY_FILES=(common/devloop.lua common/devkey.lua)
+DEV_ONLY_FILES=(common/devloop.lua common/devkey.lua fan/devcmds.lua)
 
 extra_args=()
 dev_build=no

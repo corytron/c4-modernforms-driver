@@ -2,159 +2,520 @@
 
 What only Composer, a Navigator, a keypad or the Modern Forms app can show,
 as steps for the owner; each step is also a brief for the Windows session
-([`composer-remote.md`](composer-remote.md)). A **Done** line under a step
-says when it was checked on the house and what it showed, in the words of
-that day; **Open** means it has not been checked yet. What runs on the
-house and what is open overall is [`status.md`](status.md); the engineering
-record behind each result is [`design.md`](design.md).
+([`composer-remote.md`](composer-remote.md)). Every step ends in a **Done**
+line. It reads **Done: open** until the step has been run on the house; then
+it says when and what the step showed, in the words of that day. What runs on
+the house and what is open overall is [`status.md`](status.md); the
+engineering record behind each result is [`design.md`](design.md). The names
+and exact texts a step quotes are those of the contract
+([`v1-design.md`](v1-design.md), sections 2.5 to 2.7 and 7) and of the
+driver's Documentation tab.
 
-**A skeleton (2026-10-27), to be completed by the v1 contract.** No build of
-this driver exists to check yet. The sections below are the checks the
-driver must pass; the v1 contract fills in the property names, the action
-names and the exact texts to expect, which are left as `<…>` until then.
+**This version is written for the first full-featured test build** (the
+build of the M3 split, [`v1-design.md`](v1-design.md#13-m3-build-split)). No
+build of this driver has been checked on the house yet, so every step is open.
 
 ## Before you start
 
-- **Release builds only.** A release reaches the house from GitHub
-  ([`release-checklist.md`](release-checklist.md)): `tools/deploy.py start`
-  writes the brief, and the Windows session downloads the package of the
-  release from its GitHub URL (checksum checked) and installs it (step 1).
-  A development build goes on the house only when the developer asks for a
-  test, and a release replaces it afterwards.
+- **Who does what.** The Windows session does every click and every read in
+  Composer from this text; the coordinator does anything that needs a
+  command, on the VM. Your hands are needed only where a step says **By
+  hand**: a keypad button or a Navigator tile, the remote or the wall
+  control, the fan's power at the wall, the Modern Forms app, a look at an
+  LED. **No step hands you a command**, and none asks for more than a minute
+  of your time: where the driver itself needs longer (it notices a missing
+  fan after about 45 seconds), the step says so and the Windows session
+  reads the result, not you.
+- **Briefs.** A brief made from a step carries the standing-approval sentence
+  of [`composer-remote.md`](composer-remote.md#rules-for-the-windows-session)
+  (rule 8) and names the hard-to-undo steps inside it: installs, bindings and
+  Disconnects, a Set on a property, the throw-away programming scripts of
+  step 34, the Set on `Stock Device`.
+- **A test button.** The house keypad has no spare button. The Windows
+  session first looks, read-only, for an unused keypad button elsewhere in
+  the project (no programming on its events, no link; one with an LED for the
+  LED steps). If there is none it borrows the house keypad's **Up** for the
+  press-only parts and **Medium** for the LED parts, a minute each, and runs
+  the restore check R-K of
+  [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
+  after each: links disconnected, LED Behavior back to Programmed, colours and
+  scripts as before. A press on a borrowed button also runs its own
+  programming (the fan's light on, or speed 3 through the stock device),
+  which is harmless; say so before you press. When the build allows it, the
+  Windows session can press a bound link without hands (K7 of the same
+  section); the LED steps still need your eyes.
+- **Release builds only, except the first test.** A release reaches the house
+  from GitHub ([`release-checklist.md`](release-checklist.md)): the
+  coordinator sends the Windows session the install brief, which downloads
+  the package of the release from its GitHub URL, checks its checksum and
+  installs it (step 1). The first full-featured test build may instead be a
+  feature-branch build served from the VM for that test; a release replaces
+  it afterwards.
 - **Capability changes need a reboot.** If an install makes Composer ask
   "Restart Director?", answer Yes, but it does not restart Director: the
   device keeps its old capabilities until you reboot the controller from
   System Manager (Tools > System Manager; it runs elevated, so only you can
   operate it). Then choose File » Refresh Navigators. Builds that change only
   Lua or connections take effect at once. Composer has no "Restart
-  Director" command of its own.
+  Director" command of its own. A new device is expected to take its
+  capabilities with no reboot; step 1 is where that is seen.
 - **Logs.** A device's Lua output is in its **Lua** tab in Composer. When a
   step asks for it, set that device's `Debug Mode` to On first and back to
-  Off afterwards.
-- A quoted property or result text is the exact text to expect; `<…>`
-  stands for a value that varies, or for a text the v1 contract has not
-  written yet. Where a step does not quote, paste what you see.
+  Off afterwards. Composer shows only the lines that arrive while the tab is
+  open.
+- **Texts.** A quoted property or result text is the exact text to expect.
+  `<…>` stands for a value that varies (a time, an address, a build number).
+  Reports use the placeholders of
+  [`scaffold-design.md`](scaffold-design.md#2-placeholders-the-repository-is-public):
+  fan `10.0.2.151`, second fan `10.0.2.152`, client id `MF_00005E005301`,
+  "Example Room".
+- **Put everything back.** At the end the settings these steps change read
+  as they did: Default On Brightness 100, the fan item's Preset Level
+  Level 3, every `Speed N Link Also Lit At` at `No other speed`, the test
+  buttons restored, `Debug Mode` Off.
 
-The house on 2026-10-27 ([`status.md`](status.md)): one Modern Forms fan on
-the stock driver `wac_mf_fan_and_light_controller(v4).c4z`, a keypad driven
-by programming (button scripts that set the speeds, LED scripts, a
-one-second settle Timer agent), and nothing of this driver installed.
+The house on 2026-11-04 ([`status.md`](status.md)): one Modern Forms fan on the
+stock driver `wac_mf_fan_and_light_controller(v4).c4z`, a keypad driven by
+programming (button scripts that set the speeds, LED scripts, a one-second
+settle Timer agent) with no spare button, the throw-away M1 probe still in a
+test room, and nothing of this driver installed.
 
 ## A. Install and update
 
-1. Driver » "Add or Update Driver or Agent…", select `modernforms_fan.c4z`
-   of the release, Open. Expect "Update Succeeded: Drivers or agents were
-   successfully updated: modernforms_fan.c4z" (the text Composer Pro 3.4.2
-   shows for the Hue drivers), and within a minute every Modern Forms Fan
-   device showing the new `Driver Version`. A right-click "Update Driver" is
-   only for reloading the same version ("Versions are equal. Do you want to
-   overwrite…?").
-   - **Open.**
-2. The update is **in place**. Never delete and re-add the device: a
-   re-added device has a new device id and an empty store, and its
-   connections and every programming line that names it are gone. Expect
-   the device's properties to read as before the update, `Debug Mode`
-   unchanged.
+1. **Install and add the device.** Driver » "Add or Update Driver or Agent…",
+   select `modernforms_fan.c4z` of the build, Open. Then add **Modern Forms
+   Fan** to a room (the fan's room, as
+   [`migration-design.md`](migration-design.md#3-phases) Phase 1 has it).
+   - **Expect:** "Update Succeeded: Drivers or agents were successfully
+     updated: modernforms_fan.c4z" (the text Composer Pro 3.4.2 shows for the
+     Hue drivers) and **no** "Restart Director?". Two tree items: **Modern
+     Forms Fan** (the fan, the parent) and **Modern Forms Fan Light** under
+     it, with Control4's standard fan and light icons. On the fan item:
+     `Driver Version` the build number, `Debug Mode` Off, `Poll Interval (s)`
+     15, `Status` `Not set up: Find Fans, or enter the fan's address in Fan
+     Address`. File » Refresh Navigators.
+   - **Done:** open.
+2. **The update is in place.** Run this one last, when a second build exists.
+   Install it over the first the same way; never delete and re-add the
+   device: a re-added device has a new device id and an empty store, and its
+   connections and every programming line that names it are gone.
+   - **Expect:** `Driver Version` shows the new build; `Fan Address`, `Poll
+     Interval (s)`, every `Speed N Link Also Lit At`, `Fan ID`, `Debug Mode`,
+     the preset speed and the light's Default On Brightness read as before;
+     `Status` reads `Online: …` again within a minute; `Keypad Links` still
+     lists every binding and the Navigators still show both tiles.
    - **If Composer asked "Restart Director?"**: reboot the controller as
      described under "Before you start", wait until Composer has Director
      again, choose File » Refresh Navigators, then check this step again.
-   - **Open.**
+   - **Done:** open.
 
-## B. Adding the fan (the v1 contract)
+## B. Adding the fan
 
-3. Add the Modern Forms Fan device to its room and give it the fan's
-   address the way the v1 contract says (`<property or action>`). Expect
-   `<status text>` and the fan's identity (`<MAC or client id row>`, for
-   example `MF_00005E005301`) once the driver has reached the fan.
-   - **Open.**
-4. A second Modern Forms Fan device for the same fan is refused or
-   reported, as the v1 contract decides (`<text>`).
-   - **Open.**
+3. **Fan Address.** Select the fan item, **Properties** tab. In `Fan Address`
+   type the fan's address (`10.0.2.151`) and click the row's **Set**.
+   - **Expect:** `Status` `Waiting for the fan at 10.0.2.151`, then within a
+     few seconds `Online: fan …, light …` with the fan's real state (for
+     example `Online: fan speed 3, light 40 %`). `Last Action` `Learned fan
+     MF_00005E005301 (Gen 3) at 10.0.2.151`. `Fan ID` `MF_00005E005301 (MAC
+     00:00:5e:00:53:01)`. No further click was needed to pin the fan.
+   - **Done:** open.
+4. **A bad entry, an empty entry, the right entry again.** Set `Fan Address`
+   to `fan.local`, then to nothing, then back to the fan's address.
+   - **Expect:** `Status` `Fan Address "fan.local" is not an IPv4 address`
+     (nothing is sent); then `Not set up: Find Fans, or enter the fan's
+     address in Fan Address`; then `Online: …` again with `Fan ID` unchanged
+     (the identity was kept) and `Last Action` still the line of step 3.
+   - **Done:** open.
+5. **Find Fans.** Actions tab: **Find Fans**. Read `Found Fans` and `Last
+   Action` after about 5 seconds.
+   - **Expect:** `Last Action` `Found 1 fan: pick it in Found Fans, then Use
+     Selected Fan` (`Found 2 fans: pick one in Found Fans, then Use Selected
+     Fan` if another fan is awake); `Found Fans` holds `MF_Fan_005301 at
+     10.0.2.151 (this device's fan)`, the instance name ending in the last
+     six digits of the MAC. If it says `No Modern Forms fan answered on this
+     network` or `Find Fans could not send its query on this controller`,
+     record the exact text and the controller's OS.
+   - **Done:** open.
+6. **Use Selected Fan.** Pick the entry and click **Use Selected Fan**. Then
+   clear `Fan Address` (Set), click **Use Selected Fan** with nothing picked,
+   and type the address back (Set).
+   - **Expect:** first `Already using fan MF_00005E005301 at 10.0.2.151` and
+     the pick cleared; then `Nothing to use: pick a fan in Found Fans, or
+     enter Fan Address`; then `Online: …`.
+   - **Done:** open.
 
-## C. Properties
+## C. Properties, the Documentation tab and the Navigators
 
-5. The device's Properties show `Driver Version` (the build number of the
-   release, as on the Releases page) and `Debug Mode` (Off), and the rows
-   the v1 contract adds (`<rows>`), each with the text it says.
-   - **Open.**
+7. **The rows.** Read the fan item's whole **Properties** tab, in order.
+   - **Expect:** `Driver Version` the build, `Status` `Online: …`, `Last
+     Action`, `Fan Address` the address, `Found Fans`, `Fan ID`, `Fan Model`
+     (for example `Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze`),
+     `Firmware` (`<version> (motor <version>) since <date>`), `Last Seen`
+     (`<date time>, answered in <s> s`, moving on every 10 seconds at most),
+     `Last Change By` empty until the fan changes from outside, `Fan
+     Automations` (`None` or `Active: …`), `Poll Interval (s)` 15, `Keypad
+     Links` (`0 of 12 links bound`), `Speed 1 Link Also Lit At` to `Speed 6
+     Link Also Lit At` all `No other speed`, `Migration` `Not run yet: click
+     Migration Report on the Actions tab`, `Stock Device` empty, `Debug Mode`
+     Off. There is no colour-per-speed row, and a release build has no `Dev
+     Server` or `Dev State` row.
+   - **Done:** open.
+8. **The Actions tab.**
+   - **Expect:** six actions in this order: `Find Fans`, `Use Selected Fan`,
+     `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive Learning`,
+     `Migration Report`.
+   - **Done:** open.
+9. **The Documentation tab.** Open the fan item's **Documentation** tab,
+   scroll to the end.
+   - **Expect:** the manual renders (headings, tables, readable text); a
+     click on a chapter in the contents scrolls to it; the end shows the
+     changelog and the non-affiliation lines.
+   - **Done:** open.
+10. **Programming, read only.** Open Programming and look at the fan item's
+    events and conditions; do not add anything.
+    - **Expect:** the fan proxy's own events and conditions, and the driver's
+      two events `Fan Offline` ("When <name> stops answering on the
+      network") and `Fan Online` ("When <name> answers on the network
+      again"), and the condition "Fan is online". The light item lists its
+      own light events.
+    - **Done:** open.
+11. **The fan on a Navigator.** *By hand*, after File » Refresh Navigators:
+    open the fan on a Navigator or in the Control4 app. Tap each of Level 1
+    to Level 6, then off.
+    - **Expect:** the tile first shows the fan's real speed, in the names
+      `Level 1` to `Level 6`; the fan follows each tap within about a
+      second; the tile and `Status` follow; off stops the fan.
+    - **Done:** open.
+12. **On, Toggle and the preset.** With the fan off, tap the tile to turn it
+    on. Then, in Composer, change the fan item's **Preset Level** to Level 4,
+    turn the fan off and on again, and set the Preset Level back to Level 3.
+    - **Expect:** on goes to Level 3 (the default preset), then to Level 4
+      after the change, and to Level 3 again at the end. (On a fan that
+      already runs, an On from programming changes nothing; a throw-away
+      script of step 34 may show it.)
+    - **Done:** open.
+13. **Direction.** If the Navigator offers a direction control, set reverse and
+    then forward again.
+    - **Expect:** the fan reverses and reverts after its motor has turned
+      around; `Status` shows `reverse` while it runs in reverse; the fan keeps
+      answering (`Last Seen` keeps moving). If the fan drops off the Wi-Fi,
+      record the model and stop here.
+    - **Done:** open.
+14. **The light on a Navigator.** *By hand*: tap the light's tile; set the
+    Default On Brightness on the light item's settings page to 50 and tap it
+    off and on; drag the slider from 40 to 70 and let go; tap off; set the
+    Default On Brightness back to 100.
+    - **Expect:** the first tap turns the light on at the Default On
+      Brightness (100 on this house); after the change it comes on at 50
+      (record it if a tile tap ignores the setting, which depends on the
+      command Control4 sends); the slider ends at 70 within a couple of
+      seconds, in a few jumps and without a fade; off turns it off and the fan
+      keeps its level.
+    - **Done:** open.
+15. **The log.** Set `Debug Mode` to On (Set), tap Level 3 and then off on a
+    Navigator, read the fan item's Lua tab, set `Debug Mode` back to Off.
+    - **Expect:** a line for each request and answer (a command for speed 3,
+      its answer with the fan's state and the time it took), the proxy message
+      and no `[ERROR]` line, traceback or refusal; the lines hold no e-mail
+      address, Wi-Fi name or client id (only its last four digits).
+    - **Done:** open.
 
 ## D. Fan speed links (the driver's own Button Links)
 
-6. Connections: select the Modern Forms Fan device. Under its Control
-   Outputs expect one Button Link per speed of the fan (the stock driver
-   declares six) and the Off, Toggle and Cycle links, under the names the
-   v1 contract gives (`<names>`). Then bind a keypad button to each link to
-   be tested: select the keypad and drag its button's row from the top pane
-   onto the fan's link in the lower list ("BUTTON_LINK Output Devices"), the
-   way
-   [`composer-remote.md`](composer-remote.md#learned-2026-10-27-connections-and-programming-by-synthetic-drag)
-   describes; read both lists afterwards and check the binding.
-   - **Open.**
-7. Press a button bound to a speed: the fan runs at that speed within
-   `<time>`, the Navigator's fan tile shows it, and the Modern Forms app
-   shows it too. Off, Toggle and Cycle do what the v1 contract says.
-   - **Open.**
+16. **The links are listed.** Connections: select the fan item.
+    - **Expect:** under its Control Outputs the nine fan links **Fan Off**,
+      **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle** and **Fan Cycle
+      Button Link**, and the three light links **Light Top**, **Light
+      Bottom** and **Light Toggle Button Link**; the light item lists the
+      same twelve in this per-item view. In the lower list of a keypad's
+      Connections they appear under the fan item only (seen with the probe
+      on 2026-10-27).
+    - **Done:** open.
+17. **Bind a speed link.** Select the test button's keypad and drag the
+    button's row from the top pane onto **Fan Speed 3 Button Link**, under the
+    fan item, in the lower "BUTTON_LINK Output Devices" list (the drag of
+    [`composer-remote.md`](composer-remote.md#learned-2026-10-27-connections-and-programming-by-synthetic-drag);
+    read both lists afterwards).
+    - **Expect:** both lists show the binding; the button's LED Behavior
+      reads Follow Connection (the binding sets it, seen with the probe on
+      2026-10-27); `Keypad Links` reads `1 of 12 links bound` and `Fan Speed
+      3: <keypad> (<id>)`; the LED is already right for the fan's state.
+    - **Done:** open.
+18. **A press.** Press the bound button once (with the fan at another speed).
+    - **Expect:** the LED lights at once, before the fan moves; the fan runs
+      at Level 3 within about a second; the tile and `Status` show it; the
+      LED stays lit.
+    - **Done:** open.
+19. **A hold.** Hold the same button for about 2 seconds.
+    - **Expect:** one action only: the fan stays at Level 3, no repeat, nothing
+      on release, the LED lit.
+    - **Done:** open.
+20. **The ends of the range.** Disconnect step 17's binding, then bind the
+    test button to **Fan Speed 1 Button Link**, press it once, and do the same
+    with **Fan Speed 6 Button Link** (the other speed links are pressed in
+    steps 29, 30, 31 and 33).
+    - **Expect:** the fan runs at Level 1 and at Level 6 within about a second
+      of each press, the LED lit at once and the tile following.
+    - **Done:** open.
+21. **Fan Off.** Disconnect the previous binding, bind the test button to
+    **Fan Off Button Link** and press it.
+    - **Expect:** the fan stops; the LED is lit while the fan is off and
+      darkens at once when the fan is started from a Navigator.
+    - **Done:** open.
+22. **Fan Toggle and Fan Cycle.** One at a time (disconnect the previous
+    binding first): bind the test button to **Fan Toggle Button Link** and
+    press it twice; then to **Fan Cycle Button Link** and, with the fan off,
+    press it seven times.
+    - **Expect:** Toggle: off goes on at the preset speed (Level 3), on goes
+      off. Cycle: Level 1 to Level 6 on the first six presses, Level 1 again
+      on the seventh; both LEDs lit while the fan is on.
+    - **Done:** open.
+23. **Disconnect.** Right-click the binding of each link used so far and
+    choose Disconnect; read both lists.
+    - **Expect:** the prompt names the two devices; both lists show the link
+      unbound; `Keypad Links` reads `0 of 12 links bound`; set the button's LED
+      Behavior back to Programmed (a Disconnect does not restore it) when the
+      button is borrowed (R-K).
+    - **Done:** open.
 
 ## E. Light links (light_v2)
 
-8. The light (the Modern Forms Fan device, or the device the v1 contract
-   gives it) lists **Top**, **Bottom** and **Toggle Button Link** under its
-   Control Outputs; bind keypad buttons to them as in step 6. Tap top: the
-   light turns on (`<level>`); tap bottom: it turns off; hold: it dims up or
-   down while held, as the v1 contract says. The Navigator's light tile
-   follows.
-   - **Open.**
+24. **Light Top.** Bind the test button to **Light Top Button Link**. Tap it
+    with the light off; tap it with the light on at a low level; hold it for
+    about 2 seconds with the light on; hold it for about 2 seconds with the
+    light off.
+    - **Expect:** a tap turns the light on at the Default On Brightness (also
+      from a low level); a hold brightens it toward 100 in small steps (twice
+      a second at most; about 5 seconds for the whole range) and stops where
+      you let go; from off a hold turns the light on at 1 % and brightens
+      from there; the LED is lit while the light is on; a tap within a second
+      after a hold is ignored.
+    - **Done:** open.
+25. **Light Bottom.** Bind **Light Bottom Button Link**. Tap it with the light
+    on; hold it with the light on; hold it with the light off.
+    - **Expect:** a tap turns the light off; a hold dims it toward 1 % and
+      stops where you let go; a hold while it is off does nothing; the LED is
+      lit while the light is off and dark while it is on.
+    - **Done:** open.
+26. **Light Toggle.** Bind **Light Toggle Button Link**; tap and hold it with
+    the light off and on.
+    - **Expect:** a tap switches the light the other way (on at the Default On
+      Brightness); a hold brightens while the light is off (from 1 %) and
+      dims while it is on; the LED is lit while the light is on.
+    - **Done:** open.
+27. **How a hold looks.** *By hand*, during step 24's hold: does the
+    brightening look smooth enough, or like a staircase? Record the word. (The
+    contract's K15; whether it needs changing is the owner's call.)
+    - **Done:** open.
 
 ## F. Keypad LEDs (Follow Connection)
 
-9. Making a button's link switches its LED Behavior to Follow Connection by
-   itself (seen on 2026-10-27); check that it reads so for every bound
-   button.
-   - **Open.**
-10. With the fan at speed 3, only the speed 3 button is lit; pressing
-    speed 5 darkens 3 and lights 5, with no programming and no settle
-    delay, and the LEDs follow a change made with the Modern Forms app, the
-    remote or the wall control the same way (section G). The light's
-    buttons: top lit while the light is on, bottom while it is off (or the
-    colours the v1 contract gives).
-    - **Open.**
+28. **Follow Connection by itself.** Read the LED Behavior of every bound
+    button, then disconnect one.
+    - **Expect:** it reads Follow Connection for every bound button, set by
+      the binding itself (seen with the probe on 2026-10-27 and again on
+      2026-11-04); disconnecting does not switch it back.
+    - **Done:** open.
+29. **Only the active speed is lit.** With a test button on **Fan Speed 3** and
+    another on **Fan Speed 5**: set the fan to Level 3 from a Navigator, then
+    press the Level 5 button.
+    - **Expect:** at Level 3 only the Level 3 button is lit; pressing Level 5
+      darkens it and lights the other at once, with no settle delay and no
+      programming; the LEDs follow a change from the Modern Forms app, the
+      remote or the wall control the same way (section G).
+    - **Done:** open.
+30. **Speed N Link Also Lit At.** With the test button on **Fan Speed 4**,
+    press it, set `Speed 4 Link Also Lit At` to `Speed 5` and click **Set**,
+    set the fan to Level 5 from a Navigator, then set the row back to `No
+    other speed`.
+    - **Expect:** the press runs the fan at Level 4 with the LED lit; the
+      button stays lit at Level 5 while the row says `Speed 5`, and goes dark
+      at once when it is set back; the row's own speed (`Speed 4`) means the
+      same as `No other speed`.
+    - **Done:** open.
+31. **Bound while the fan is at that speed.** Disconnect and bind the test
+    button on **Fan Speed 3** again while the fan runs at Level 3, then at
+    Level 5.
+    - **Expect:** the LED is right within about a second of the binding
+      (lit at Level 3, dark at Level 5); the driver answers the keypad's
+      request for colours (seen as `REQUEST_BUTTON_COLORS` with the probe).
+    - **Done:** open.
+32. **Colours.** *By hand*: the fan buttons are lit in the colours set on the
+    keypad itself (the driver sends none on the fan links); the light's Top
+    and Toggle buttons are lit blue while the light is on, the Bottom button
+    blue while it is off (the settings page's defaults).
+    - **Done:** open.
+33. **A double tap.** Double tap the test button bound to **Fan Speed 2**.
+    - **Expect:** the fan ends at Level 2, the LED lit, `Status` online (a
+      double tap is two presses and acts twice). Whether the keypad's own
+      Double Tap event fires on a bound button belongs to the cutover sitting
+      ([`migration-design.md`](migration-design.md#8-open-items), item 5).
+    - **Done:** open.
 
 ## G. Changes made elsewhere
 
-11. Change the speed, the light and the direction in the **Modern Forms
-    app**, with the **remote** and at the **wall control**: each change
-    reaches the Navigator tiles and the keypad LEDs within `<time>`, in
-    order, and a fast series of changes ends on the last one, never on an
-    earlier report.
-    - **Open.**
-12. Control4 programming on the fan's events (`<event names>`) fires for
-    those changes too.
-    - **Open.**
+34. **Three throw-away scripts.** The Windows session puts the same one-line
+    script, with one harmless and visible effect of its choosing, on the fan's
+    speed-changed event, on **Fan Offline** and on **Fan Online** (three
+    drags, each read back with Copy All). They stay until step 49 and let
+    steps 35, 36, 38 and 40 see the events fire.
+    - **Expect:** each of the three events lists its one line, enabled.
+    - **Done:** open.
+35. **The Modern Forms app.** *By hand*: change the speed, the light and the
+    direction in the app, one change each.
+    - **Expect:** each change reaches the Navigator tile and the keypad LEDs
+      within the poll interval (15 seconds, sooner while the 2-second polling
+      of the 20 seconds after a change is open); the speed-changed script ran
+      for the speed change; `Last Change By` reads `Modern Forms app or
+      another local client at <time>` (or the cloud text `Modern Forms cloud
+      (app away, voice assistant)`: record which); a quick series of changes
+      ends on the last one.
+    - **Done:** open.
+36. **The remote and the wall control.** *By hand*: change the speed, the light
+    and the direction with the remote, and the same with the wall control.
+    - **Expect:** as step 35, the script included, as it does for a change
+      from Control4; `Last Change By` reads `Remote or wall control at <time>`
+      or `Outside Control4 (source not reported)`: record which each one gives
+      (the contract's K16), and whether Breeze changes the speed the driver
+      reports.
+    - **Done:** open.
+37. **The fan's own automations.** *By hand*: turn **Away mode** on in the
+    Modern Forms app. In Composer read `Fan Automations`, click **Turn Off Away
+    Mode**, then click it again; the same for adaptive learning.
+    - **Expect:** `Fan Automations` reads `Active: away mode` within the poll
+      interval; `Last Action` `Away mode turned off (the Modern Forms app can
+      turn it on again)`, and the app shows it off; the second click `Away
+      mode is already off`; for adaptive learning `Adaptive learning turned
+      off (the Modern Forms app can turn it on)` and `Adaptive learning is
+      already off`. No schedule or timer is touched.
+    - **Done:** open.
 
-## H. Offline, address and firmware (the v1 contract)
+## H. Offline, rebooting, the wrong fan, address and firmware
 
-13. Cut the fan's power at the wall: the device reports it as the v1
-    contract says (`<text>`) within `<time>`, and comes back by itself when
-    power returns.
-    - **Open.**
-14. The fan gets a new address: the driver follows it, or reports it and
-    offers the fix, as the v1 contract decides; it is never taken for a new
-    fan.
-    - **Open.**
-15. After a firmware update of the fan, the device reads `<text>` and works
-    as before.
-    - **Open.**
+38. **Power off.** *By hand*: switch the fan's power off at the wall (the wall
+    switch or the wall control's pull tab), press a bound speed button one
+    time straight away, and leave the power off for a minute at most. The
+    Windows session reads `Status` after about 50 seconds; your part is the
+    switch and one press.
+    - **Expect:** the LED lights at once and goes back within about 10
+      seconds when the request fails (the press is tried once and dropped, so
+      it is not delivered when the power returns). After about 50 seconds
+      `Status` `Not answering at 10.0.2.151 since <time>; showing last state`;
+      the `Fan Offline` event fired once (step 34's script ran once; the
+      `Online` variable reads 0); the light's controls are greyed out on the
+      Navigator; the fan tile and the keypad LEDs keep their last state.
+    - **Done:** open.
+39. **Reboot Fan while it is away.** While the power is still off and `Status`
+    says `Not answering`, click **Reboot Fan**.
+    - **Expect:** `Last Action` `Reboot not sent: the fan is not answering
+      (power it off for 10 s)`.
+    - **Done:** open.
+40. **Power on.** *By hand*: switch the power back on. The Windows session reads
+    `Status` every 10 seconds for a minute and once more a minute later (the
+    fan needs time to start and the driver asks once a minute while it is
+    away; record how long it took, the contract's K17). This step is an
+    observation, not a gate: it does not block the others.
+    - **Expect:** `Online: …`; `Fan Online` fired once (step 34's script ran
+      once); the light's controls back; **nothing was re-sent**: the fan comes
+      up in its own state, not at the speed the press of step 38 asked for.
+    - **Done:** open.
+41. **Reboot Fan.** With the fan answering, click **Reboot Fan**, then click it
+    again straight away.
+    - **Expect:** `Last Action` `Reboot sent to the fan's Wi-Fi module at
+      <time>` and `Status` `Rebooting the fan's Wi-Fi module (sent <time>)`; the
+      second click `Reboot already sent at <time>; waiting for the fan`; then
+      `Online: …` again and no `Fan Offline`. Record the time until the fan
+      answered, and whether the motor or the light changed (the contract's
+      K18).
+    - **Done:** open.
+42. **The wrong fan.** *Needs a second Modern Forms fan on the network*
+    (`10.0.2.152`); with only one, this step stays open and the specs of the
+    model carry the refusal. Set `Fan Address` to the second fan's address.
+    - **Expect:** `Status` `Another fan (...<last four digits>) answers at
+      10.0.2.152; nothing is sent`; `Fan Offline` fires; a press on a bound
+      button does nothing and its LED keeps its state; `Fan ID` is unchanged.
+      Set the first fan's address back: `Online: …` and `Fan Online`. Optional
+      and only if meant: pick the second fan in `Found Fans` and click **Use
+      Selected Fan** (`Now using fan MF_00005E005302 (was MF_00005E005301)`;
+      links and programming stay), then point the device back at the first fan
+      the same way.
+    - **Done:** open.
+43. **Not a fan.** Set `Fan Address` to another device on the network that
+    answers on port 80 (any web page: the router's, a printer's), then back.
+    - **Expect:** `Status` `<address> answers, but not as a Modern Forms fan;
+      nothing is sent` (or, if that device answers every request with a page,
+      `No usable answer from <address> since <time>; state unknown` after
+      about 45 seconds: record which); `Fan Offline` fires; the fan's own
+      address back restores `Online: …`.
+    - **Done:** open.
+44. **A new address.** Parked, never blocking: only if the router can give the
+    fan a second address cheaply. The old address then shows `Not answering`;
+    **Find Fans** lists the fan at the new address as this device's fan; **Use
+    Selected Fan** reads `Same fan MF_00005E005301, now at 10.0.2.152` and the
+    device carries on. Otherwise leave it open: the specs cover it.
+    - **Done:** open.
+45. **A firmware change.** Parked, never blocking: after the next firmware
+    update of the fan, `Firmware` reads `<version> (motor <version>) since
+    <date>, was <old version>` and the device works as before.
+    - **Done:** open.
 
 ## I. Moving from the stock driver (the migration contract)
 
-16. The migration contract's phases, in its order
-    ([`migration-design.md`](migration-design.md#3-phases)): the new device
-    beside the stock one, the buttons moved to links one by one with their
-    old lines disabled first, the double taps rebuilt, the LED workaround
-    switched off; later, once the driver's Migration Report reads safe to
-    remove, the old lines, the one-second Timer agent and the stock device
-    deleted. Nothing of the stock driver's setup is touched before that.
-    - **Open.**
+46. **Migration Report before anything moves.** Actions tab: **Migration
+    Report**, then read the `Migration` row and its drop-down (the Windows
+    session reads the dropped list). Nothing else is touched.
+    - **Expect:** the verdict `Stock device <id>: <n> enabled lines name it;
+      keep it` (`<n>` the old lines of the inventory in
+      [`migration-design.md`](migration-design.md#13-programming-that-names-the-stock-device));
+      the rows of
+      [`migration-design.md`](migration-design.md#44-rows): `Report of <date
+      time> by build <N>; it changed nothing`, `Stock: device <id> in <room>
+      (the only one)`, `Speed held by the stock fan: <x>; by this fan: <y>`,
+      `Stock links bound to keypads: 0 of 12`, the line counts, one row per
+      script (the keypad's button scripts, the stock fan's speed-changed
+      script and the settle timer's Expires script among them), and last
+      `Not read here: lighting scenes; favourites; voice`. The project is
+      unchanged (window title and System Design row count as before). Record
+      how long the click took.
+    - **Done:** open.
+47. **Stock Device.** Open the `Stock Device` Select dialog (read; cancel if it
+    does not list the stock device: record that). Pick the stock device, click
+    **Set**, then click **Migration Report** again.
+    - **Expect:** the dialog lists the device of
+      `wac_mf_fan_and_light_controller(v4).c4z`; after the Set the verdict
+      reads `Stock Device changed: click Migration Report again`; after the
+      report it is the verdict of step 46 with the row `Stock: device <id> in
+      <room> (set in Stock Device)`.
+    - **Done:** open.
+48. **Whether the stock driver follows the fan.** Set the fan to another speed
+    from the new device (step 11), wait a minute, click **Migration Report**.
+    - **Expect:** `Speed held by the stock fan: <x>; by this fan: <y>`; the
+      same speed means the stock driver still asks the fan itself
+      ([`migration-design.md`](migration-design.md#2-decisions), G13).
+    - **Done:** open.
+
+The rest of the migration, the buttons moved to links one by one with their
+old lines disabled first, the double taps rebuilt, the LED workaround
+switched off, and later the old lines, the one-second Timer agent and the
+stock device deleted once the report reads `safe to remove`, is the
+migration contract's own checklist
+([`migration-design.md`](migration-design.md#3-phases)). Nothing of the
+stock driver's setup is touched before that.
+
+## J. Putting everything back
+
+49. **Delete the throw-away scripts.** Delete the three scripts of step 34,
+    one line at a time (the prompt "Are you sure you want to delete the code
+    item: …" names the line).
+    - **Expect:** Programming shows nothing of them; every other script is as
+      before the first binding (Copy All equal to the files saved then).
+    - **Done:** open.
+50. **Put the settings back.** Default On Brightness 100, the fan item's
+    Preset Level Level 3, every `Speed N Link Also Lit At` at `No other
+    speed`, `Debug Mode` Off; the restore check R-K on any borrowed button
+    that is still open. Then read the fan item's properties once more.
+    - **Expect:** the rows read as in step 7; the keypad is as before step 17.
+    - **Done:** open.
 
 ## What to paste back
 
@@ -163,4 +524,4 @@ fan or light did, the times where asked, and the Lua output of the device a
 step names (its Lua tab in Composer). When something differs from the
 expectation, the exact wording matters: it tells us which code path ran.
 Replace addresses, MAC addresses, fan ids and room names with the
-placeholders of [`scaffold-design.md`](scaffold-design.md), section 2.
+placeholders of [`scaffold-design.md`](scaffold-design.md#2-placeholders-the-repository-is-public).
