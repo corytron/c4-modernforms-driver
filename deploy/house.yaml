@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.0               # 1.0 "Arrakis", the first release: beta.3 plus Breeze after a restart (#59) and linear trims (#49)
-build: 67
+release: v1.0               # 1.0 "Arrakis", build 73: build 67 plus Breeze stored for the start (#69)
+build: 73
 drivers: modernforms_fan
 debug_mode: Off
