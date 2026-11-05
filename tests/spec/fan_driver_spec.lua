@@ -479,6 +479,38 @@ describe("Modern Forms Fan driver", function()
 			assert.has_no.errors(function() env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" }) end)
 			assert.truthy(env.Properties["Last Action"] ~= "", "the verdict is Last Action")
 		end)
+
+		it("Migration Report shows this fan's own speed, and 0 when it is off (#35)", function()
+			local function row4(c4)
+				local lists = c4.calls_to("UpdatePropertyList")
+				for index = #lists, 1, -1 do
+					if lists[index][1] == "Migration" then
+						return lists[index][2]:match("Speed held by the stock fan: [^;]+; by this fan: [^,]+")
+					end
+				end
+			end
+			local env, c4 = online_driver()
+			-- One stock device in the room, its fan proxy holding speed 2 as the
+			-- house's did (M1: CURRENT_SPEED); no programming.
+			c4.GetDevices = function()
+				return { [559] = { deviceName = "Fan", roomId = 7, roomName = "Example Room",
+					driverFileName = "wac_mf_fan_and_light_controller(v4).c4z",
+					proxies = { [560] = { driverFileName = "fan.c4i", deviceName = "Fan" } } } }
+			end
+			c4.GetDeviceVariables = function(_, id)
+				if id == 560 then
+					return { ["1001"] = { name = "CURRENT_SPEED", value = "2" } }
+				end
+				return {}
+			end
+			c4.GetAllCodeItems = function() return {} end
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" })
+			assert.equal("Speed held by the stock fan: 2; by this fan: 3", row4(c4))
+			env.ReceivedFromProxy(5001, "OFF", {})
+			answer(c4, mf.state({ fanOn = false, fanSpeed = 3 }))
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" })
+			assert.equal("by this fan: 0", row4(c4):match("by this fan: .*"))
+		end)
 	end)
 
 	describe("dev loop hook", function()

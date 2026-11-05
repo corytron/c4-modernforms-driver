@@ -1306,6 +1306,27 @@ describe("fan.migration", function()
 			assert.equal("Speed held by the stock fan: unknown; by this fan: unknown", rows[4])
 		end)
 
+		it("reads CURRENT_SPEED in the shape GetDeviceVariables gave on the house (M1, #35)", function()
+			local h = { vars = {
+				[STOCK_FAN] = {
+					["1000"] = { name = "IS_ON", value = "1", type = "4", readonly = "False", hidden = "False" },
+					["1001"] = { name = "CURRENT_SPEED", value = "2", type = "4", readonly = "False" },
+					["1002"] = { name = "IS_REVERSED", value = "0" },
+					["1003"] = { name = "PRESET_SPEED", value = "3" },
+				},
+				[NEW_FAN] = { ["1001"] = { name = "CURRENT_SPEED", value = "0" } } } }
+			local _, rows = mini(ITEMS, h):run()
+			assert.equal("Speed held by the stock fan: 2; by this fan: 0", rows[4])
+		end)
+
+		it("prefers CURRENT_SPEED over the display name when both are there", function()
+			local h = { vars = { [STOCK_FAN] = {
+				["1001"] = { name = "Current Selected Speed", value = "5" },
+				["1002"] = { name = "CURRENT_SPEED", value = "1" } } } }
+			local _, rows = mini(ITEMS, h):run()
+			assert.truthy(rows[4]:find("stock fan: 1;", 1, true), rows[4])
+		end)
+
 		it("reads the variable from whichever stock proxy carries it, and from tables keyed by name", function()
 			local h = { vars = { [STOCK_LIGHT] = { ["1"] = { name = "LIGHT_LEVEL", value = "1" } },
 				[STOCK_FAN] = { ["Current Selected Speed"] = { value = 4 } },
