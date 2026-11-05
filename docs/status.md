@@ -1,46 +1,47 @@
-# Status of the Modern Forms fan driver (2026-10-27)
+# Status of the Modern Forms fan driver (2026-11-04)
 
 The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**Scaffolded on 2026-10-27; nothing to install yet.** The repository
-`corytron/c4-modernforms-driver` (public, Apache-2.0) was created on
-2026-10-27 and is being set up with the process and tooling of the author's
-Hue driver (issue #1, contract [`scaffold-design.md`](scaffold-design.md)):
-one check script for this machine and CI, the four required CI jobs,
-attested releases from `main`, the house's desired state in
-[`deploy/house.yaml`](../deploy/house.yaml), the changelog, the link check,
-the dev loop and the Windows session's Composer automation. The driver in
-`src/modernforms_fan/` is a skeleton that proves that pipeline (Driver
-Version and Debug Mode properties, a Documentation tab that says the driver
-is not ready); it is never installed on the house. There is no release, and
-no build of this driver has run on a controller.
+**The driver runs on the house, as a prerelease, and the stock driver is
+gone.** v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
+WAC device; the same evening the bedroom keypad was cut over to its Button
+Links and the stock device was removed (deploy issue #30, the round in
+Discussion #34). The owner tests it himself from 2026-11-05. v1.0-beta.2
+(build 29, the colour per speed of #31) is published but was not installed;
+the next install is v1.0-beta.3 with the colours, the Migration Report's
+speed-row fix (#35) and the fan's product name (#37, in design).
 
 ## What runs on the house
 
-- **Nothing of this project.** `deploy/house.yaml` reads `release: none` and
-  `build: none`, and the environment `house` has no deployment.
+- **v1.0-beta.1, build 25**, one device: `deploy/house.yaml` and the
+  environment `house` agree (deployment success, 2026-11-04). Debug Mode
+  Off.
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
-- **The fan:** one Modern Forms fan with its light, on the stock driver
-  `wac_mf_fan_and_light_controller(v4).c4z`. The driver declares 13
-  BUTTON_LINK connections: Fan Off, Fan Speed 1 to 6, Toggle Preset and
-  Cycle Speed for the fan, and Top, Bottom and Light Toggle for the light.
-  A hands-on test on 2026-10-27 showed that they do nothing in either
-  direction: they bind normally, but a bound keypad button's press reaches
-  neither the fan nor the light, and the driver sends no LED state back (no
-  `MATCH_LED_STATE`), so a button on Follow Connection never shows their
-  state.
-- **The workaround on the house's keypad**, all of it Control4
-  programming: scripts on the keypad's button events set the fan's speeds;
-  LED scripts show the current speed on the buttons (their LED Behavior on
-  Programmed, the commands "Use the on color for \<button>" and "Use the
-  off color for \<button>"); and a one-second one-shot Timer agent,
-  restarted on every "Fan Speed Changed" event, lets the stock driver's late
-  and out-of-order speed reports settle before the LEDs are set. It stays as
-  it is until the migration contract says how to replace it; nothing in
-  this repository touches it.
+- **The fan:** one Modern Forms fan with its light (a Gen 3), on this
+  driver: two items, the fan "Fan" (the parent, with every property, action
+  and the Documentation tab) and its light "Fan Light", renamed to the
+  stock items' names; the stock device's parent was its light. Found with
+  Find Fans and accepted with Use Selected Fan; Status online, Preset Level
+  3, Default On Brightness 100, as on the stock device.
+- **The bedroom keypad** is bound to the driver's links: Low to Fan Speed 2
+  (`Speed 2 Link Also Lit At` Speed 1), Medium to Fan Speed 3, Med-High to
+  Fan Speed 4, High to Fan Speed 5 (`Speed 5 Link Also Lit At` Speed 6), Off
+  to Fan Off, Up to Light Top and Down to Light Bottom; the fan buttons on
+  Follow Connection in their own colours (`#8000FF`, Off `#800000`, off
+  `#000000`). Programming left: Low's Double Tap sets Level 1 and High's
+  Level 6 on the new fan. The LED scripts, the stock fan's Fan Speed Changed
+  script and the Fan LED Settle timer's script are deleted (the empty timer
+  goes at the owner's next yes). Until `Speed LED Colors` is set, Low is
+  `#8000FF` at speed 1 and High at speed 6, not blue and `#ff6000` as
+  before.
+- **The way back:** the project backup and every script's Copy All from
+  before the cutover are on the Windows VM (they hold private data); re-add
+  the stock driver and paste the scripts back, or load the backup.
+- **Not yet seen on the house:** a press, the LEDs following, the double
+  taps, the light links: the owner's own test.
 
 ## On GitHub (read 2026-10-27)
 
