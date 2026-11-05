@@ -4,8 +4,12 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**The driver runs on the house, as a prerelease, and the stock driver is
-gone.** v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
+**1.0 "Arrakis" is released and runs on the house; the stock driver is
+gone.** v1.0 (build 67) was released and installed in place on 2026-11-05
+(deploy issue #67, the round in Discussion #70, the announcement in
+Discussion #68): beta.3 plus Breeze in Fan Model after a restart (#59) and
+linear trims (#49), released by the owner without a hardware test of those
+two fixes. Before it, v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
 WAC device; the same evening the bedroom keypad was cut over to its Button
 Links and the stock device was removed (deploy issue #30, the round in
 Discussion #34). On 2026-11-05 v1.0-beta.3 (build 51) replaced it in
@@ -19,11 +23,11 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.0-beta.3, build 51**, one device: `deploy/house.yaml` and the
-  environment `house` agree (deployment success, 2026-11-05). Debug Mode
-  Off; `Follow Address Changes` On; Fan Model reads `Gen 3, Aviator 5
-  (1811-5-54), light kit F4IN-120V-R1-30, Breeze` (the `, Breeze` only
-  since the follow test's new address, #59).
+- **v1.0, build 67**, one device: `deploy/house.yaml` and the environment
+  `house` agree (deployment success, 2026-11-05). Debug Mode Off; `Follow
+  Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
+  light kit F4IN-120V-R1-30, Breeze` (for the first 2 seconds after the
+  update without `, Breeze`, #69).
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
@@ -103,8 +107,8 @@ where each stands on 2026-10-27.
   it has run on the house: the owner decided (2026-11-04) to test once, with
   the complete driver, so the first install is a prerelease through the
   [`docs/composer-checklist.md`](composer-checklist.md).
-- **#59** `Fan Model` lacks `, Breeze` after a restart until the fan's
-  address changes (display only; found in the follow test).
+- **#69** `Fan Model` lacks `, Breeze` until the fan's first answer after a
+  restart (display only; found at the 1.0 install).
 - **#14** Owner questions from the v1 contract: the Cycle link wrapping and
   custom icons, each with a default (the colour per speed was answered yes,
   #31, 2026-11-04).
