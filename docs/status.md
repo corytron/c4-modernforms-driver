@@ -14,14 +14,16 @@ place (deploy issue #53, the round in Discussion #54): the colour per speed
 itself (#39), and no Migration Report or Migration and Stock Device rows
 (#45: one-off tooling for the cutover; the owner's rule since 2026-11-04
 keeps such tooling out of the driver). v1.0-beta.2 (build 29) was published
-but never installed. The owner tests beta.3 from 2026-11-05.
+but never installed. The owner tested beta.3 on 2026-11-05 and every test
+passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
 - **v1.0-beta.3, build 51**, one device: `deploy/house.yaml` and the
   environment `house` agree (deployment success, 2026-11-05). Debug Mode
   Off; `Follow Address Changes` On; Fan Model reads `Gen 3, Aviator 5
-  (1811-5-54), light kit F4IN-120V-R1-30`.
+  (1811-5-54), light kit F4IN-120V-R1-30, Breeze` (the `, Breeze` only
+  since the follow test's new address, #59).
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
@@ -46,9 +48,14 @@ but never installed. The owner tests beta.3 from 2026-11-05.
 - **The way back:** the project backup and every script's Copy All from
   before the cutover are on the Windows VM (they hold private data); re-add
   the stock driver and paste the scripts back, or load the backup.
-- **Not yet seen on the house:** a press, the LEDs following (and their
-  colours), the double taps, the light links, a follow to a new address:
-  the owner's own test.
+- **Seen on the house (2026-11-05, #58):** the owner's own test on the
+  bedroom keypad: presses, the LEDs following the fan in their per-speed
+  colours, the double taps on Low and High, and the light's Up and Down
+  buttons, all passed. The follow to a new address (#39, checklist step
+  45) passed through a stand-in address on the VM: `Fan Offline` 46
+  seconds after the fan stopped answering there, `Followed fan …` 9
+  seconds later, `Fan Address` written back by the driver; a typed address
+  where nothing answers was kept, with no follow (Discussion #60).
 
 ## On GitHub (read 2026-10-27)
 
@@ -96,6 +103,8 @@ where each stands on 2026-10-27.
   it has run on the house: the owner decided (2026-11-04) to test once, with
   the complete driver, so the first install is a prerelease through the
   [`docs/composer-checklist.md`](composer-checklist.md).
+- **#59** `Fan Model` lacks `, Breeze` after a restart until the fan's
+  address changes (display only; found in the follow test).
 - **#14** Owner questions from the v1 contract: the Cycle link wrapping and
   custom icons, each with a default (the colour per speed was answered yes,
   #31, 2026-11-04).
