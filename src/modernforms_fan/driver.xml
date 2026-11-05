@@ -197,6 +197,61 @@
 				<default>No other speed</default>
 				<readonly>false</readonly>
 			</property>
+			<!-- V27 (#31): a colour per speed on the fan's speed links. Keypad's own
+			     sends no colours; Per speed sends the colour of the speed the link is
+			     lit at, over BUTTON_COLORS, just before its MATCH_LED_STATE. -->
+			<property>
+				<name>Speed LED Colors</name>
+				<type>LIST</type>
+				<items>
+					<item>Keypad's own</item>
+					<item>Per speed</item>
+				</items>
+				<default>Keypad's own</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 1 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 2 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 3 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 4 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 5 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 6 LED Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,255</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed LED Off Color</name>
+				<type>COLOR_SELECTOR</type>
+				<default>0,0,0</default>
+				<readonly>false</readonly>
+			</property>
 			<!-- docs/migration-design.md section 4: the Migration Report's verdict and
 			     rows; a pick changes nothing. -->
 			<property>

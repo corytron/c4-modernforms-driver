@@ -73,7 +73,7 @@ where each stands on 2026-10-27.
   and the restore check after each borrowed button), all in
   [`v1-design.md`](v1-design.md#111-what-the-probe-has-shown-so-far-17).
   Results: **K10 passed, Find Fans is in v1**; keypads take `BUTTON_COLORS`
-  over a link (V27 now waits only for the owner's yes, #14); Up and Down have
+  over a link (V27 ships from beta.2, #31); Up and Down have
   Button Link rows; Composer refuses a package whose minimum OS is above the
   controller's (K9). Open: K8's three taps in the Control4 app (the owner's
   phone); the probe and its test room stay installed until the owner decides
@@ -86,8 +86,12 @@ where each stands on 2026-10-27.
   it has run on the house: the owner decided (2026-11-04) to test once, with
   the complete driver, so the first install is a prerelease through the
   [`docs/composer-checklist.md`](composer-checklist.md).
-- **#14** Three owner questions from the v1 contract (a colour per speed on
-  the keypad, the Cycle link wrapping, custom icons), each with a default.
+- **#14** Owner questions from the v1 contract: the Cycle link wrapping and
+  custom icons, each with a default (the colour per speed was answered yes,
+  #31, 2026-11-04).
+- **#31** A colour per speed on the keypad links (V27): `Speed LED Colors`
+  and its seven colour rows, a property-only change for v1.0-beta.2, so the
+  bedroom keypad keeps blue at speed 1 and `#ff6000` at 6 after the cutover.
 - **M1**, the probes of [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)
   (a throwaway package beside the stock device), then **M3**, the build
   split of [`v1-design.md`](v1-design.md#13-m3-build-split).

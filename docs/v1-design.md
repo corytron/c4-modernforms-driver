@@ -76,7 +76,7 @@ properties and the keypad) later the same day.
 | V24 | **No custom icons in v1**: the two proxies show Control4's own fan and light icons, which a device keeps for good from its creation. An owner who wants custom icons says so before the first install. | HUE `docs/design.md` "Composer Pro 3.4.2 UI" (builds 125 and 135); ECC D25 | VERIFIED-house: the icon rule. |
 | V25 | **Programming surface**: events 1 Fan Offline and 2 Fan Online (3 reserved for a later "Changed Outside Control4"); one variable, `Online`; one conditional, `BOOL_ONLINE`; no programming commands of the driver's own. | ECC §5.2, F2, F24; API `36_variable/_1-AddVariable.md`, `7_event/_4-FireEventByID.md`; FUND `10_conditionals/_4-USINGTHETESTCONDITIONFUNCTION.md`, `_8-XMLINABOOLEANTYPECONDITIONAL.md` | VERIFIED-doc. |
 | V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button (single tap speed 2) is lit at speed 1, its double tap, and the High button (single tap 5) at speed 6 (K1–K3, §5.4); with one Follow Connection link per button and V12 they would be dark there. On the house: `Speed 2 Link Also Lit At` = `Speed 1`, `Speed 5 Link Also Lit At` = `Speed 6`. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
-| V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | VERIFIED-hardware (K6, 2026-11-04, #17): the house keypad applies `BUTTON_COLORS` over a link; only the owner's yes remains (#14). |
+| V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | VERIFIED-hardware (K6, 2026-11-04, #17): the house keypad applies `BUTTON_COLORS` over a link. **Shipped (2026-11-04, #31):** the owner asked for the keypad to match how it is today, which includes blue at speed 1 and `#ff6000` at 6; the default stays `Keypad's own`. |
 
 ## 2. Structure and `driver.xml`
 
@@ -226,9 +226,9 @@ steps 3 to 5. Reserved, never declared in v1: 203–209 (light),
 | 12 | Poll Interval (s) | RANGED_INTEGER, 10–120 | 15 | no | V7 |
 | 13 | Keypad Links | DYNAMIC_LIST | "" | no (a pick snaps back to the first row) | §7.3 |
 | 14–19 | Speed 1 Link Also Lit At … Speed 6 Link Also Lit At | LIST: `No other speed`, `Speed 1` … `Speed 6` | No other speed | no | V26; picking the link's own speed is the same as `No other speed` |
-| 20 | Speed LED Colors | LIST: `Keypad's own`, `Per speed` | Keypad's own | no | only in a build with V27 |
-| 21–26 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | only with V27: the on colour a speed link shows while the fan runs at that speed |
-| 27 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | only with V27: the off colour sent with them |
+| 20 | Speed LED Colors | LIST: `Keypad's own`, `Per speed` | Keypad's own | no | V27, shipped from beta.2 (#31) |
+| 21–26 | Speed 1 LED Color … Speed 6 LED Color | COLOR_SELECTOR | `0,0,255` | no | V27: the on colour a speed link shows while the fan runs at that speed (the value is `r,g,b` in decimal, the driver sends it as 6-digit hex) |
+| 27 | Speed LED Off Color | COLOR_SELECTOR | `0,0,0` | no | V27: the off colour sent with them |
 | 28 | Migration | DYNAMIC_LIST | "" | — | [`migration-design.md`](migration-design.md#4-the-migration-report) (its verdict and rows) |
 | 29 | Stock Device | DEVICE_SELECTOR, `<items>`: the stock driver's file name as M0 read it, `wac_mf_fan_and_light_controller(v4).c4z` (K1; that the Select dialog lists the device under it is ASSUMED, seen at its first use; another version of WAC's file has its name added by a later build, a property change with no reboot), `<multiselect>false</multiselect>` | "" | no | the fallback that names this fan's stock device when the Migration Report cannot tell (that document's §4.2) |
 | 30 | Debug Mode | LIST Off, On | Off | no | as the scaffold |
@@ -740,8 +740,8 @@ link (that link). While the fan state is unknown nothing is sent, except
 the last state (ECC Q5). A change of a `Speed M Link Also Lit At` row
 re-sends that link's LED.
 
-**Colours.** With `Speed LED Colors` absent or `Keypad's own` (the default,
-and all of v1 unless V27 ships), the fan links send no `BUTTON_COLORS`:
+**Colours.** With `Speed LED Colors` absent or `Keypad's own` (the default),
+the fan links send no `BUTTON_COLORS`:
 the button shows the on and off colours set on the keypad itself, one pair
 per button, so a linked fan button takes its colours from the keypad's own
 LED colour settings ([`migration-design.md`](migration-design.md#3-phases),
@@ -801,18 +801,20 @@ keeps the record and [its phases](migration-design.md#3-phases) the order):
 
 | Button | Today | Its link | `Also Lit At` | Double Tap afterwards | Its LED afterwards |
 | --- | --- | --- | --- | --- | --- |
-| Low | Single Tap speed 2; Double Tap speed 1 and the LED blue | Fan Speed 2 (302) | `Speed 1` (V26) | the keypad's programming: the new fan to Level 1 (V12) | lit at speeds 2 and 1, in its own `#8000FF`; blue at 1 only with V27 |
+| Low | Single Tap speed 2; Double Tap speed 1 and the LED blue | Fan Speed 2 (302) | `Speed 1` (V26) | the keypad's programming: the new fan to Level 1 (V12) | lit at speeds 2 and 1, in its own `#8000FF`, or blue at 1 with `Per speed` (V27) |
 | Medium | speed 3 | Fan Speed 3 (303) | — | — | lit at 3 |
 | Med-High | speed 4 | Fan Speed 4 (304) | — | — | lit at 4 |
-| High | Single Tap speed 5; Double Tap speed 6 and the LED `#ff6000` | Fan Speed 5 (305) | `Speed 6` | the new fan to Level 6 | lit at 5 and 6, in `#8000FF`; `#ff6000` at 6 only with V27 |
+| High | Single Tap speed 5; Double Tap speed 6 and the LED `#ff6000` | Fan Speed 5 (305) | `Speed 6` | the new fan to Level 6 | lit at 5 and 6, in `#8000FF`, or `#ff6000` at 6 with `Per speed` (V27) |
 | Off | fan off | Fan Off (300) | — | — | lit while off, in its own `#800000` |
 | Up, Down | Regular Buttons without an LED: the fan's light on, off | Light Top (200), Light Bottom (201) (K19: they have Button Links) | — | — | none |
 
 - The speed buttons' on colour is `#8000FF` and the Off button's `#800000`,
-  each set on the keypad (K3); the links send no colours (§5.1), so each
-  keeps its own. Blue at 1 and `#ff6000` at 6 are painted by programming
-  today, which goes: they return only with V27
-  ([#14](https://github.com/corytron/c4-modernforms-driver/issues/14), item 1).
+  each set on the keypad (K3); with `Keypad's own` the links send no colours
+  (§5.1), so each keeps its own. Blue at 1 and `#ff6000` at 6 are painted by
+  programming today, which goes: they return with V27 (#31) and on the house
+  `Speed LED Colors` = `Per speed`, `Speed 1 LED Color` `0,0,255`, `Speed 2`
+  to `Speed 5 LED Color` `128,0,255`, `Speed 6 LED Color` `255,96,0`, and
+  `Speed LED Off Color` the speed buttons' own off colour.
 - Up and Down on the light's Top and Bottom links tap as today (on at
   Default On Brightness, off) and gain the links' holds (§5.2). The keypad
   proxy's documentation says a button's name updates its binding names (KP
@@ -1313,8 +1315,8 @@ detail). Nothing here changes a decision of section 1.
   own.
 - **driver.lua**: `Found Fans` has a first row, `Pick a fan`, that is no pick
   (the list's default row would otherwise count as one); a pick is cleared
-  after Use Selected Fan; the V27 rows (20 to 27 of 2.5) are not in
-  `driver.xml` (#14 is open); `can_reverse` is True (K11).
+  after Use Selected Fan; the V27 rows (20 to 27 of 2.5) are in
+  `driver.xml` since #31 (the colour rows are read together by `apply_colors`, `r,g,b` to hex); `can_reverse` is True (K11).
 
 ## 10. Tests: fixtures and the fake runtime
 
@@ -1646,7 +1648,7 @@ What M1 may still change:
 | Find Fans, `Found Fans`, `discovery.lua` | in v1 | K10: **passed**, §11.1 |
 | `GAP_MS`, `RAMP_STEP_MS`, `SETTLE_MS` | 250, 500, 2500 ms | K13, K16 (Lua only) |
 | `Fan Automations`' schedule test | a non-empty string | one read-only VM read of `schedule` while the app shows no schedule |
-| `Speed LED Colors` and the per-speed colour rows (V27) | not in the build | K6 (passed, §11.1), then the owner ([#14](https://github.com/corytron/c4-modernforms-driver/issues/14), [section 17](#17-open-items-for-the-owner)) |
+| `Speed LED Colors` and the per-speed colour rows (V27) | in the build since beta.2 (#31), default `Keypad's own` | K6 passed (§11.1); the owner asked for today's keypad to be matched |
 | device.lua's bottom light link | lit through inverted colours | K6: keypads take `BUTTON_COLORS`, so this stands |
 | The migration's order around the LED workaround | — | K14; [`migration-design.md`](migration-design.md#8-open-items)'s |
 
@@ -1656,7 +1658,7 @@ They are [#14](https://github.com/corytron/c4-modernforms-driver/issues/14),
 labelled `question`; each default holds until the owner answers, and none
 blocks the M3 build.
 
-1. **A colour per speed on the keypad (V27).** With V26 alone, a button
+1. **A colour per speed on the keypad (V27): answered yes, 2026-11-04 (#31).** With V26 alone, a button
    whose double tap sets speed 1 is lit at speed 1 too, but in the colour
    it shows at its single-tap speed: a button on Follow Connection has one
    on colour, the keypad's own (`#8000FF` on the house's speed buttons).
@@ -1665,9 +1667,10 @@ blocks the M3 build.
    send `BUTTON_COLORS` over the link: the link protocol documents the
    message, and K6 (2026-11-04) shows that the house keypad applies it (red,
    then blue while lit, each with `MATCH_LED_STATE` true). #6 decision 9 with
-   FPR §7 item 8 keeps it out of v1 unless the owner wants it. Default: the
-   keypad's own colours. Only the owner's answer is missing: yes or no to the
-   `Speed LED Colors` rows (no capability, connection or reboot either way).
+   FPR §7 item 8 kept it out of v1 unless the owner wants it. The owner asked
+   for the keypad to be wired to match today's behaviour, so the rows ship
+   (no capability, connection or reboot); the default stays the keypad's
+   own colours.
 2. **The Fan Cycle link wraps** from 6 to 1 (V11), while the proxy's
    `CYCLE_SPEED_UP` stops at 6 as ECC Q4 recommended: a single Cycle button
    that stopped at 6 would need a second button to go down. Default: wrap.

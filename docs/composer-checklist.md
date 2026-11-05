@@ -157,8 +157,9 @@ test room, and nothing of this driver installed.
      Links` (`0 of 12 links bound`), `Speed 1 Link Also Lit At` to `Speed 6
      Link Also Lit At` all `No other speed`, `Migration` `Not run yet: click
      Migration Report on the Actions tab`, `Stock Device` empty, `Debug Mode`
-     Off. There is no colour-per-speed row, and a release build has no `Dev
-     Server` or `Dev State` row.
+     Off, `Speed LED Colors` `Keypad's own`, `Speed 1 LED Color` to `Speed 6
+     LED Color` `0,0,255` and `Speed LED Off Color` `0,0,0` (V27, #31), and a
+     release build has no `Dev Server` or `Dev State` row.
    - **Done:** open.
 8. **The Actions tab.**
    - **Expect:** six actions in this order: `Find Fans`, `Use Selected Fan`,
@@ -340,10 +341,17 @@ test room, and nothing of this driver installed.
       (lit at Level 3, dark at Level 5); the driver answers the keypad's
       request for colours (seen as `REQUEST_BUTTON_COLORS` with the probe).
     - **Done:** open.
-32. **Colours.** *By hand*: the fan buttons are lit in the colours set on the
-    keypad itself (the driver sends none on the fan links); the light's Top
-    and Toggle buttons are lit blue while the light is on, the Bottom button
-    blue while it is off (the settings page's defaults).
+32. **Colours.** *By hand*: with `Speed LED Colors` on `Keypad's own`, the
+    fan buttons are lit in the colours set on the keypad itself (the driver
+    sends none on the fan links); the light's Top and Toggle buttons are lit
+    blue while the light is on, the Bottom button blue while it is off (the
+    settings page's defaults). Then set `Speed LED Colors` to `Per speed`,
+    `Speed 1 LED Color` to blue (`0,0,255`) and `Speed 6 LED Color` to
+    `255,96,0`, and move the fan to Levels 1 and 6.
+    - **Expect:** the bound button lit at Level 1 shows blue and the one lit
+      at Level 6 orange; changing a colour while its button is lit repaints it
+      at once; going back to `Keypad's own` leaves the last colours on the
+      keypad until its own are set.
     - **Done:** open.
 33. **A double tap.** Double tap the test button bound to **Fan Speed 2**.
     - **Expect:** the fan ends at Level 2, the LED lit, `Status` online (a

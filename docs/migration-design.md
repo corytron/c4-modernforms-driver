@@ -154,7 +154,7 @@ use, so there is no spare, and no Connections link reaches the fan (M0).
 
 A lit button shows the keypad's own on colour: #8000FF on the four speed
 buttons, at their second speed too, and #800000 on Off. Blue at speed 1 and
-#ff6000 at speed 6 come back only with v1-design.md's V27 (#14; G9). Phase 3
+#ff6000 at speed 6 come back with v1-design.md's V27 (#31, from beta.2; G9). Phase 3
 moves the buttons in this order: Medium (the one the owner presses first),
 Med-High, Off, Low, High.
 
@@ -284,8 +284,8 @@ button's colours [house: composer-remote.md, "Learned 2026-10-27"], one of
 those may be left as a button's colour. A linked button then shows the
 keypad's own colours: #8000FF on the four speed buttons, also at speed 1 on
 Low and at speed 6 on High, and #800000 on Off. Blue at speed 1 and #ff6000
-at speed 6 come back only with v1-design.md's V27, which needs probe K6 to
-show a keypad taking colours over a link and the owner's yes (#14); Phase 5
+at speed 6 come back with v1-design.md's V27 (K6 showed a keypad taking
+colours over a link; the owner asked for today's behaviour, #31); Phase 5
 then sets `Speed LED Colors` to `Per speed`. Phase 8 deletes the scripts and
 the timer. Basis: [owner, #6] (the workaround is removed with the stock
 device, in the later sitting); V26 and V27 of v1-design.md;
@@ -1011,8 +1011,8 @@ What the M1 probes (#17) and the first dev install may change:
     renames.
 11. The colours of the double-tap speeds. V26 of v1-design.md answers the
     first half: Low is lit at speed 1 and High at speed 6, in the keypad's
-    own on colour (#8000FF). Blue at 1 and #ff6000 at 6 need V27: probe K6,
-    and the owner's yes (#14); Phase 5 sets them.
+    own on colour (#8000FF). Blue at 1 and #ff6000 at 6 come with V27 (K6
+    passed, owner yes, #31, 2026-11-04); Phase 5 sets them.
 12. The Button Behavior of a linked button: Keypad on the five fan buttons
     (M0), kept unless Medium's first press shows that it must change.
 13. `Find Fans`: if v1-design.md offers it (K10), Phase 1 picks the fan from

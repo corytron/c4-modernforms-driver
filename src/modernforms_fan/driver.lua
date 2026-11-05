@@ -424,6 +424,44 @@ for speed = 1, 6 do
 	end
 end
 
+-- Speed LED Colors (V27, #31). A COLOR_SELECTOR holds "r,g,b" in decimal
+-- (Fundamentals, 15_composerpro_interface_into_the_sdk/_5-COLORSELECTOR.md);
+-- links want "rrggbb". Anything else reads as nothing and links.lua warns.
+local function color_hex(value)
+	local text = tostring(value or "")
+	local r, g, b = text:match("^%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)%s*$")
+	r, g, b = tonumber(r), tonumber(g), tonumber(b)
+	if r and r <= 255 and g <= 255 and b <= 255 then
+		return string.format("%02x%02x%02x", r, g, b)
+	end
+	return text:match("^#?(%x%x%x%x%x%x)$")
+end
+
+-- Every colour row is read together, so one change or the replay at late init
+-- hands links.lua the whole set.
+local function apply_colors()
+	local function read(name)
+		local raw = Properties[name]
+		local hex = color_hex(raw)
+		if hex == nil and trimmed(raw) ~= "" then
+			log.warn("%s %s is not a colour (red,green,blue from 0 to 255); ignored", name, tostring(raw))
+		end
+		return hex
+	end
+	local colors = {}
+	for speed = 1, 6 do
+		colors[speed] = read("Speed " .. speed .. " LED Color")
+	end
+	local mode = Properties["Speed LED Colors"] == "Per speed" and "per_speed" or "keypad"
+	links:set_colors(mode, colors, read("Speed LED Off Color"))
+end
+
+dispatch.properties["Speed_LED_Colors"] = apply_colors
+dispatch.properties["Speed_LED_Off_Color"] = apply_colors
+for speed = 1, 6 do
+	dispatch.properties["Speed_" .. speed .. "_LED_Color"] = apply_colors
+end
+
 -- Keypad Links lists; a pick changes nothing and snaps back to the first row.
 dispatch.properties["Keypad_Links"] = function()
 	if keypad_items[1] then
