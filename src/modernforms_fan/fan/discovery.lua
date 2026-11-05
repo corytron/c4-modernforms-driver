@@ -216,7 +216,10 @@ end
 -- 12 uppercase hex digits from a MAC, by the rule of wire.mac12 (section 9.3), kept here so this module needs no
 -- other: white space trimmed, then 12 hex digits, or six pairs joined by one and the same ":" or "-".
 local function mac12(text)
-	if type(text) ~= "string" then
+	-- A MAC is at most 17 characters; anything much longer is refused before the
+	-- trim, whose pattern would rescan a long run of blanks (the text is a TXT
+	-- record off the network).
+	if type(text) ~= "string" or #text > 64 then
 		return nil
 	end
 	local mac = text:match("^%s*(.-)%s*$")

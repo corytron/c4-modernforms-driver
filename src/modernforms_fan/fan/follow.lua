@@ -58,7 +58,17 @@ local function trim(text)
 	if type(text) ~= "string" then
 		return ""
 	end
-	return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+	-- Linear: a pattern anchored at the end rescans a long inner run of blanks
+	-- from every start, and this text comes off the network.
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
 end
 
 -- 12 uppercase hex digits, by the rule of wire.mac12 (bare, or six pairs joined by one ":" or "-"), kept here so
