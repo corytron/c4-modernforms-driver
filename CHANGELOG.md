@@ -18,6 +18,10 @@ next release's entry carries what they changed.
 
 - The fan and its light have the driver's own icons in Composer: a five-blade ceiling fan and a drum-shaded ceiling light. A device keeps the icons it was created with, so one added with build 73 or earlier keeps Control4's own (#78).
 
+### Changed
+
+- The Fan Cycle Button Link stops at Level 6, as the fan's own Cycle Speed Up does: from off it goes to Level 1, then one speed up per press, and at Level 6 it stays there instead of starting again at Level 1 (#77).
+
 ## 1.0 "Arrakis", build 73 (2026-11-05)
 
 ### Fixed

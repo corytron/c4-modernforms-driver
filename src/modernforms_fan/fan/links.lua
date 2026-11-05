@@ -166,7 +166,7 @@ function links:set_button_color(link)
 	self.log.debug("link %d: SET_BUTTON_COLOR ignored; the fan links take their colours elsewhere", link)
 end
 
--- The link's intent. The Cycle link wraps 6 to 1 (V11); the proxy's does not.
+-- The link's intent. The Cycle link stops at 6, as the proxy's does (V11, #77).
 function links:act(link, how)
 	local ok, why
 	if link == 300 then
@@ -174,7 +174,7 @@ function links:act(link, how)
 	elseif link == 307 then
 		ok, why = self.fan:toggle()
 	elseif link == 308 then
-		ok, why = self.fan:cycle(1, true)
+		ok, why = self.fan:cycle(1)
 	else
 		ok, why = self.fan:speed(link - 300)
 	end
