@@ -8,7 +8,7 @@ page disagree about the present, this page and the code win.
 gone.** v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
 WAC device; the same evening the bedroom keypad was cut over to its Button
 Links and the stock device was removed (deploy issue #30, the round in
-Discussion #34). The owner tests it himself from 2026-11-05. v1.0-beta.2
+Discussion #34). The owner tests it from 2026-11-05. v1.0-beta.2
 (build 29, the colour per speed of #31) is published but was not installed;
 the next install is v1.0-beta.3 with the colours, the Migration Report's
 speed-row fix (#35) and the fan's product name (#37, in design).

@@ -639,7 +639,7 @@ turns the phases into briefs and section 6 collects the ways back.
 - **Way back:** section 6, "After Phase 8".
 - **As run on the house (2026-11-04, #30, Discussion #34):** the owner had
   every phase, Phase 8 included, done in one sitting on v1.0-beta.1, with no
-  press until his own test. Deleting the stock parent removed both stock
+  press until the owner's own test. Deleting the stock parent removed both stock
   items (the tree lost exactly two rows), as step 4 assumed; the empty
   "Fan LED Settle" timer stayed for a later yes. The new items were then
   renamed to the stock names; on the new device the parent item is the fan
