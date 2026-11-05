@@ -393,9 +393,12 @@ installed, the keypad moved to its links and the stock device was deleted
     fan buttons are lit in the colours set on the keypad itself (the driver
     sends none on the fan links); the light's Top and Toggle buttons are lit
     blue while the light is on, the Bottom button blue while it is off (the
-    settings page's defaults). Then set `Speed LED Colors` to `Per speed`,
-    `Speed 1 LED Color` to blue (`0,0,255`) and `Speed 6 LED Color` to
-    `255,96,0`, and move the fan to Levels 1 and 6.
+    settings page's defaults). Then set `Speed 1 LED Color` to blue
+    (`0,0,255`) and `Speed 6 LED Color` to `255,96,0`, then `Speed LED
+    Colors` to `Per speed`, and move the fan to Levels 1 and 6. In Composer
+    Pro 3.4.2 a colour row's R:, G: and B: boxes are read-only: its swatch
+    opens Windows' Color dialog (Define Custom Colors, then Red, Green and
+    Blue, then OK), and the row's Set appears only when the value changed.
     - **Expect:** the bound button lit at Level 1 shows blue and the one lit
       at Level 6 orange; changing a colour while its button is lit repaints it
       at once; going back to `Keypad's own` leaves the last colours on the

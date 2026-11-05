@@ -1,4 +1,4 @@
-# Status of the Modern Forms fan driver (2026-11-04)
+# Status of the Modern Forms fan driver (2026-11-05)
 
 The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
@@ -8,20 +8,20 @@ page disagree about the present, this page and the code win.
 gone.** v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
 WAC device; the same evening the bedroom keypad was cut over to its Button
 Links and the stock device was removed (deploy issue #30, the round in
-Discussion #34). The owner tests it from 2026-11-05. v1.0-beta.2
-(build 29, the colour per speed of #31) is published but was not installed;
-the next install is v1.0-beta.3 with the colours, the fan's product name
-(#37, merged with #42), following the fan to a new address by itself (#39,
-PR #48: built, reviewed by an Opus agent, its findings fixed) and without
-the Migration Report, the Migration and Stock Device rows (#45: one-off
-tooling for the house's cutover, which is done; the owner's rule since
-2026-11-04 keeps such tooling out of the driver).
+Discussion #34). On 2026-11-05 v1.0-beta.3 (build 51) replaced it in
+place (deploy issue #53, the round in Discussion #54): the colour per speed
+(#31), the fan's product name (#37), following the fan to a new address by
+itself (#39), and no Migration Report or Migration and Stock Device rows
+(#45: one-off tooling for the cutover; the owner's rule since 2026-11-04
+keeps such tooling out of the driver). v1.0-beta.2 (build 29) was published
+but never installed. The owner tests beta.3 from 2026-11-05.
 
 ## What runs on the house
 
-- **v1.0-beta.1, build 25**, one device: `deploy/house.yaml` and the
-  environment `house` agree (deployment success, 2026-11-04). Debug Mode
-  Off.
+- **v1.0-beta.3, build 51**, one device: `deploy/house.yaml` and the
+  environment `house` agree (deployment success, 2026-11-05). Debug Mode
+  Off; `Follow Address Changes` On; Fan Model reads `Gen 3, Aviator 5
+  (1811-5-54), light kit F4IN-120V-R1-30`.
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
@@ -38,14 +38,17 @@ tooling for the house's cutover, which is done; the owner's rule since
   `#000000`). Programming left: Low's Double Tap sets Level 1 and High's
   Level 6 on the new fan. The LED scripts, the stock fan's Fan Speed Changed
   script and the Fan LED Settle timer's script are deleted (the empty timer
-  goes at the owner's next yes). Until `Speed LED Colors` is set, Low is
-  `#8000FF` at speed 1 and High at speed 6, not blue and `#ff6000` as
-  before.
+  goes at the owner's next yes). `Speed LED Colors` is `Per speed` since
+  beta.3: Speed 1 `0,0,255`, Speeds 2 to 5 `128,0,255` (the keypad's own
+  `#8000FF`), Speed 6 `255,96,0`, off `0,0,0`, so Low is blue at speed 1
+  and High orange at speed 6 again, as before the cutover. The items keep
+  the names "Fan" and "Fan Light" (Name Items After Fan not clicked, N8).
 - **The way back:** the project backup and every script's Copy All from
   before the cutover are on the Windows VM (they hold private data); re-add
   the stock driver and paste the scripts back, or load the backup.
-- **Not yet seen on the house:** a press, the LEDs following, the double
-  taps, the light links: the owner's own test.
+- **Not yet seen on the house:** a press, the LEDs following (and their
+  colours), the double taps, the light links, a follow to a new address:
+  the owner's own test.
 
 ## On GitHub (read 2026-10-27)
 
