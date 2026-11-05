@@ -83,9 +83,11 @@ where each stands on 2026-10-27.
   Results: **K10 passed, Find Fans is in v1**; keypads take `BUTTON_COLORS`
   over a link (V27 ships from beta.2, #31); Up and Down have
   Button Link rows; Composer refuses a package whose minimum OS is above the
-  controller's (K9). Open: K8's three taps in the Control4 app (the owner's
-  phone); the probe and its test room stay installed until the owner decides
-  whether to run them.
+  controller's (K9). K8's three taps in the Control4 app (the owner's phone)
+  were never run. The probe device and its test room were deleted on
+  2026-11-04, and its package left Composer's driver library on 2026-11-05
+  with the owner's yes; nothing of the probe is left on the Windows machine
+  or in the project. #17 is closed.
 - **#26** M3, the build: the driver is written and unit-tested (the transport,
   the state model, the fan proxy and links, the light, Find Fans, the
   Migration Report (removed again by #45), the manual and the Composer checklist; `driver.xml` from
