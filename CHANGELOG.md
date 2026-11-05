@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.1 "Jamis", build 87 (2026-11-05)
+
 ### Added
 
 - The fan and its light have the driver's own icons in Composer: a five-blade ceiling fan and a drum-shaded ceiling light. A device keeps the icons it was created with, so one added with build 73 or earlier keeps Control4's own (#78).
