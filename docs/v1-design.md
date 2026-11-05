@@ -17,6 +17,8 @@ lifecycle policy [`edge-cases-modernforms.md`](edge-cases-modernforms.md)
 they disagree with this file, this file wins. The cutover from the stock
 WAC driver is [`migration-design.md`](migration-design.md#3-phases)'s, and
 so is the Migration Report ([its section 4](migration-design.md#4-the-migration-report)).
+The fan's product name and the naming of the two Composer items after it
+(V28, #37, 2026-11-04) are [`fan-name-design.md`](fan-name-design.md)'s.
 
 **Status key**, as in [`design.md`](design.md) ("Method"): **VERIFIED**
 names its primary source (an SDK file, the house, M0, or `aiomodernforms` /
@@ -77,6 +79,7 @@ properties and the keypad) later the same day.
 | V25 | **Programming surface**: events 1 Fan Offline and 2 Fan Online (3 reserved for a later "Changed Outside Control4"); one variable, `Online`; one conditional, `BOOL_ONLINE`; no programming commands of the driver's own. | ECC §5.2, F2, F24; API `36_variable/_1-AddVariable.md`, `7_event/_4-FireEventByID.md`; FUND `10_conditionals/_4-USINGTHETESTCONDITIONFUNCTION.md`, `_8-XMLINABOOLEANTYPECONDITIONAL.md` | VERIFIED-doc. |
 | V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button (single tap speed 2) is lit at speed 1, its double tap, and the High button (single tap 5) at speed 6 (K1–K3, §5.4); with one Follow Connection link per button and V12 they would be dark there. On the house: `Speed 2 Link Also Lit At` = `Speed 1`, `Speed 5 Link Also Lit At` = `Speed 6`. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
 | V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | VERIFIED-hardware (K6, 2026-11-04, #17): the house keypad applies `BUTTON_COLORS` over a link. **Shipped (2026-11-04, #31):** the owner asked for the keypad to match how it is today, which includes blue at speed 1 and `#ff6000` at 6; the default stays `Keypad's own`. |
+| V28 | **The fan's product name, and naming the two items after it** (#37, 2026-11-04; the contract is [`fan-name-design.md`](fan-name-design.md#1-decisions), N1 to N9). The name is looked up by the exact `fanType` in a table shipped with the driver (`fan/names.lua`: no prefix, family or fuzzy match, no guess; an unknown model has no name) and shown in `Fan Model` (§7.3). The driver renames its fan item and its light item (`<Name>` and `<Name> Light`, ASCII, at most 19 characters for `<Name>`) on two clicks only: **Use Selected Fan**, when it leaves a fan pinned (L2, L3, L4), *guarded*: only while both items still carry a shipped default name or the name the driver last wrote and Director confirmed (`mf_names`, §8), else both stay and the line ends `; names kept`; and the new action **Name Items After Fan** (§2.6), *forced*: both items whatever they are called, from the stored pin and model so also while the fan is silent, refused without a pin or a known name, idempotent. Nothing else renames: not start-up, late init, an update, a restore, a poll, a new address typed in `Fan Address` (the first contact included), a firmware or light-kit change, and never after the app's `deviceName` (V20). Two fans of one model get the same name: no suffix, number or room. The job runs from a timer, not inside the click, and reads the names back before it records them. On the house the items keep "Fan" and "Fan Light" (N8). Row D15 of [`edge-cases-control4.md`](edge-cases-control4.md) is changed to match (N9). | #37, the owner's request of 2026-11-04; [`fan-name-design.md`](fan-name-design.md), [`edge-cases-rename.md`](edge-cases-rename.md), [`fan-names-research.md`](fan-names-research.md); API `22_miscellaneous/_32-RenameDevice.md`, `22_miscellaneous/_25.2-SafeUsageTable.md` (unsafe before late init), `32_serial_network_device/_6-GetDeviceDisplayName.md` | VERIFIED-doc: the calls and their limits (ECR RF1 to RF3). VERIFIED-house: the Hue drivers renamed a proxy with `C4:RenameDevice` on this house (ECR RF6). ASSUMED until the first click on the house ([`fan-name-design.md`](fan-name-design.md#5-assumed-until-the-first-click-on-the-house)): the call on the fan proxy of a two-proxy device, an open Composer repainting its tree, Navigators following without File » Refresh Navigators. |
 
 ## 2. Structure and `driver.xml`
 
@@ -266,11 +269,12 @@ the house keys of [`scaffold-design.md`](scaffold-design.md) section 5.
 | `sort_order` | Name (= command) | Behaviour |
 | --- | --- | --- |
 | 1 | Find Fans | only with V5a: one mDNS query, 3 s of answers, the list into `Found Fans` |
-| 2 | Use Selected Fan | [section 3.5](#35-first-contact-identity-and-address-changes) |
-| 3 | Reboot Fan | V23, [section 6.4](#64-reboot-fan) |
-| 4 | Turn Off Away Mode | V22: `{"awayModeEnabled":false}` |
-| 5 | Turn Off Adaptive Learning | V22: `{"adaptiveLearning":false}` |
-| 6 | Migration Report | [`migration-design.md`](migration-design.md#4-the-migration-report) |
+| 2 | Use Selected Fan | [section 3.5](#35-first-contact-identity-and-address-changes); when it leaves a fan pinned, also the guarded rename of the two items (V28) |
+| 3 | Name Items After Fan | V28 (#37): the forced rename, `fan/rename.lua` ([section 9.13](#913-fannameslua-and-fanrenamelua-v28-37)); the results are L22 to L29 (§7.2) |
+| 4 | Reboot Fan | V23, [section 6.4](#64-reboot-fan) |
+| 5 | Turn Off Away Mode | V22: `{"awayModeEnabled":false}` |
+| 6 | Turn Off Adaptive Learning | V22: `{"adaptiveLearning":false}` |
+| 7 | Migration Report | [`migration-design.md`](migration-design.md#4-the-migration-report) |
 
 `sort_order` on every action (XML `30_actions/_45-sortorder.md`; without it
 Composer lists them in reverse, ECC F29). The numbers stay even without
@@ -492,6 +496,12 @@ sent:
 The pick is cleared after any outcome. Matching by name, model or address,
 adopting by itself and scanning the subnet are forbidden (ECM N1, N3; ECC
 D18).
+
+After L2, L3 or L4 (the fan is pinned) the click starts the guarded rename of
+V28 from a timer, never inside its own callback, and about 2 s later writes
+the same line again with a suffix (§7.2). After L1 (the first contact from a
+typed `Fan Address`) and after L2 written by a typed new address (also the
+first contact's) nothing is renamed.
 
 ### 3.6 Gen 4 and not a fan
 
@@ -925,16 +935,40 @@ The longest, S9 with a 15-character address and a date, stays under 75.
 | L17 | it was off already | `Adaptive learning is already off` |
 | L18 | either, not online | `Not changed: the fan is not answering` |
 | L19 | either, the answer still shows it on | `The fan did not take it; it still reports away mode on` (`... adaptive learning on`) |
+| L22 | Name Items After Fan renamed | `Items named Aviator 5 and Aviator 5 Light` |
+| L23 | Name Items After Fan, nothing to change | `Items already named Aviator 5 and Aviator 5 Light` |
+| L24 | the model has no name | `No name known for fan type 9999-5-120; items not renamed` (the type cut to 14 characters) |
+| L25 | the fan type is not read yet | `Fan type not read yet; try again in a moment` |
+| L26 | the items' ids were not found | `Items not renamed: this device's items were not found` |
+| L27 | Director did not confirm the names | `Rename not confirmed; check the item names in Composer` |
+| L28 | Name Items After Fan, no fan pinned | `Nothing to name the items after: no fan is set up yet` |
+| L29 | Name Items After Fan, a naming is pending | `Naming in progress; try again in a moment` |
 | — | Migration Report | [`migration-design.md`](migration-design.md#4-the-migration-report) |
 
+L22 to L29 are V28's
+([`fan-name-design.md`](fan-name-design.md#23-fantextslua-changed), 2.3; the
+cases are ECR 5.5). Use Selected Fan writes its L2, L3 or L4 at once, as
+before; when the rename job ends (about 2 s later) it writes the same line
+again with one suffix: `; items renamed` (both items renamed), `; names kept`
+(the guard declined: an item carries a name that is neither a shipped default
+nor the driver's own), or `; not renamed` (no name for the model, the model
+not read yet, the items not found, Director did not confirm, or a naming was
+pending); no suffix when the names already matched. L3 in its form with
+"was" plus the longest suffix is 66 characters; L2, L3 and L4 plus the
+longest suffix stay at or under 70 even with a 15-character address.
+
 Every Last Action is also logged with `log.always` (as `dev.result` does).
+The rename job adds one always-on line per run (the item ids, the old and the
+new names; Debug Mode adds the lookups). The old names are the owner's own
+words, so a `--dev` build's redactor should withhold them (the coordinator's
+call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 
 ### 7.3 The other rows
 
 | Row | Text |
 | --- | --- |
 | Fan ID | `MF_00005E005301 (MAC 00:00:5e:00:53:01)`; empty before the first contact |
-| Fan Model | `Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze` (M0's values); `Gen 3, fan 1811-5-54, no light kit`; `Gen 1/2, ...`; `Gen ?, ...` |
+| Fan Model | `Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze` (M0's values; the name from `fan/names.lua`, V28); `Gen 3, Aviator 5 (1811-5-54), no light kit`; a `fanType` without a name keeps today's form, `Gen 3, fan 9999-5-120, light kit F4IN-120V-R1-30, Breeze`; `Gen 1/2, ...`; `Gen ?, ...` |
 | Firmware | `02.00.0052 (motor 03.00.0000) since 2026-10-27`; after a change `02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052` |
 | Last Seen | `2026-10-27 18:02:10, answered in 0.31 s`, written at most every 10 s |
 | Last Change By | `<who> at 14:05`, written on each change Control4 did not make. `<who>` from `userData`: `ble` → `Remote or wall control`; `local_wifi` → `Modern Forms app or another local client`; `cloud` → `Modern Forms cloud (app away, voice assistant)`; `sleep_timer` → `The fan's sleep timer`; `away_mode` → `The fan's away mode`; `schedule` → `A schedule in the Modern Forms app`; anything else, `none` or absent (Gen 1/2) → `Outside Control4 (source not reported)` (VERIFIED values: AIO `const.py`, MFR §2.2; what an RF remote reports is K16) |
@@ -953,13 +987,19 @@ Every Last Action is also logged with `log.always` (as `dev.result` does).
 | `mf_info` | `{ fan_type, light_type, motor_type, firmware, mcu_firmware, firmware_since = "2026-10-27", firmware_was }` | when it changes | late init |
 | `mf_online` | `true`/`false` | when the Online variable changes | `OnDriverInit`, D9's comparison |
 | `mf_preset_speed` | 1–6 | `DESIGNATE_PRESET` | late init |
+| `mf_names` | `{ fan = "Aviator 5", light = "Aviator 5 Light", at = <epoch s> }`: the names the driver last wrote and Director confirmed (V28); an item is written only after the read-back matches, so one of the two may be missing | the rename job, per item | the next rename job's guard |
 | device.lua's `preset_level`, `hold_rate_up`, `hold_rate_down`, `button_<n>_<on/off>_color` | as device.lua | as device.lua | as device.lua |
 | the migration's keys | [`migration-design.md`](migration-design.md#4-the-migration-report) | | |
 
 Read with `(C4:PersistGetValue(key))` (a never-written key returns no value
 at all on the house: HUE #298). Not persisted: the fan's state (FUND
 `24_persisting_driver_data/_1-PERSISTINGDRIVERDATA.md` names a light's on
-state as data that does not belong there), anything private.
+state as data that does not belong there), anything private. `mf_names`
+holds nothing private and does not exist on a device until its first
+confirmed rename; a delete and re-add loses it, and the shipped names are
+the driver's again then. After a restore a live name that matches neither a
+shipped default nor `mf_names` is the owner's, so a store that is newer than
+the backup, or empty, can only make the driver rename less (ECR RC14).
 
 | Event | What survives | Basis |
 | --- | --- | --- |
@@ -983,8 +1023,10 @@ src/modernforms_fan/
   fan/fanproxy.lua    the fan proxy (5001): commands, notifications, preset, intents
   fan/links.lua       the fan links (300-308), their LEDs, the Keypad Links bookkeeping
   fan/light.lua       the light_v2 side (5002) on common/device.lua
-  fan/devcmds.lua     dev builds only: signed development commands, Dev State, the redactor
+  fan/devcmds.lua     dev builds only: signed development commands, Dev State, Dev Names Plan, the redactor
   fan/discovery.lua   only with V5a: the mDNS query and its parser
+  fan/names.lua       pure: the fanType -> product name table and the name rules (V28, section 9.13)
+  fan/rename.lua      the job that names the two items after the fan (V28, section 9.13)
 src/common/           dispatch.lua (per-binding routing), device.lua (proxy binding option), log.lua, devloop.lua
 ```
 
@@ -1126,8 +1168,14 @@ texts.result(key, args) -> string   -- keys "learned" L1, "moved" L2, "now_using
                                     -- "found_none" L9, "find_failed" L10, "reboot_sent" L11,
                                     -- "reboot_offline" L12, "reboot_refused" L13, "reboot_pending" L20, "away_off" L14,
                                     -- "away_already" L15, "learning_off" L16, "learning_already" L17,
-                                    -- "not_answering" L18, "not_taken" L19, "not_picked" L21
+                                    -- "not_answering" L18, "not_taken" L19, "not_picked" L21,
+                                    -- "name_renamed" L22, "name_same" L23, "name_unknown" L24,
+                                    -- "name_no_type" L25, "name_no_ids" L26, "name_unconfirmed" L27,
+                                    -- "name_no_pin" L28, "name_busy" L29 (V28)
+texts.rename_suffix(outcome) -> string   -- V28: "renamed" -> "; items renamed", "kept" -> "; names kept",
+                                    -- "no_name"|"no_type"|"no_ids"|"unconfirmed"|"busy" -> "; not renamed", else ""
 texts.fan_id(pin) ; texts.fan_model(pin, info, has_wind) ; texts.firmware(info)
+                                    -- fan_model puts names.lookup(info.fan_type) in front of the type when known (V28)
 texts.last_seen(at_s, ms) ; texts.change_by(user_data, at_s, now_s) ; texts.automations(st, generation)
 texts.keypad_links(rows) -> { "5 of 12 links bound", ... }   -- rows: { link_name, keypad_name, device_id }
 texts.found_fans(list, pin) -> { ... }
@@ -1195,8 +1243,10 @@ spec may stub exactly these.
 
 ### 9.10 `fan/devcmds.lua` and `fan/discovery.lua`
 
-`devcmds.new({ model, fan, links, light, prop, inject = fn(binding, command, params), log })`
+`devcmds.new({ model, fan, links, light, prop, inject = fn(binding, command, params), names, log })`
 returns the table for `devloop.set_signed_commands` ([section 12](#12-dev-loop-actions-and-toolsregresssh));
+`names` is the rename job of [section 9.13](#913-fannameslua-and-fanrenamelua-v28-37), which only `Dev Names Plan`
+uses (it prints `names:plan(mode)` and renames nothing).
 `devcmds.redactor(get_pin)` returns the function for `devloop.set_redactor`
 (§3.7). `tools/build.sh` adds `fan/devcmds.lua` to its `DEV_ONLY_FILES`.
 
@@ -1318,6 +1368,81 @@ detail). Nothing here changes a decision of section 1.
   after Use Selected Fan; the V27 rows (20 to 27 of 2.5) are in
   `driver.xml` since #31 (the colour rows are read together by `apply_colors`, `r,g,b` to hex); `can_reverse` is True (K11).
 
+### 9.13 `fan/names.lua` and `fan/rename.lua` (V28, #37)
+
+Added after the M3 build (#37, 2026-11-04) and numbered after 9.12 so that no
+earlier section moves. The contract is [`fan-name-design.md`](fan-name-design.md#2-modules-section-9-style-of-v1-designmd),
+sections 2.1 and 2.2; the interfaces are repeated here so that this section
+stays complete, and where the two differ that file wins. The decisions are V28;
+the cases behind the guard, the job and the texts are
+[`edge-cases-rename.md`](edge-cases-rename.md) section 5.
+
+**`fan/names.lua`** (pure: no Director):
+
+```lua
+local names = require("fan.names")
+names.TABLE              -- [fan_type] = name: FNR Appendix B's 75 entries, each with a comment naming its family
+names.DEFAULTS           -- { { fan = "Modern Forms Fan", light = "Modern Forms Fan Light" } }: every pair a build shipped
+names.valid(name) -> bool          -- ECR 5.4: ASCII letters, digits, space, hyphen; 1 to 19 chars; no leading or
+                                   -- trailing blank; not ending in " Light"
+names.lookup(fan_type) -> name|nil -- trimmed exact match; nil for nil, "", unknown, or an entry that fails valid()
+names.light(name) -> name .. " Light"
+```
+
+At load every table entry is checked with `valid()`; one that fails is dropped
+(fail closed), and the spec checks that none does. `names.DEFAULTS` equals the
+`name` attributes of the two proxies in `driver.xml` (§2.2; a spec asserts it).
+`texts.lua` requires this module for `Fan Model` (§7.3, §9.6).
+
+**`fan/rename.lua`** (the job; Director's calls are handed in, as
+`migration.lua` does):
+
+```lua
+local rename = require("fan.rename")
+local job = rename.new({
+	ids = fn() -> fan_id|nil, light_id|nil,      -- the two proxy ids (driver.lua: the bound consumers of 5001, 5002)
+	display_name = fn(id) -> string|nil,        -- C4:GetDeviceDisplayName (API 32_serial_network_device/_6-GetDeviceDisplayName.md)
+	rename = fn(id, name),                      -- C4:RenameDevice (API 22_miscellaneous/_32-RenameDevice.md)
+	fan_type = fn() -> string|nil,              -- model:info().fan_type, stored, so known while the fan is silent
+	pinned = fn() -> bool,
+	lookup = names.lookup, light = names.light, defaults = names.DEFAULTS,
+	timer = fn(ms, cb) -> handle,               -- driver.lua's timer (handle:Cancel())
+	store = { get = fn(key), set = fn(key, value) },   -- key "mf_names" = { fan, light, at }
+	now = fn() -> epoch s,
+	log = log,
+	confirm_ms = 2000,
+})
+job:run(mode, done)   -- mode "guarded" | "forced"; done(outcome, args) exactly once
+job:plan(mode) -> { outcome, fan_id, light_id, fan_live, light_live, fan_to, light_to }   -- no rename (Dev Names Plan)
+job:busy() -> bool
+job:stop()            -- cancels the confirm timer (OnDriverDestroyed)
+```
+
+Steps: the target from `fan_type` and `lookup` (else `no_type` or `no_name`);
+the ids (else `no_ids`); the live names; guarded: both items ours (the live
+name, trimmed, equals a default of that item or the `mf_names` record's),
+else `kept`; `rename` for each item whose live name differs (the fan item
+first, each call in `pcall`); after `confirm_ms` both names are read back,
+only what matches is recorded in `mf_names`, then `renamed`, or `unconfirmed`
+if any differs. Nothing to change: `same` at once. Forced without a pin:
+`no_pin`. A run while one is pending: `busy`. `run` starts the job from a
+timer of 1 ms, never inside the click's own call (ECR RC19), so a callback
+that writes `Last Action` first is never interleaved with it. Outcomes and
+their `args`: `renamed` {fan, light}, `same` {fan, light}, `kept` {fan_live,
+fan_to}, `no_name` {fan_type}, `no_type`, `no_ids`, `unconfirmed`, `no_pin`,
+`busy`. One `log.always` line per run, with the old names too on the forced
+path.
+
+**Wiring** (`driver.lua`, `driver.xml`): the job's `ids` come from the bound
+consumers of 5001 and 5002, one each, else nil; the action `Name Items After
+Fan` (§2.6) runs `job:run("forced", …)` and writes `texts.result("name_" …)`;
+Use Selected Fan, after its own result for `already`, `moved` or `now_using`,
+runs `job:run("guarded", …)` and, when `texts.rename_suffix(outcome)` is not
+empty, writes the same line again with the suffix; `OnDriverDestroyed` calls
+`job:stop()`; `devcmds` gets the job as `names` (`Dev Names Plan`, §12). The
+specs are `names_spec`, `rename_spec`, and additions to `texts_spec`,
+`devcmds_spec` and `fan_driver_spec` (`fan-name-design.md` section 4, §10.2).
+
 ## 10. Tests: fixtures and the fake runtime
 
 ### 10.1 Fixtures (`tests/fixtures/`, loaded as `require("fixtures.mf_gen3")`)
@@ -1366,7 +1491,8 @@ No real address, MAC, client id, e-mail, identity, name or SSID, ever; the
 | `fanproxy_spec`, `links_spec` | §4.6, §5.1, the LED rule, the 10 s click rule, the Keypad Links rows |
 | `light_spec` | §4.7: CHANGING/CHANGED pairing, default-on, the two-step on, holds and ramps, ALS stops, no light kit |
 | `dispatch_spec`, `device_spec` | §9.2, the old behaviour unchanged |
-| `devcmds_spec` | the Dev State line, the injection commands, the redactor |
+| `devcmds_spec` | the Dev State line, the injection commands, the redactor, `Dev Names Plan` (V28) |
+| `names_spec`, `rename_spec` (V28) | every table entry valid, the house's `1811-5-54` is `Aviator 5`, exact match only, fail closed; both modes of the job, the guard, each outcome, the confirm and the record, busy, stop, `pcall` around `rename` ([`fan-name-design.md`](fan-name-design.md#4-tests), section 4) |
 | `v1_roundtrip_spec` (coordinator) | the whole driver on the fake: a press to a request to an answer to the notifications and LEDs; offline and back; a foreign fan |
 
 ### 10.3 Fake runtime additions (`tests/helpers/fake_c4.lua`, additions only)
@@ -1509,6 +1635,7 @@ run "<name>" KEY=value`; only a signed `execute` reaches them,
 | Dev Press | `LINK` (200–202, 300–308), `ACTION` `tap`, `push`, `click` or `release`, `COUNT` (default 1), `EVERY` (ms, default 300) | `ReceivedFromProxy(LINK, "DO_PUSH"/"DO_CLICK"/"DO_RELEASE")` as a keypad would (`tap` = push, then click 100 ms later), `COUNT` times, `EVERY` ms apart, timed on the controller |
 | Dev Proxy | `BINDING` (5001, 5002), `COMMAND`, any other params | `ReceivedFromProxy(BINDING, COMMAND, params)` as the proxy would |
 | Dev Request | `BODY` | one request through the model's queue, only a body `wire.body` accepts or one of the two queries; the answer logged normalized |
+| Dev Names Plan | `MODE` (`guarded` or `forced`, default `guarded`) | prints the rename job's plan for that mode (the outcome, the two item ids, their live names and the names it would write) and calls no `RenameDevice` (V28) |
 
 `Dev State`, one line of `key=value` separated by spaces, in this order:
 `phase=online seq=231 fan=on/3 dir=forward light=on/40 shown.fan=on/3
@@ -1573,7 +1700,10 @@ text as section 7 has it:
    first; one Control4 device per fan, one controller per fan, no other
    driver polling it.
 3. Adding the fan: add the driver to the room, type `Fan Address` (or Find
-   Fans when present), what Status shows (S1–S13).
+   Fans when present), what Status shows (S1–S13); the names of the two items
+   (V28): the product name in `Fan Model`, the two clicks that rename and the
+   guard, `Name Items After Fan`, what never renames, duplicates, an unknown
+   model, Refresh Navigators and the voice assistants.
 4. The fan from Control4: Navigators, ON and Toggle at the preset (Designate
    Preset), Cycle's rules, direction (or that it is the remote's), the
    proxy's events and variables, `Online`, Fan Offline and Fan Online, the
@@ -1590,7 +1720,9 @@ text as section 7 has it:
 7. When the fan is offline: what Control4 shows, what happens when power
    returns (nothing is re-sent).
 8. A new address, a replaced or reset fan: `Fan Address`, Use Selected Fan;
-   never delete and re-add the device.
+   never delete and re-add the device; the items follow a replacement's model
+   unless the owner named them, and a firmware or light-kit change leaves the
+   names alone.
 9. The fan's own automations: `Fan Automations`, `Last Change By`, the two
    Turn Off actions; schedules and timers are cleared in the app.
 10. Properties and actions, row by row.
@@ -1612,6 +1744,11 @@ text as section 7 has it:
   owner bring V27 in.
 - Following a new address by itself, ever; a
   subnet scan, ever.
+- Renaming the items by itself, ever: at start-up, after an update, a restore,
+  a poll, a new address, a firmware or light-kit change, or from the first
+  contact of a typed address; naming them after the app's `deviceName`; a
+  number, room or suffix for two fans of one model; fuzzy or family-number
+  matching of `fanType` (V28).
 - Breeze on and off; UV-C; setting or clearing schedules and sleep timers;
   turning away mode or adaptive learning on; any destructive command (ECM §9).
 - Fades and ramp rates on targets (the light has none); colour temperature.

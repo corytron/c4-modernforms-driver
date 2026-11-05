@@ -28,7 +28,12 @@ restated for one fan; the rest are new.
 
 1. **The project is the owner's.** The driver never creates, deletes,
    renames, moves or re-points a Control4 device on its own
-   ([`edge-cases-control4.md`](edge-cases-control4.md)).
+   ([`edge-cases-control4.md`](edge-cases-control4.md)). One exception since
+   2026-11-04 (#37), and only on two clicks: it renames its own two items
+   after the fan's product name, never over a name the owner typed, and never
+   after the app's name for the fan
+   ([`fan-name-design.md`](fan-name-design.md#1-decisions), D15 of the
+   Control4 file).
 2. **Nothing is lost by waiting.** Every change the driver detects is
    shown (`Status`, `Attention`) and logged, so the owner can act on it a
    week later.
@@ -254,7 +259,7 @@ re-sending state (rule 7).
 | V1 | Cloud outage or internet down | Local control keeps working [VERIFIED: MF-feat; AIO#287, reported]. The app away from home and voice assistants stop [VERIFIED: MF-faq]. Generation 1 and 2 timers and schedules may drift without NTP [VERIFIED: HA-docs]. | Nothing. | Nothing; the driver never talks to the cloud. | — | — | — |
 | V2 | The owner blocks the fan's internet on purpose | As V1. | Nothing. | Nothing. | — | — | The manual: allow NTP (UDP 123) if the fan's own timers matter [VERIFIED: HA-docs]. |
 | V3 | App or cloud discontinued | The Modern Forms app was last updated 2025-10-28, and the 2026 Elite fans use MyWAC [VERIFIED: MF-store, MF-2026]. Local control would go on [ASSUMED: it lives in the fan]. What goes: Wi-Fi set-up (manual commissioning exists but WAC does not support it [VERIFIED: WAC-2021]), firmware updates, remote access, voice. | Nothing. | Nothing. | — | — | The manual: keep the fan's Wi-Fi as it is; a router change needs the app. |
-| V4 | Fan renamed in the app | `deviceName` changes [VERIFIED: the field, AIO]. | New name. | `Fan Name` refreshed; logged. | — | Renaming the Control4 device. | `Fan Name`. |
+| V4 | Fan renamed in the app | `deviceName` changes [VERIFIED: the field, AIO]. | New name. | `Fan Name` refreshed; logged (not built: the app's name is private and dropped, V20 of [`v1-design.md`](v1-design.md)). | — | Renaming the Control4 device after the app's name, ever. Since 2026-11-04 (#37) the driver names its own two items after the fan's product name (looked up from `fanType`), on two clicks only: [`fan-name-design.md`](fan-name-design.md#1-decisions), RM1 of [`edge-cases-rename.md`](edge-cases-rename.md). | `Fan Name`. |
 | V5 | Account changes, sharing, a new owner | `owner` changes [VERIFIED: the field, AIO]. | — | Nothing; never shown or logged (rule 8). | — | — | — |
 | V6 | Private data in answers | The owner's email, AWS identity, certificate id, SSID and BSSID; on generation 4 also the location [VERIFIED: AIO-readme, AIO#287 (its diagnose tool redacts them)]. The time zone is treated as private too [proposal]. | — | Dropped on receipt. `Diagnostics` and the log redact as in rule 8. | — | Showing or logging them. | — |
 | V7 | Fan clock and time zone (set by the app [VERIFIED: MF-store 1.4.24]) | — | Timer times. | The driver never sets the fan's time or zone, and never compares the fan's clock with the controller's. | — | Writing time or zone. | — |

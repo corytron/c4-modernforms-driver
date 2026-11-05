@@ -34,6 +34,8 @@ local links_mod = require("fan.links")
 local light_mod = require("fan.light")
 local discovery_mod = require("fan.discovery")
 local migration_mod = require("fan.migration")
+local names = require("fan.names")
+local rename_mod = require("fan.rename")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -143,15 +145,22 @@ end
 
 -- Last Action keeps the full text; the always-on log carries only the last four
 -- hex digits of a client id or MAC (section 3.7).
-local function result(key, args)
-	local text = texts.result(key, args)
+-- shown_count counts the writes, so a line written later (the rename suffix)
+-- can tell whether anything else wrote Last Action in between (review of #37).
+local shown_count = 0
+local function show_result(text)
+	shown_count = shown_count + 1
 	log.always("%s", (text:gsub("%x%x%x%x%x%x%x%x(%x%x%x%x)", "...%1")))
 	prop("Last Action", text)
 end
 
+local function result(key, args)
+	show_result(texts.result(key, args))
+end
+
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, migration
+local model, fan, links, light, discovery, migration, names_job
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 local found = { items = {}, list = {} } -- the last Find Fans, row by row
 
@@ -501,10 +510,92 @@ if devloop then
 	end
 end
 
+-- Naming the two items after the fan's product name (fan-name-design, #37):
+-- only on Use Selected Fan (guarded) and Name Items After Fan (forced).
+local function one_consumer(binding)
+	local found_id, count = nil, 0
+	for id in pairs(C4:GetBoundConsumerDevices(C4:GetDeviceID(), binding) or {}) do
+		found_id, count = id, count + 1
+	end
+	return count == 1 and found_id or nil
+end
+
+-- The id when it is one of this device's own proxies, as GetDevices lists them
+-- under "proxies" (API 22_miscellaneous/_9, example 3), else nil.
+local function own_proxy(proxies, id)
+	if id == nil then
+		return nil
+	end
+	for key in pairs(proxies) do
+		if tonumber(key) == tonumber(id) then
+			return id
+		end
+	end
+	return nil
+end
+
+-- Both items, or neither: each must be the one bound consumer of its binding,
+-- one of this device's own proxies, and not this device itself (review of #37,
+-- finding 5). Anything else answers no_ids, so nothing else is ever renamed.
+local function item_ids()
+	local me = C4:GetDeviceID()
+	local ok, devices = pcall(C4.GetDevices, C4, { DeviceIds = tostring(me) })
+	if not ok or type(devices) ~= "table" then
+		return nil, nil
+	end
+	local entry
+	for key, value in pairs(devices) do
+		if tonumber(key) == tonumber(me) then
+			entry = value
+		end
+	end
+	if type(entry) ~= "table" or type(entry.proxies) ~= "table" then
+		return nil, nil
+	end
+	local fan_id = own_proxy(entry.proxies, one_consumer(FAN_BINDING))
+	local light_id = own_proxy(entry.proxies, one_consumer(LIGHT_BINDING))
+	if fan_id == nil or light_id == nil or tonumber(fan_id) == tonumber(light_id)
+		or tonumber(fan_id) == tonumber(me) or tonumber(light_id) == tonumber(me) then
+		return nil, nil
+	end
+	return fan_id, light_id
+end
+
+names_job = rename_mod.new({
+	ids = item_ids,
+	display_name = function(id)
+		return C4:GetDeviceDisplayName(id)
+	end,
+	rename = function(id, name)
+		C4:RenameDevice(id, name) -- API 22_miscellaneous/_32-RenameDevice.md: a proxy id
+	end,
+	fan_type = function()
+		local info = model:info()
+		return info and info.fan_type or nil
+	end,
+	pinned = function()
+		return model:identity() ~= nil
+	end,
+	lookup = names.lookup,
+	light = names.light,
+	defaults = names.DEFAULTS,
+	timer = timer,
+	store = store,
+	now = os.time,
+	log = log,
+})
+
+-- The rename job's outcomes as Last Action keys (fan-name-design 2.3).
+local NAME_RESULTS = {
+	renamed = "name_renamed", same = "name_same", no_name = "name_unknown", no_type = "name_no_type",
+	no_ids = "name_no_ids", unconfirmed = "name_unconfirmed", no_pin = "name_no_pin", busy = "name_busy",
+}
+
 local stop_devcmds = nil
 if devloop and devcmds then
 	local commands, stop = devcmds.new({
 		model = model,
+		names = names_job,
 		fan = fan,
 		links = links,
 		light = light,
@@ -596,6 +687,30 @@ dispatch.commands["Use_Selected_Fan"] = function()
 		end
 		result(key, args)
 		refresh_status()
+		local shown = shown_count
+		-- A fan pinned by the click: the guarded rename, then the same line again
+		-- with its suffix (fan-name-design N4), unless something else wrote Last
+		-- Action in the meantime: that line stays and the log has the ending.
+		if key == "already" or key == "moved" or key == "now_using" then
+			names_job:run("guarded", function(outcome)
+				local suffix = texts.rename_suffix(outcome)
+				if suffix == "" then
+					return
+				end
+				if shown_count == shown then
+					show_result(texts.result(key, args) .. suffix)
+				else
+					log.always("names: Use Selected Fan ended %q; Last Action has a later line", suffix)
+				end
+			end)
+		end
+	end)
+end
+
+-- Name Items After Fan: the forced rename (fan-name-design N5).
+dispatch.commands["Name_Items_After_Fan"] = function()
+	names_job:run("forced", function(outcome, args)
+		result(NAME_RESULTS[outcome] or "name_unconfirmed", args)
 	end)
 end
 
@@ -730,6 +845,7 @@ function OnDriverDestroyed()
 		stop_devcmds()
 	end
 	discovery:stop()
+	names_job:stop()
 	links:stop()
 	light:stop()
 	model:stop()

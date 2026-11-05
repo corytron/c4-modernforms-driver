@@ -3,7 +3,7 @@
 -- file in DEV_ONLY_FILES, so a release package carries none of it, and
 -- driver.lua loads it only when common/devloop.lua is there:
 --
---   local cmds, stop = devcmds.new({ model = m, fan = fp, links = lk, light = lt,
+--   local cmds, stop = devcmds.new({ model = m, fan = fp, links = lk, light = lt, names = job,
 --                                    prop = dev.prop, inject = fn(binding, command, params), log = log })
 --   devloop.set_signed_commands(cmds)        -- OnDriverDestroyed calls stop()
 --   devloop.set_redactor(devcmds.redactor(function() return m:identity() end))
@@ -32,6 +32,9 @@
 --            shape and sends only while the fan is online and nothing else is due:
 --            request = function(req, cb) return m:request(req, cb) end
 --   wire     the fan/wire.lua table (default: require("fan.wire"), looked up when Dev Request first needs it)
+--   names    fan/rename.lua's job (docs/fan-name-design.md 2.2, 2.4): plan(mode) -> the table of what a
+--            click would decide, which Dev Names Plan prints; without it the command refuses. Dev Names
+--            Plan never calls the job's run(): nothing is renamed.
 
 local devcmds = {}
 
@@ -449,15 +452,70 @@ local function answer_text(wire, req, result)
 	return head .. ": " .. (summary or "no usable data")
 end
 
+-- Dev Names Plan ------------------------------------------------------------------------------------
+
+-- The MODE of Dev Names Plan: guarded (also for no value, which is what devctl.py sends
+-- for an empty one) or forced, in any case and with padding; else nil and why.
+local function plan_mode(value)
+	if value == nil or (type(value) == "string" and not value:find("%S")) then
+		return "guarded"
+	end
+	local text = type(value) == "string" and value:lower():match("^%s*(%a+)%s*$") or nil
+	if text == "guarded" or text == "forced" then
+		return text
+	end
+	return nil, string.format("MODE %s is not guarded or forced", plain(value, 30))
+end
+
+-- The plan the names job made (fan-name-design 2.2) as one line of key=value pairs in the
+-- style of Dev State, always in this order, "-" for what the plan did not get as far as.
+-- would= is the outcome a click would end in if Director confirms every call. A name is
+-- the owner's own word: quoted, cleaned of control characters and cut. fan_type and the
+-- two ours flags are fan/rename.lua's additions to the table the contract lists (outcome,
+-- ids, live names, targets) and read "-" from a job that has none; mode is the one asked for.
+local function format_plan(plan, mode)
+	local function dash(value, make)
+		if value == nil then
+			return "-"
+		end
+		return make(value)
+	end
+	local function quoted(value)
+		return '"' .. plain(value, 60) .. '"'
+	end
+	local function ident(value)
+		return number(value) or "?"
+	end
+	local function token(value)
+		return word(plain(value, 40))
+	end
+	local function ours(value)
+		return value and "1" or "0"
+	end
+	return table.concat({
+		"mode=" .. mode,
+		"would=" .. word(plan.outcome),
+		"fan_type=" .. dash(plan.fan_type, token),
+		"fan_id=" .. dash(plan.fan_id, ident),
+		"fan_live=" .. dash(plan.fan_live, quoted),
+		"fan_to=" .. dash(plan.fan_to, quoted),
+		"fan_ours=" .. dash(plan.fan_ours, ours),
+		"light_id=" .. dash(plan.light_id, ident),
+		"light_live=" .. dash(plan.light_live, quoted),
+		"light_to=" .. dash(plan.light_to, quoted),
+		"light_ours=" .. dash(plan.light_ours, ours),
+	}, " ")
+end
+
 -- The commands -----------------------------------------------------------------------------------
 
--- Returns the table for devloop.set_signed_commands (Dev_Fan_State, Dev_Press,
--- Dev_Proxy, Dev_Request: section 12) and a stop() that cancels the presses
--- still waiting for their timers (OnDriverDestroyed: a reload must not leave
--- them to fire into the new code).
+-- Returns the table for devloop.set_signed_commands (Dev_Fan_State, Dev_Names_Plan,
+-- Dev_Press, Dev_Proxy, Dev_Request: section 12 and fan-name-design 2.4) and a stop()
+-- that cancels the presses still waiting for their timers (OnDriverDestroyed: a reload
+-- must not leave them to fire into the new code).
 function devcmds.new(opts)
 	opts = type(opts) == "table" and opts or {}
-	local o = { model = opts.model, fan = opts.fan, links = opts.links, light = opts.light,
+	local o = { model = opts.model, fan = opts.fan, links = opts.links, light = opts.light, names = opts.names,
 		log = opts.log or require("common.log") }
 	local log = o.log
 	local pending = {} -- timers armed and not yet fired
@@ -631,8 +689,37 @@ function devcmds.new(opts)
 		log.always("Dev Request: %s %s sent as #%s", req.kind, req.body, tostring(seq))
 	end
 
+	-- MODE guarded (the default) | forced: what a click on Use Selected Fan, or on Name Items
+	-- After Fan, would decide now, from the names job's plan(). It never calls the job's run()
+	-- or anything that renames: the Windows session and the VM read the ids, the live names and
+	-- the plan with it before anything is renamed (fan-name-design 2.4, ECR 5.6).
+	local function dev_names_plan(params)
+		params = type(params) == "table" and params or {}
+		local job = o.names
+		if type(job) ~= "table" or type(job.plan) ~= "function" then
+			return refuse("Dev Names Plan", "the names job is missing")
+		end
+		local mode, why = plan_mode(params.MODE)
+		if not mode then
+			return refuse("Dev Names Plan", why)
+		end
+		local ok, plan = pcall(job.plan, job, mode)
+		if not ok then
+			return refuse("Dev Names Plan", "the plan could not be made (" .. plain(plan, 80) .. ")")
+		end
+		if type(plan) ~= "table" then
+			return refuse("Dev Names Plan", "the names job gave no plan")
+		end
+		local made, line = pcall(format_plan, plan, mode)
+		if not made then
+			return refuse("Dev Names Plan", "the plan could not be read (" .. plain(line, 80) .. ")")
+		end
+		log.always("Dev Names Plan: %s; nothing was renamed", line)
+	end
+
 	return {
 		Dev_Fan_State = dev_fan_state,
+		Dev_Names_Plan = dev_names_plan,
 		Dev_Press = dev_press,
 		Dev_Proxy = dev_proxy,
 		Dev_Request = dev_request,

@@ -11,7 +11,8 @@ Links and the stock device was removed (deploy issue #30, the round in
 Discussion #34). The owner tests it from 2026-11-05. v1.0-beta.2
 (build 29, the colour per speed of #31) is published but was not installed;
 the next install is v1.0-beta.3 with the colours, the Migration Report's
-speed-row fix (#35) and the fan's product name (#37, in design).
+speed-row fix (#35) and the fan's product name (#37: built, reviewed by an
+Opus agent, its findings fixed on PR #42).
 
 ## What runs on the house
 
