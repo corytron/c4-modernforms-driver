@@ -390,6 +390,12 @@ describe("common.devloop", function()
 	end)
 
 	describe("start", function()
+		it("trims the address in linear time (#49)", function()
+			local started = os.clock()
+			assert.is_false(devloop.start((" "):rep(100000)))
+			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
+		end)
+
 		it("arms one repeating 3000 ms timer and posts the startup report at once", function()
 			assert.is_true(devloop.start(HOST))
 			assert.same({ { 3000, true } }, c4.calls_to("SetTimer"))

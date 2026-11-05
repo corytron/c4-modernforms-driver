@@ -215,16 +215,28 @@ local function walk(s, pos, count, visit)
 	return pos
 end
 
+-- Linear: "^%s*(.-)%s*$" rescans a long run of inner blanks at every step (#49).
+local function trim(text)
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
+end
+
 -- 12 uppercase hex digits from a MAC, by the rule of wire.mac12 (section 9.3), kept here so this module needs no
 -- other: white space trimmed, then 12 hex digits, or six pairs joined by one and the same ":" or "-".
 local function mac12(text)
 	-- A MAC is at most 17 characters; anything much longer is refused before the
-	-- trim, whose pattern would rescan a long run of blanks (the text is a TXT
-	-- record off the network).
+	-- trim (the text is a TXT record off the network).
 	if type(text) ~= "string" or #text > 64 then
 		return nil
 	end
-	local mac = text:match("^%s*(.-)%s*$")
+	local mac = trim(text)
 	if mac:find("^%x%x%x%x%x%x%x%x%x%x%x%x$") then
 		return mac:upper()
 	end
@@ -408,7 +420,7 @@ function discovery.candidates(heard, pin_mac, current)
 		return found
 	end
 	if type(current) == "string" then
-		current = current:match("^%s*(.-)%s*$") -- as the model trims a typed address (wire.ipv4)
+		current = trim(current) -- as the model trims a typed address (wire.ipv4)
 	end
 	local taken = {}
 	for _, entry in ipairs(heard) do

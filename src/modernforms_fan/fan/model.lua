@@ -115,8 +115,18 @@ local function copy(t)
 	return out
 end
 
+-- Linear: "%s+$" rescans a long run of inner blanks at every step (#49).
 local function trim(text)
-	return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+	text = tostring(text or "")
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
 end
 
 local function upper(text)

@@ -64,12 +64,25 @@ local function whole(value, lo, hi)
 	return n
 end
 
+-- Linear: "^%s*(.-)%s*$" rescans a long run of inner blanks at every step (#49).
+local function trim(text)
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
+end
+
 -- "forward" or "reverse" from FORWARD/REVERSE in any case, else nil.
 local function direction_of(value)
 	if type(value) ~= "string" then
 		return nil
 	end
-	local v = value:match("^%s*(.-)%s*$"):lower()
+	local v = trim(value):lower()
 	if v == "forward" or v == "reverse" then
 		return v
 	end
