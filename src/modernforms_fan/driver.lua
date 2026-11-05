@@ -356,6 +356,14 @@ migration = migration_mod.new({
 	get_device_variables = function(id)
 		return C4:GetDeviceVariables(id)
 	end,
+	-- Row 4's "by this fan": the speed this device shows, 0 when off (#35).
+	shown_speed = function()
+		local shown = model:shown() or {}
+		if shown.fan_on == false then
+			return 0
+		end
+		return shown.speed
+	end,
 	get_bindings_by_device = function(id)
 		return C4:GetBindingsByDevice(id)
 	end,

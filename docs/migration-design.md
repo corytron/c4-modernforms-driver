@@ -729,11 +729,14 @@ DEVICE_SELECTOR [verified: FUND
    Composer fills with "Room->Name" [verified: FUND
    `10_conditionals/_2-SIMPLECONDITIONAL.md`].
 6. The stock fan's speed: `C4:GetDeviceVariables(<the stock fan proxy>)`, its
-   Current Selected Speed [verified: API
+   variable named `CURRENT_SPEED` (the documentation's display name,
+   Current Selected Speed, is kept as a fallback) [verified: API
    `22_miscellaneous/_12-GetDeviceVariables.md`, from 2.8.0, a proxy's
-   variables with their information; FAN `46_fan_variables/_1-FANVARIABLES.md`]
-   [assumed: the table names each variable and holds 0 while the fan is off;
-   the dev loop shows its shape in Phase 2]. Row 4 sets it beside this
+   variables with their information; FAN `46_fan_variables/_1-FANVARIABLES.md`;
+   hardware, M1 round 2, 2026-11-04: the table is keyed by variable id, 1000
+   to 1003 `IS_ON`, `CURRENT_SPEED`, `IS_REVERSED`, `PRESET_SPEED`, each with
+   `name` and `value` as strings, and `CURRENT_SPEED` read 0 on a proxy that
+   was off; the first install's report read "unknown" until #35]. Row 4 sets it beside this
    device's shown speed, so a report tells whether the stock driver still
    follows the fan (G13).
 
@@ -757,7 +760,7 @@ Composer. The rows, in list order (`<…>` is a value):
 | 1 | the verdict (4.5) | always first |
 | 2 | `Report of <YYYY-MM-DD HH:MM> by build <N>; it changed nothing` | |
 | 3 | `Stock: device <id> in <room> (<how>)` | one per stock device; `<how>` is `the only one`, `same address`, `set in Stock Device` or `not this fan's` |
-| 4 | `Speed held by the stock fan: <x>; by this fan: <y>` | this fan's stock device: `<x>` its fan proxy's Current Selected Speed (`unknown` if not found), `<y>` this device's shown speed; 0 is off (4.3.6) |
+| 4 | `Speed held by the stock fan: <x>; by this fan: <y>` | this fan's stock device: `<x>` its fan proxy's `CURRENT_SPEED` (`unknown` if not found), `<y>` this device's shown speed; 0 is off (4.3.6, #35) |
 | 5 | `Stock links bound to keypads: <b> of <t>` | |
 | 6 | `Lines naming device <id>: <n> in <s> scripts; <m> enabled` | the stock device |
 | 7 | `Lines naming this device: <n> in <s> scripts; <m> enabled` | |

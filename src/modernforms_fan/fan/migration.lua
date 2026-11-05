@@ -56,7 +56,13 @@ local M = {}
 M.KEY = "mf_migration" -- the one persisted value (4.6)
 M.STOCK_FILE = "wac_mf_fan_and_light_controller(v4).c4z" -- as M0 read it (K1)
 M.STOCK_LINKS = 12 -- the stock driver's links, ids 0 to 11 (M0, K1)
-M.SPEED_VARIABLE = "Current Selected Speed" -- the fan proxy's variable [FAN 46/_1]
+-- The fan proxy's speed variable, first match wins. GetDeviceVariables names it
+-- CURRENT_SPEED (hardware, M1 round 2, 2026-11-04: ids 1000 to 1003 are IS_ON,
+-- CURRENT_SPEED, IS_REVERSED and PRESET_SPEED, each with a name and a value;
+-- #35); "Current Selected Speed" is the proxy documentation's display name
+-- [FAN 46/_1], kept as a fallback.
+M.SPEED_VARIABLES = { "CURRENT_SPEED", "Current Selected Speed" }
+M.SPEED_VARIABLE = M.SPEED_VARIABLES[1]
 
 local STOCK_PREFIX = "wac_mf_fan" -- another version of WAC's file is found too (4.2)
 local MAX_SCRIPT_ROWS = 40 -- row 13 follows the 40th script row (4.4)
@@ -811,13 +817,10 @@ end
 -- answer: a table of variables, each with a name and a value [API 22/_12 does
 -- not give the shape; Snap One's own helper reads an item's `name`], or a table
 -- keyed by the variable's name.
-local function find_speed(variables)
-	if type(variables) ~= "table" then
-		return nil
-	end
+local function find_named(variables, name)
 	for key, item in pairs(variables) do
 		if type(item) == "table" then
-			if item.name == M.SPEED_VARIABLE or key == M.SPEED_VARIABLE then
+			if item.name == name or key == name then
 				local value = num(item.value)
 				if value == nil then
 					value = num(item.Value)
@@ -826,8 +829,21 @@ local function find_speed(variables)
 					return value
 				end
 			end
-		elseif key == M.SPEED_VARIABLE and num(item) ~= nil then
+		elseif key == name and num(item) ~= nil then
 			return num(item)
+		end
+	end
+	return nil
+end
+
+local function find_speed(variables)
+	if type(variables) ~= "table" then
+		return nil
+	end
+	for _, name in ipairs(M.SPEED_VARIABLES) do
+		local speed = find_named(variables, name)
+		if speed ~= nil then
+			return speed
 		end
 	end
 	return nil
