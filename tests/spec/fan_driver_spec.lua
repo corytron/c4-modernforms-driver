@@ -169,15 +169,17 @@ describe("Modern Forms Fan driver", function()
 			assert.is_nil(caps:find("proxy_fan_speed_connections", 1, true))
 		end)
 
-		it("declares the properties of section 2.5 in order, without a colour per speed, Dev rows in a block",
+		it("declares the properties of section 2.5 in order, the colour per speed rows (V27) among them, Dev rows in a block",
 			function()
 				local names = {}
 				for body in bare:gmatch("<property>(.-)</property>") do names[#names + 1] = field(body, "name") end
 				assert.same({ "Driver Version", "Status", "Last Action", "Fan Address", "Found Fans", "Fan ID",
 					"Fan Model", "Firmware", "Last Seen", "Last Change By", "Fan Automations", "Poll Interval (s)",
 					"Keypad Links", "Speed 1 Link Also Lit At", "Speed 2 Link Also Lit At", "Speed 3 Link Also Lit At",
-					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At", "Migration",
-					"Stock Device", "Debug Mode", "Dev Server", "Dev State" }, names)
+					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
+					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
+					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
+					"Migration", "Stock Device", "Debug Mode", "Dev Server", "Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
@@ -329,6 +331,84 @@ describe("Modern Forms Fan driver", function()
 			assert.is_false(env.TestCondition("BOOL_ONLINE", { VALUE = "False" }))
 			assert.is_true(env.TestCondition("BOOL_ONLINE", { VALUE = "False", LOGIC = "NOT_EQUAL" }))
 			assert.is_false(env.TestCondition("SOMETHING_ELSE", {}))
+		end)
+
+		describe("a colour per speed (V27, #31)", function()
+			local PER_SPEED = {
+				["Speed LED Colors"] = "Per speed",
+				["Speed 1 LED Color"] = "0,0,255",
+				["Speed 2 LED Color"] = "128,0,255",
+				["Speed 6 LED Color"] = "255,96,0",
+				["Speed LED Off Color"] = "16,16,16",
+			}
+
+			-- Fan Speed 6 pressed and answered: the fan runs at 6.
+			local function run_at_six(env, c4)
+				env.ReceivedFromProxy(306, "DO_PUSH", {})
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 6 }))
+			end
+
+			it("sends the colour of the speed a link is lit at, just before its LED state", function()
+				local env, c4 = online_driver(PER_SPEED)
+				run_at_six(env, c4)
+				local messages = c4.proxy_messages(306)
+				local colours, at = {}, nil
+				for index, message in ipairs(messages) do
+					if message[1] == "BUTTON_COLORS" then
+						colours[#colours + 1] = message[2]
+						at = index
+					end
+				end
+				assert.equal(1, #colours)
+				assert.equal("ff6000", colours[1].ON_COLOR)
+				assert.equal("101010", colours[1].OFF_COLOR)
+				assert.equal("MATCH_LED_STATE", messages[at + 1][1])
+				assert.is_true(messages[at + 1][2].STATE)
+			end)
+
+			it("answers a keypad's request with the colour of the speed in force", function()
+				local env, c4 = online_driver(PER_SPEED)
+				env.Properties["Speed 3 Link Also Lit At"] = "Speed 6"
+				env.OnPropertyChanged("Speed 3 Link Also Lit At")
+				run_at_six(env, c4)
+				c4.calls = {}
+				env.ReceivedFromProxy(303, "REQUEST_BUTTON_COLORS", {})
+				assert.same({ "ff6000" }, sent(c4, 303, "BUTTON_COLORS", "ON_COLOR"))
+			end)
+
+			it("sends again at once when a colour changes while its link is lit", function()
+				local env, c4 = online_driver(PER_SPEED)
+				run_at_six(env, c4)
+				env.Properties["Speed 6 LED Color"] = "0,255,0"
+				env.OnPropertyChanged("Speed 6 LED Color")
+				local colours = sent(c4, 306, "BUTTON_COLORS", "ON_COLOR")
+				assert.equal("00ff00", colours[#colours])
+			end)
+
+			it("sends no colours with Keypad's own, the default, and none for a link that is dark", function()
+				local env, c4 = online_driver()
+				run_at_six(env, c4)
+				assert.same({}, sent(c4, 306, "BUTTON_COLORS"))
+				env.Properties["Speed LED Colors"] = "Per speed"
+				env.OnPropertyChanged("Speed LED Colors")
+				assert.equal(1, #sent(c4, 306, "BUTTON_COLORS"), "the lit link takes its colour at once")
+				assert.same({}, sent(c4, 301, "BUTTON_COLORS"), "a dark link gets none")
+				assert.same({}, sent(c4, 300, "BUTTON_COLORS"), "nor does Fan Off")
+			end)
+
+			it("ignores a colour it cannot read and keeps the others", function()
+				local lines = capture_log()
+				local env, c4 = online_driver(PER_SPEED)
+				env.Properties["Speed 6 LED Color"] = "red"
+				env.OnPropertyChanged("Speed 6 LED Color")
+				run_at_six(env, c4)
+				assert.same({}, sent(c4, 306, "BUTTON_COLORS"))
+				local found = false
+				for _, line in ipairs(lines) do
+					found = found or line:find("Speed 6 LED Color red", 1, true) ~= nil
+				end
+				assert.is_true(found, "the warning names the colour row")
+			end)
 		end)
 
 		it("snaps a pick in Keypad Links back to its first row", function()
