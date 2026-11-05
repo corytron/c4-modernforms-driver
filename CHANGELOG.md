@@ -21,8 +21,4 @@ next release's entry carries what they changed.
 - A fan is added by typing its address, or with Find Fans, which lists the fans that answer on the network; the driver remembers which fan it is and refuses a different fan at that address until Use Selected Fan accepts it. Status, Last Action and the other rows say what the driver sees, and Fan Offline and Fan Online are events for programming (#26).
 - Speed LED Colors: set it to `Per speed` and the fan's speed links show a colour for each speed on a keypad button (for example blue at Level 1 and orange at Level 6), with Speed 1 LED Color to Speed 6 LED Color and Speed LED Off Color; by default the keypad's own colours stay (#31).
 - The fan's product name (for example Aviator 5), looked up from the model number it reports, is shown in Fan Model; Use Selected Fan names the fan and light items after it while they still have their original names, and the action Name Items After Fan names them whatever they are called (#37).
-- A Migration Report for replacing the stock WAC driver step by step, which only reads the project and says what still refers to the old device, and the Documentation tab and a Composer checklist for the first test (#26).
-
-### Fixed
-
-- The Migration Report's speed row read `unknown` for both fans in v1.0-beta.1 and v1.0-beta.2; it now shows the stock fan's speed and this fan's own (#35).
+- The Documentation tab, with a short note on replacing the stock WAC driver by hand, and a Composer checklist for the first test (#26, #45).

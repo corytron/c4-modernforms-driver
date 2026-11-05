@@ -199,9 +199,9 @@ name already equals its target. Forced: skip nothing but that equality.
   out; it is in `Fan Model`. Reasons: Director writes names into the project
   file [assumed: it escapes `<` and `&`, HUE
   `docs/reviews/security-2026-10-24.md`, finding 10];
-  names appear in Lua-built list rows, where a comma splits the row (the
-  Migration Report and Keypad Links print device names and replace commas by
-  U+201A); programming shows "Room->Name".
+  names appear in Lua-built list rows, where a comma splits the row (Keypad
+  Links prints device names and replaces commas by U+201A, as the Migration
+  Report did until #45); programming shows "Room->Name".
 - `<Name>` at most 22 characters, no leading or trailing blank, and not ending
   in " Light"; the light item is `<Name> Light`, at most 28. This keeps L22
   under 70 characters and a Navigator tile readable [assumed: tile width].
@@ -323,7 +323,8 @@ Phase 8.)
 its `sort_order`; the 3.5 table's result column; 7.2 the texts L22 to L29 and
 the suffixes; 8 the key `mf_names`; 9 a pure `fan/names.lua` (`plan(live,
 record, target, mode)` returning the calls and the text, Director's calls
-handed in as an `api` table as `migration.lua` does) and its spec; 9.12.
+handed in as an `api` table as `migration.lua` did until #45) and its spec;
+9.12.
 `edge-cases-control4.md`: D15 ("A-click, guarded; O the action; F otherwise"),
 U6, U7. `edge-cases-modernforms.md`: rule 1 and V4 (their "never renames"
 gets a pointer here). `migration-design.md`: G14, the Phase 1 check, the
