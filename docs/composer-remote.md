@@ -85,7 +85,9 @@ behalf, not the owner.
    in-place editor, a dialog button, a text field) and no menu may be
    active; never tap ALT to gain foreground rights (use `AttachThreadInput`
    with `SetForegroundWindow`, or a click). Prefer window messages
-   (`WM_SETTEXT`) and rectangle clicks over typing; re-check
+   (`WM_SETTEXT`) and rectangle clicks over typing (except in a Windows
+   Save dialog's file-name box, which ignores `WM_SETTEXT`: type the path
+   with real keystrokes, 2026-11-04); re-check
    `Get-ComposerDialog` before every Enter and Cancel anything unexpected.
    **Every click** goes through `Invoke-SafeClick`, which refuses unless the
    intended top-level window is in the foreground and contains the point;
