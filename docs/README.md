@@ -34,6 +34,10 @@ specification, and `status.md` says what of them is live.
   button by button with a way back from every phase, the driver's read-only
   Migration Report, and the later removal of the stock device and the
   keypad's LED workaround.
+- [`fan-name-design.md`](fan-name-design.md): the fan's product name from
+  its model number, shown in Fan Model, and when the driver names its two
+  items after it (#37): Use Selected Fan, guarded, and the action Name Items
+  After Fan.
 - [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
   throwaway Composer package built outside `src/` so no release carries it,
   and the Windows session's brief for each check K4–K10 and K14 of
@@ -72,11 +76,21 @@ assumptions and the questions for the owner.
   backups and restores, connections, programming events and the report
   rules that replace the keypad's settle timer.
 
+## Research for later features
+
+Read-only research written before a feature's contract, in the same style.
+
+- [`fan-names-research.md`](fan-names-research.md): how `fanType` is built
+  and the table of Modern Forms fan families and their product names, from
+  public sources (#37).
+- [`edge-cases-rename.md`](edge-cases-rename.md): the lifecycle cases of the
+  driver renaming its own items in Composer, and the guard that keeps a name
+  someone typed (#37).
+
 ## Start here
 
-- [`status.md`](status.md): what runs on the author's house (today the stock
-  driver and its keypad workaround), what this repository has built, and
-  what is open.
+- [`status.md`](status.md): what runs on the author's house, what this
+  repository has built, and what is open.
 - [`design.md`](design.md): the engineering notebook. The targets (OS
   versions, Lua 5.1), the method (every claim marked verified or assumed,
   with its source), what was measured of the stock driver, and the headings
