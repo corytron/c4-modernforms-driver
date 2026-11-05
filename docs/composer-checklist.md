@@ -316,8 +316,8 @@ installed, the keypad moved to its links and the stock device was deleted
     press it twice; then to **Fan Cycle Button Link** and, with the fan off,
     press it seven times.
     - **Expect:** Toggle: off goes on at the preset speed (Level 3), on goes
-      off. Cycle: Level 1 to Level 6 on the first six presses, Level 1 again
-      on the seventh; both LEDs lit while the fan is on.
+      off. Cycle: Level 1 to Level 6 on the first six presses, still Level 6
+      on the seventh (#77); both LEDs lit while the fan is on.
     - **Done:** open.
 24. **Disconnect.** Right-click the binding of each link used so far and
     choose Disconnect; read both lists.

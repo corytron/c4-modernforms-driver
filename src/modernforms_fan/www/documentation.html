@@ -197,7 +197,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 </ul>
 
 <h3>Cycling</h3>
-<p>The fan proxy's own <b>Cycle Speed Up</b> and <b>Cycle Speed Down</b> step from the shown speed and stop at Level 6 and at Level 1; they never turn the fan off. The driver's <b>Fan Cycle</b> link for keypads does not stop: from off it goes to Level 1, then one speed up per press, and from Level 6 back to Level 1, so a single button can cycle through all the speeds.</p>
+<p>The fan proxy's own <b>Cycle Speed Up</b> and <b>Cycle Speed Down</b> step from the shown speed and stop at Level 6 and at Level 1; they never turn the fan off. The driver's <b>Fan Cycle</b> link for keypads works the same way upward: from off it goes to Level 1, then one speed up per press, and at Level 6 it stays at Level 6. It never turns the fan off; bind a second button to <b>Fan Off</b> for that.</p>
 
 <h3>Direction</h3>
 <p>The fan can run forward or in reverse. A direction chosen on a Navigator or in programming (set, or toggle) is written to the fan as its own request and shown in Control4's fan state; <b>Status</b> adds <code>reverse</code> while the fan runs in reverse. A change made with the remote shows up at the next poll.</p>
@@ -221,7 +221,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><b>Fan Off</b></td><td>Turns the fan off (the request is sent even if the fan looks off already).</td><td>the fan is off</td></tr>
 <tr><td><b>Fan Speed 1</b> to <b>Fan Speed 6</b></td><td>Turns the fan on at that speed.</td><td>the fan runs at that speed, or at the speed named in that link's <b>Speed N Link Also Lit At</b> row (below)</td></tr>
 <tr><td><b>Fan Toggle</b></td><td>Fan on: off. Fan off: on at the preset speed.</td><td>the fan is on</td></tr>
-<tr><td><b>Fan Cycle</b></td><td>Fan off: Level 1. Fan on: one speed up, from Level 6 back to Level 1.</td><td>the fan is on</td></tr>
+<tr><td><b>Fan Cycle</b></td><td>Fan off: Level 1. Fan on: one speed up; at Level 6 nothing changes.</td><td>the fan is on</td></tr>
 <tr><td><b>Light Top</b></td><td>A tap turns the light on at the Default On Brightness; a hold brightens it (chapter 6).</td><td>the light is on</td></tr>
 <tr><td><b>Light Bottom</b></td><td>A tap turns the light off; a hold dims it.</td><td>the light is <i>off</i></td></tr>
 <tr><td><b>Light Toggle</b></td><td>A tap switches the light the other way; a hold brightens it when it is off and dims it when it is on.</td><td>the light is on</td></tr>
