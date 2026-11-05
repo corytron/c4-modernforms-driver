@@ -380,8 +380,11 @@ end
 function Model:cancel_timer(name)
 	local rec = self.timers[name]
 	self.timers[name] = nil
-	if rec and type(rec.handle) == "table" and type(rec.handle.Cancel) == "function" then
-		pcall(rec.handle.Cancel, rec.handle)
+	-- Director's timer object may be userdata, so it is not type-tested.
+	if rec and rec.handle then
+		pcall(function()
+			rec.handle:Cancel()
+		end)
 	end
 end
 
@@ -583,7 +586,7 @@ function Model:set_poll_interval(seconds)
 	-- A steady wait is measured again from the last answer.
 	if self.poll_kind == "steady" and self.timers.poll and self.last_answer_ms then
 		local elapsed = self.now() - self.last_answer_ms
-		self:arm_poll(math.max(0, n * 1000 - elapsed), "steady")
+		self:arm_poll(math.max(1, n * 1000 - elapsed), "steady")
 	end
 	return n
 end
@@ -1859,7 +1862,7 @@ function Model:use_fan(address, mac12, cb)
 	cb = cb or noop
 	local addr = type(address) == "string" and self.wire.ipv4(address) or nil
 	if not addr or self.stopped then
-		pcall(cb, "nothing_to_use", {})
+		pcall(cb, "nothing_to_use", { find_fans = true })
 		return
 	end
 	local old = self.use

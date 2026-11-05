@@ -80,8 +80,10 @@ local function now_ms()
 end
 
 -- A timer the modules can cancel; its callback takes no arguments.
+-- SetTimer's delay must be greater than 0 [API 34_timer/_1], so a due-now
+-- timer waits 1 ms.
 local function timer(ms, callback)
-	return C4:SetTimer(ms, function()
+	return C4:SetTimer(math.max(1, math.floor(ms)), function()
 		callback()
 	end)
 end
@@ -126,13 +128,25 @@ local rows = {}
 local function set_row(name, text)
 	text = text or ""
 	if rows[name] ~= text then
-		rows[name] = text
 		prop(name, text)
+		rows[name] = text
 	end
 end
 
+-- A dynamic list: the items and the row shown. On the house the list's default
+-- alone did not move the shown row; UpdateProperty beside it did (the Hue
+-- project, 2026-10), so every list is written with both.
+local function prop_list(name, items, selected)
+	C4:UpdatePropertyList(name, table.concat(items, ","), selected)
+	C4:UpdateProperty(name, selected)
+end
+
+-- Last Action keeps the full text; the always-on log carries only the last four
+-- hex digits of a client id or MAC (section 3.7).
 local function result(key, args)
-	dev.result(texts.result(key, args))
+	local text = texts.result(key, args)
+	log.always("%s", (text:gsub("%x%x%x%x%x%x%x%x(%x%x%x%x)", "...%1")))
+	prop("Last Action", text)
 end
 
 -- The modules ------------------------------------------------------------------
@@ -184,7 +198,7 @@ end
 
 function listener.shown(shown)
 	links:shown(shown)
-	light:shown(shown)
+	light:shown()
 	refresh_status()
 end
 
@@ -211,7 +225,7 @@ end
 
 -- Last Seen is written at most every 10 s (section 7.3).
 function listener.seen(at_s, ms)
-	if last_seen_at == nil or at_s - last_seen_at >= 10 then
+	if last_seen_at == nil or at_s < last_seen_at or at_s - last_seen_at >= 10 then
 		last_seen_at = at_s
 		set_row("Last Seen", texts.last_seen(at_s, ms))
 	end
@@ -271,7 +285,7 @@ fan = fanproxy_mod.new({
 -- Keypad Links (section 7.3): the property list, the first row the pick.
 local function write_keypad_links(items)
 	keypad_items = items
-	C4:UpdatePropertyList("Keypad Links", table.concat(items, ","), items[1])
+	prop_list("Keypad Links", items, items[1])
 end
 
 links = links_mod.new({
@@ -308,7 +322,9 @@ discovery = discovery_mod.new({
 	open = function()
 		local ok, err = pcall(function()
 			if not find_connection then
-				C4:CreateNetworkConnection(FIND_BINDING, MDNS_GROUP)
+				-- The binding survives a dev reload of this file and cannot be
+				-- removed, so a second create is allowed to fail.
+				pcall(C4.CreateNetworkConnection, C4, FIND_BINDING, MDNS_GROUP)
 				find_connection = true
 			end
 			C4:NetConnect(FIND_BINDING, MDNS_PORT, "MULTICAST")
@@ -352,8 +368,17 @@ migration = migration_mod.new({
 	get_device_id = function()
 		return C4:GetDeviceID()
 	end,
+	-- C4:GetProxyDevices documents one id; this device has two proxies, so the ids
+	-- come from the bound consumers of both proxy bindings, as common/device.lua
+	-- looks up its own (verified on the Hue drivers).
 	get_proxy_devices = function()
-		return C4:GetProxyDevices()
+		local ids = {}
+		for _, binding in ipairs({ FAN_BINDING, LIGHT_BINDING }) do
+			for id in pairs(C4:GetBoundConsumerDevices(C4:GetDeviceID(), binding) or {}) do
+				ids[#ids + 1] = id
+			end
+		end
+		return ids
 	end,
 	property = function(name)
 		return Properties[name]
@@ -469,7 +494,7 @@ dispatch.commands["Find_Fans"] = function()
 		for _, item in ipairs(items) do
 			shown[#shown + 1] = item
 		end
-		C4:UpdatePropertyList("Found Fans", table.concat(shown, ","), PICK_ROW)
+		prop_list("Found Fans", shown, PICK_ROW)
 		if #list == 0 then
 			result("found_none")
 		else
@@ -490,8 +515,13 @@ local function picked_fan()
 	return nil
 end
 
+-- The pick is cleared after any outcome; the found fans stay listed.
 local function clear_pick()
-	C4:UpdateProperty("Found Fans", PICK_ROW)
+	local shown = { PICK_ROW }
+	for _, item in ipairs(found.items) do
+		shown[#shown + 1] = item
+	end
+	prop_list("Found Fans", shown, PICK_ROW)
 end
 
 -- Use Selected Fan: the pick, else Fan Address (section 3.5).
@@ -512,6 +542,9 @@ dispatch.commands["Use_Selected_Fan"] = function()
 	end
 	model:use_fan(address, mac, function(key, args)
 		clear_pick()
+		if key == "nothing_to_use" then
+			args = { find_fans = true }
+		end
 		if key == "moved" or key == "now_using" then
 			prop("Fan Address", address)
 		end
@@ -568,6 +601,11 @@ end
 function OnDriverLateInit()
 	dev.load_settings()
 	dev.load_colors()
+	-- The Migration list is rebuilt from the persisted verdict before the
+	-- replay, so the replayed handlers do not publish an empty one; Found Fans
+	-- starts with no pick (lists are not persisted, FUND 15/_2).
+	migration:restore()
+	prop_list("Found Fans", { PICK_ROW }, PICK_ROW)
 	dispatch.replay_properties(Properties)
 	dev.show_driver_version(1)
 	os_info = C4:GetVersionInfo()
@@ -576,7 +614,6 @@ function OnDriverLateInit()
 	model:start(trimmed(Properties["Fan Address"]), texts.parse_fan_id(Properties["Fan ID"]))
 	started = true
 	show_restored()
-	migration:restore()
 	refresh_status()
 	-- Buffered proxy messages (GET_CURRENT_STATE at the add), then the links'
 	-- reads of their keypads, before the binding changes that came early.
