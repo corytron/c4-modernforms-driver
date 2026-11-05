@@ -530,6 +530,20 @@ describe("Modern Forms Fan driver", function()
 			assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze", env.Properties["Fan Model"])
 		end)
 
+		it("shows Breeze in Fan Model after a restart before the fan answers (#69)", function()
+			local env, c4 = online_driver()
+			local persisted = {}
+			for k, v in pairs(c4.persist) do persisted[k] = v end
+			assert.is_true(persisted.mf_wind)
+			env.OnDriverDestroyed()
+			local env2, c42 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN, ["Fan ID"] = env.Properties["Fan ID"] })
+			for k, v in pairs(persisted) do c42.persist[k] = v end
+			env2.OnDriverInit("DIT_STARTUP")
+			env2.OnDriverLateInit("DIT_STARTUP")
+			assert.equal('{"queryStaticShadowData":1}', last_sent(c42), "the fan has not answered yet")
+			assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze", env2.Properties["Fan Model"])
+		end)
+
 		it("Use Selected Fan names both items of a fresh device after the fan", function()
 			local env, c4 = online_driver()
 			local fan_id, light_id = items(env)
