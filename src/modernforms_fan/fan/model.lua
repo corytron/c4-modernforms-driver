@@ -293,6 +293,7 @@ function model.new(opts)
 	self.info_ = nil            -- mf_info; has_light is derived
 	self.has_light = nil
 	self.has_wind = nil
+	self.shown_wind = nil       -- has_wind as the last info event had it (#59)
 	self.conf = {}              -- confirmed: the five fields and section 4.1's read-only rows
 	self.missing = nil          -- wire keys the last state lacked (S6)
 	self.missing_set = {}
@@ -626,6 +627,7 @@ end
 
 function Model:announce_info()
 	if self.pin then
+		self.shown_wind = self.has_wind
 		self:emit("info", self:identity(), self:info())
 	end
 end
@@ -1242,6 +1244,11 @@ function Model:apply_answer(rec, st)
 	local why
 	if c then
 		why = self:finish_contact(c, st)
+	end
+	if self.pin and self.has_wind ~= self.shown_wind then
+		-- Breeze is learned from a state answer, after the info was announced: with an
+		-- unchanged pin (a restart, an update) nothing else would show it again (#59).
+		self:announce_info()
 	end
 	self:reconcile({ why = why, cmd = rec.group })
 	if why == "start" then
