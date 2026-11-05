@@ -16,6 +16,14 @@
 --   fake.project.devices[id] = { name, room_id, c4i, driver_name, proxy_id, proxy_binding }  -- a protocol driver
 --                            | { name, room_id, c4i, driver_name, protocol_id }              -- its proxy device
 --
+-- A driver.xml with several <proxy> elements (the fan driver: the fan on 5001,
+-- the light_v2 on 5002) gets one proxy device per element, in the order the
+-- xml declares them: proxy_id and proxy_binding are the first one's, and the
+-- others are listed in `more_proxies = { { id, binding }, ... }`, a key only
+-- a driver with two or more proxies has. fake.proxy_id(env, binding) is the
+-- proxy device on one of them. GetBoundConsumerDevices(device, binding) and
+-- GetBoundProviderDevice(proxy, binding) answer for each of them.
+--
 -- `name` is the Composer display name; `driver_name` the driver's <name>,
 -- which is what GetBoundConsumerDevices reports. Shapes of the lookups
 -- (numeric roomId, nested GetProjectHierarchy with numeric types, no proxies
@@ -24,21 +32,24 @@
 -- Reset rule: fake.install_c4 and fake.load_driver start a fresh project
 -- (they already start fresh driver modules and routes) holding the default
 -- room 7 "Example Room" on floor 3 "Main" and the new runtime's own device
--- (id C4:GetDeviceID(), room 7, name and proxy from src/<driver>/driver.xml).
+-- (id C4:GetDeviceID(), room 7, name and proxies from src/<driver>/driver.xml).
 -- fake.pair registers both drivers too, so load every driver first, then add
 -- rooms or move devices, then pair. fake.reset_project() from a spec goes
 -- back to the default room plus the loaded drivers' own devices.
 --
 -- A driver this project does not ship (a keypad, a light_v2 device in a
 -- spec) is described with fake.define_driver(name, xml): AddDevice then
--- registers it with the name and proxy its xml declares.
+-- registers it with the name and proxies its xml declares.
 --
 -- C4:AddDevice registers the new device and, when the driver's xml declares
 -- a <proxy> (one that is not the driver itself), its proxy device (ids
 -- 3001, 3002, ...; the callback still gets (id, {})). The protocol <-> proxy
 -- binding is implied by the project rather than listed in c4.bindings
 -- (which specs count), and GetBoundConsumerDevices(protocolId, 5001)
--- answers from it [verified: hardware].
+-- answers from it [verified: hardware]. Every runtime registers its own
+-- device the same way, so a runtime of the fan driver already holds the first
+-- ids (3001 the fan proxy, 3002 the light proxy) and the first proxy
+-- AddDevice hands out is the next one.
 --
 -- C4:Bind and C4:Unbind deliver OnBindingChanged(binding, class, bound,
 -- otherId, otherBinding) to both drivers when both ends of the binding are
@@ -52,7 +63,16 @@
 -- its timers killed [verified: API 22/_26, 22/_24], its queued SendToDevice
 -- messages delivered, then every binding of the device removed with
 -- OnBindingChanged(..., false, ...) to the other side [assumed: that Director
--- notifies on delete], then the device and its proxy leave the project.
+-- notifies on delete], then the device and its proxies leave the project.
+--
+-- Added for the fan driver's specs (docs/v1-design.md section 10.3): several
+-- proxies per driver (fake.proxy_id); c4.proxy_messages(binding) and the
+-- COMMAND / NOTIFY argument SendToProxy records; c4.advance(ms), which moves
+-- the clock and fires what falls due on the way; t:fail(code, msg),
+-- t.finished and c4.open_transfers() for url transfers; c4.json_decode_raises;
+-- fake.link_keypad / fake.unlink_keypad for a keypad button on a Button Link;
+-- the dynamic network calls (CreateNetworkConnection, NetPortOptions,
+-- NetConnect, NetDisconnect, SendToNetwork) and fake.network_receive.
 
 local json = require("dkjson")
 
@@ -101,23 +121,33 @@ function fake.define_driver(name, xml)
 	defined[name] = xml
 end
 
+-- Every <proxy> a driver xml declares, in order: { { c4i = "fan.c4i",
+-- binding = 5001 }, ... }. "<proxy>" or "<proxy attr=...>", never the
+-- enclosing "<proxies>". A combo driver's proxy names the driver itself and
+-- is no separate device: such a driver lists without a proxies key
+-- [verified: hardware].
+local function declared_proxies(xml, base)
+	local out = {}
+	local text = xml:gsub("<proxy>", "<proxy >")
+	for attrs, name in text:gmatch("<proxy%s([^>]*)>(.-)</proxy>") do
+		if name ~= base then
+			out[#out + 1] = { c4i = name .. ".c4i", binding = tonumber(attrs:match('proxybindingid="(%d+)"')) or 5001 }
+		end
+	end
+	return out
+end
+
 -- What Composer would take from a driver file: its display name and the
--- proxy it declares, if any. Unknown drivers get their base name, no proxy.
+-- proxies it declares, if any. Unknown drivers get their base name, no proxy.
 local function driver_info(file)
 	local base = tostring(file):gsub("%.c4[iz]$", "")
 	local xml = driver_xml(base)
 	if not xml then
-		return { name = base }
+		return { name = base, proxies = {} }
 	end
-	-- "<proxy>" or "<proxy attr=...>", never the enclosing "<proxies>". A
-	-- combo driver's proxy names the driver itself and is no separate
-	-- device: such a driver lists without a proxies key [verified: hardware].
-	local proxy = xml:match("<proxy>(.-)</proxy>") or xml:match("<proxy%s[^>]*>(.-)</proxy>")
-	if proxy == base then proxy = nil end
 	return {
 		name = xml:match("<name>(.-)</name>") or base,
-		proxy = proxy and (proxy .. ".c4i") or nil,
-		proxy_binding = tonumber(xml:match('<proxy%s[^>]*proxybindingid="(%d+)"')) or 5001,
+		proxies = declared_proxies(xml, base),
 	}
 end
 
@@ -128,14 +158,32 @@ local function add_device_entry(id, file, name, room_id)
 	local info = driver_info(file)
 	local rec = { name = name or info.name, room_id = room_id, c4i = file, driver_name = info.name }
 	fake.project.devices[id] = rec
-	if info.proxy then
+	for i, proxy in ipairs(info.proxies) do
 		local pid = fake.project.next_proxy_id
 		fake.project.next_proxy_id = pid + 1
-		rec.proxy_id, rec.proxy_binding = pid, info.proxy_binding
-		fake.project.devices[pid] = { name = rec.name, room_id = room_id, c4i = info.proxy, protocol_id = id,
+		if i == 1 then
+			rec.proxy_id, rec.proxy_binding = pid, proxy.binding
+		else
+			rec.more_proxies = rec.more_proxies or {}
+			table.insert(rec.more_proxies, { id = pid, binding = proxy.binding })
+		end
+		fake.project.devices[pid] = { name = rec.name, room_id = room_id, c4i = proxy.c4i, protocol_id = id,
 			driver_name = info.name }
 	end
 	return rec
+end
+
+-- The proxy devices of a protocol device's record, the first declared first:
+-- { { id, binding }, ... }; none for a driver without a proxy, or no record.
+local function proxies_of(rec)
+	local out = {}
+	if rec and rec.proxy_id then
+		out[1] = { id = rec.proxy_id, binding = rec.proxy_binding }
+		for _, proxy in ipairs(rec.more_proxies or {}) do
+			out[#out + 1] = proxy
+		end
+	end
+	return out
 end
 
 -- The protocol device behind an id that may name its proxy.
@@ -149,7 +197,9 @@ local function remove_device_entry(id)
 	local rec = fake.project.devices[id]
 	if not rec then return nil end
 	fake.project.devices[id] = nil
-	if rec.proxy_id then fake.project.devices[rec.proxy_id] = nil end
+	for _, proxy in ipairs(proxies_of(rec)) do
+		fake.project.devices[proxy.id] = nil
+	end
 	return rec, id
 end
 
@@ -183,6 +233,11 @@ end
 -- (done(-1)); respond() and redirect() end it with errCode -1, as Director
 -- does for an aborted transfer [SDK 35_url/_8-OnDone], and deliver no body
 -- after an aborting OnHeaders.
+--
+-- `finished` is set once OnDone has been delivered (by done(), respond(),
+-- redirect() or fail(): the transfer is over, or would be, whether or not the
+-- driver set an OnDone), and c4.open_transfers() lists the started transfers
+-- that are neither finished nor cancelled.
 local function new_transfer(c4)
 	local t = {
 		options = {},
@@ -190,6 +245,7 @@ local function new_transfer(c4)
 		cancelled = false,
 		aborted = false,
 		started = false,
+		finished = false,
 	}
 
 	local function setter(name)
@@ -259,8 +315,21 @@ local function new_transfer(c4)
 	end
 
 	function t:done(err_code, err_msg)
+		self.finished = true
 		if self.callbacks.done then
 			self.callbacks.done(self, self.responses, err_code or 0, err_msg)
+		end
+	end
+
+	-- The transfer failed before any response came (a refused connection, a
+	-- timeout): OnDone gets that error and no responses [SDK 35_url/_8-OnDone:
+	-- a number as errCode, the details in errMsg]. An error after headers is
+	-- done(code, msg).
+	function t:fail(err_code, err_msg)
+		assert(type(err_code) == "number" and err_code ~= 0, "t:fail needs the error code, a number other than 0")
+		self.finished = true
+		if self.callbacks.done then
+			self.callbacks.done(self, {}, err_code, err_msg)
 		end
 	end
 
@@ -374,17 +443,58 @@ local function new_c4(env)
 		return c4.config_info[tag]
 	end
 
-	function c4:SendToProxy(binding, command, params)
-		record("SendToProxy", binding, command, params)
+	-- The fourth argument, COMMAND or NOTIFY [SDK 25_proxy/_6-SendToProxy], is
+	-- recorded with the rest: nil when the driver left it out, where Director
+	-- decides by the binding number (a NOTIFY from 1000 up, else a COMMAND).
+	function c4:SendToProxy(binding, command, params, kind)
+		record("SendToProxy", binding, command, params, kind)
+	end
+
+	-- Every SendToProxy to one binding, in order: { command, params, kind }.
+	function c4.proxy_messages(binding)
+		local out = {}
+		for _, args in ipairs(c4.calls_to("SendToProxy")) do
+			if tonumber(args[1]) == tonumber(binding) then
+				out[#out + 1] = { args[2], args[3], args[4] }
+			end
+		end
+		return out
+	end
+
+	-- The dynamic network connection calls, recorded only [SDK
+	-- 32_serial_network_device/_1-CreateNetworkConnection, _25-NetPortOptions,
+	-- _23-NetConnect, _24-NetDisconnect, _20-SendToNetwork]: nothing connects
+	-- and nothing answers. A spec feeds the driver's ReceivedFromNetwork with
+	-- fake.network_receive.
+	function c4:CreateNetworkConnection(binding, address, kind)
+		record("CreateNetworkConnection", binding, address, kind)
+	end
+
+	function c4:NetPortOptions(binding, port, kind, options)
+		record("NetPortOptions", binding, port, kind, options)
+	end
+
+	function c4:NetConnect(binding, port, kind, suppress_events)
+		record("NetConnect", binding, port, kind, suppress_events)
+	end
+
+	function c4:NetDisconnect(binding, port)
+		record("NetDisconnect", binding, port)
+	end
+
+	function c4:SendToNetwork(binding, port, data)
+		record("SendToNetwork", binding, port, data)
 	end
 
 	function c4:url()
 		return new_transfer(c4)
 	end
 
+	-- `due` is the time (c4.now_ms) the timer falls due, for c4.advance.
 	function c4:SetTimer(delay_ms, callback, repeating)
 		assert(delay_ms > 0, "timer delay must be > 0")
-		local timer = { delay = delay_ms, callback = callback, repeating = repeating or false, active = true }
+		local timer = { delay = delay_ms, callback = callback, repeating = repeating or false, active = true,
+			due = c4.now_ms + delay_ms }
 		function timer:Cancel()
 			self.active = false
 		end
@@ -524,10 +634,11 @@ local function new_c4(env)
 				any = true
 			end
 		end
-		local rec = fake.project.devices[device]
-		if rec and rec.proxy_id and binding == rec.proxy_binding then
-			out[rec.proxy_id] = bound_name(rec.proxy_id)
-			any = true
+		for _, proxy in ipairs(proxies_of(fake.project.devices[device])) do
+			if binding == proxy.binding then
+				out[proxy.id] = bound_name(proxy.id)
+				any = true
+			end
 		end
 		return any and out or nil
 	end
@@ -542,11 +653,13 @@ local function new_c4(env)
 				return b.provider
 			end
 		end
+		-- Each proxy of a driver is bound on its own binding only.
 		local rec = fake.project.devices[device]
 		if rec and rec.protocol_id then
-			local protocol = fake.project.devices[rec.protocol_id]
-			if protocol and binding == protocol.proxy_binding then
-				return rec.protocol_id
+			for _, proxy in ipairs(proxies_of(fake.project.devices[rec.protocol_id])) do
+				if proxy.id == device and binding == proxy.binding then
+					return rec.protocol_id
+				end
 			end
 		end
 		return nil
@@ -576,9 +689,10 @@ local function new_c4(env)
 		local room = fake.project.rooms[rec.room_id]
 		local out = { deviceName = rec.name, roomId = rec.room_id, roomName = room and room.name or "",
 			driverFileName = rec.c4i }
-		if rec.proxy_id then
-			local proxy = fake.project.devices[rec.proxy_id]
-			out.proxies = { [rec.proxy_id] = { driverFileName = proxy.c4i, deviceName = proxy.name } }
+		for _, p in ipairs(proxies_of(rec)) do
+			local proxy = fake.project.devices[p.id]
+			out.proxies = out.proxies or {}
+			out.proxies[p.id] = { driverFileName = proxy.c4i, deviceName = proxy.name }
 		end
 		if rec.protocol_id then
 			local protocol = fake.project.devices[rec.protocol_id]
@@ -781,9 +895,16 @@ local function new_c4(env)
 		return json.encode(value)
 	end
 
+	-- Invalid JSON answers nil and the message here; with
+	-- c4.json_decode_raises = true it raises, as the parameter table of the
+	-- SDK's 12_json/_3-JsonDecode says it does (its opening text says nil and
+	-- a message: the two disagree, so a driver must survive both).
 	function c4:JsonDecode(text)
 		local value, _, err = json.decode(text)
 		if err then
+			if c4.json_decode_raises then
+				error(err, 2)
+			end
 			return nil, err
 		end
 		return value
@@ -888,18 +1009,70 @@ local function new_c4(env)
 		return c4.transfers[#c4.transfers]
 	end
 
+	-- The transfers started and not over yet, in the order started: neither
+	-- finished (OnDone delivered) nor cancelled.
+	function c4.open_transfers()
+		local out = {}
+		for _, t in ipairs(c4.transfers) do
+			if not t.finished and not t.cancelled then
+				out[#out + 1] = t
+			end
+		end
+		return out
+	end
+
 	-- Fire every active timer once, as if its delay had elapsed. Non-repeating
-	-- timers are retired; repeating ones stay armed.
+	-- timers are retired; repeating ones stay armed (their next due time moves
+	-- on, so a later c4.advance does not fire them at once).
 	function c4.fire_timers()
 		local due = {}
 		for _, timer in ipairs(c4.timers) do
 			if timer.active then table.insert(due, timer) end
 		end
 		for _, timer in ipairs(due) do
-			if not timer.repeating then timer.active = false end
+			if timer.repeating then
+				timer.due = c4.now_ms + timer.delay
+			else
+				timer.active = false
+			end
 			timer.callback(timer, 0)
 		end
 		return #due
+	end
+
+	-- Move the clock forward `ms` and fire the timers that fall due on the
+	-- way, in due order (the one armed first goes first at the same time),
+	-- including those armed by a callback during the advance. During a
+	-- callback c4:GetTime() is the time the timer fell due; a repeating timer
+	-- falls due again one delay later, and may fire again within the same
+	-- advance. A timer a callback cancels does not fire. Errors in a callback
+	-- reach the spec, as fire_timers lets them. 100000 firings in one advance
+	-- are taken for a runaway and raise.
+	function c4.advance(ms)
+		assert(type(ms) == "number" and ms >= 0, "c4.advance: milliseconds to move forward, 0 or more")
+		local target = c4.now_ms + ms
+		for _ = 1, 100000 do
+			local next_timer
+			for _, timer in ipairs(c4.timers) do
+				if timer.active and timer.due <= target and (next_timer == nil or timer.due < next_timer.due) then
+					next_timer = timer
+				end
+			end
+			if next_timer == nil then
+				c4.now_ms = target
+				return
+			end
+			if next_timer.due > c4.now_ms then
+				c4.now_ms = next_timer.due
+			end
+			if next_timer.repeating then
+				next_timer.due = next_timer.due + next_timer.delay
+			else
+				next_timer.active = false
+			end
+			next_timer.callback(next_timer, 0)
+		end
+		error("c4.advance: more than 100000 timers fired in one advance; a repeating timer on a tiny delay?")
 	end
 
 	function c4.active_timers()
@@ -972,10 +1145,12 @@ local function drop_stale_self(env)
 	local old = self_registered[env]
 	if old and old.id ~= env.C4.device_id and fake.project.devices[old.id] == old.rec then
 		remove_device_entry(old.id)
-		-- The placeholder's proxy id goes back when it was the last one handed
-		-- out, so the consumer's proxy is 3001 whichever driver loaded first.
-		if old.rec.proxy_id and old.rec.proxy_id + 1 == fake.project.next_proxy_id then
-			fake.project.next_proxy_id = old.rec.proxy_id
+		-- The placeholder's proxy ids go back when they were the last ones
+		-- handed out, so the consumer's proxies come next after the provider's
+		-- whichever driver loaded first.
+		local proxies = proxies_of(old.rec)
+		if #proxies > 0 and proxies[#proxies].id + 1 == fake.project.next_proxy_id then
+			fake.project.next_proxy_id = proxies[1].id
 		end
 		self_registered[env] = nil
 	end
@@ -1068,8 +1243,9 @@ function fake.pair(provider_env, consumer_env, opts)
 		add_env(env)
 		register_self(env)
 		if not env.C4.fire_timers_wrapped then
-			local orig = env.C4.fire_timers
+			local orig, orig_advance = env.C4.fire_timers, env.C4.advance
 			env.C4.fire_timers = function() return fake.as(env, orig) end
+			env.C4.advance = function(ms) return fake.as(env, orig_advance, ms) end
 			env.C4.fire_timers_wrapped = true
 		end
 	end
@@ -1173,7 +1349,9 @@ function fake.move_device(id, room_id)
 	local protocol_id = protocol_id_of(id)
 	local rec = assert(fake.project.devices[protocol_id], "fake.move_device: unknown device " .. tostring(id))
 	rec.room_id = room_id
-	if rec.proxy_id then fake.project.devices[rec.proxy_id].room_id = room_id end
+	for _, proxy in ipairs(proxies_of(rec)) do
+		fake.project.devices[proxy.id].room_id = room_id
+	end
 end
 
 -- Delete a device (by its protocol or proxy id) as Composer would; see the
@@ -1195,7 +1373,9 @@ function fake.delete_device(id)
 	-- Every binding touching the device or its proxy, in every loaded
 	-- runtime's table (paired runtimes share one).
 	local mine = { [protocol_id] = true }
-	if rec.proxy_id then mine[rec.proxy_id] = true end
+	for _, proxy in ipairs(proxies_of(rec)) do
+		mine[proxy.id] = true
+	end
 	local seen = {}
 	local tables = {}
 	for _, e in ipairs(envs) do
@@ -1230,6 +1410,74 @@ function fake.custom_select(env, fn_name, ...)
 	local fn = env[fn_name]
 	assert(type(fn) == "function", "fake.custom_select: " .. tostring(fn_name) .. " is not a function of that driver")
 	return fake.as(env, fn, ...)
+end
+
+-- The proxy device (the id GetBoundConsumerDevices reports) on one of a
+-- loaded driver's proxy bindings, e.g. 5002 for the fan driver's light; the
+-- first-declared proxy when no binding is given; nil when there is none.
+function fake.proxy_id(env, binding)
+	local proxies = proxies_of(fake.project.devices[env.C4.device_id])
+	if binding == nil then
+		return proxies[1] and proxies[1].id or nil
+	end
+	for _, proxy in ipairs(proxies) do
+		if proxy.binding == tonumber(binding) then
+			return proxy.id
+		end
+	end
+	return nil
+end
+
+-- A keypad button bound to one of the driver's Button Link connections, as
+-- Composer's drag in Connections makes it: the driver is the provider on
+-- `link` (200, 300, ...), the keypad (a device this harness does not run, so
+-- `keypad_id` is any id) the consumer on `keypad_binding`, class BUTTON_LINK.
+-- Only the driver hears of it, OnBindingChanged(link, "BUTTON_LINK", true,
+-- keypad_id, keypad_binding), and GetBoundConsumerDevices(driver, link) lists
+-- the keypad. Its name for GetDeviceDisplayName is the spec's to give:
+-- fake.project.devices[keypad_id] = { name = "Example Keypad", room_id = 7,
+-- c4i = "keypad.c4i", driver_name = "Example Keypad" }; without an entry the
+-- lookups answer nil (the name) and "Device N" (the bound-device lookups).
+function fake.link_keypad(env, link, keypad_id, keypad_binding)
+	assert(link ~= nil and keypad_id ~= nil and keypad_binding ~= nil,
+		"fake.link_keypad(env, link, keypad_id, keypad_binding)")
+	local c4 = env.C4
+	table.insert(c4.bindings, { provider = c4.device_id, provider_binding = link, consumer = keypad_id,
+		consumer_binding = keypad_binding, class = "BUTTON_LINK" })
+	deliver_binding_changed(env, link, "BUTTON_LINK", true, keypad_id, keypad_binding)
+end
+
+-- The mirror of link_keypad: the keypad's button disconnected from the link
+-- (any of the keypad's bindings when `keypad_binding` is left out). The driver
+-- alone hears OnBindingChanged(link, "BUTTON_LINK", false, keypad_id,
+-- keypad_binding) once per binding removed; a keypad that was not linked says
+-- nothing.
+function fake.unlink_keypad(env, link, keypad_id, keypad_binding)
+	assert(link ~= nil and keypad_id ~= nil, "fake.unlink_keypad(env, link, keypad_id [, keypad_binding])")
+	local c4 = env.C4
+	local removed = {}
+	for i = #c4.bindings, 1, -1 do
+		local b = c4.bindings[i]
+		if b.provider == c4.device_id and b.provider_binding == link and b.consumer == keypad_id
+				and (keypad_binding == nil or b.consumer_binding == keypad_binding) then
+			table.remove(c4.bindings, i)
+			table.insert(removed, 1, b)
+		end
+	end
+	for _, b in ipairs(removed) do
+		deliver_binding_changed(env, link, b.class, false, b.consumer, b.consumer_binding)
+	end
+end
+
+-- Data arriving on a network binding the driver connected (C4:NetConnect):
+-- the driver's ReceivedFromNetwork(binding, port, data, from), with its own
+-- globals in place; `from` is the sender's address, which Director passes
+-- from OS 4.0.0 [SDK 32_serial_network_device/_15-ReceivedFromNetwork]. A
+-- driver without that entry point hears nothing, as on the controller.
+function fake.network_receive(env, binding, port, data, from)
+	if type(env.ReceivedFromNetwork) == "function" then
+		as(env, env.ReceivedFromNetwork, binding, port, data, from)
+	end
 end
 
 return fake
