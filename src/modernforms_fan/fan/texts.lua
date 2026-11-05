@@ -1,8 +1,10 @@
 -- fan/texts.lua: every string the owner can read, in one place (v1 contract
--- section 9.6; the wording is section 7's). Pure: plain tables in, strings
--- out, no Director calls, so the manual and the specs can pin every word.
--- Nothing else in the driver builds a Status, a Last Action or a property
--- text.
+-- section 9.6; the wording is section 7's, and fan-name-design 2.3 adds the
+-- fan's name and the rename texts). Pure: plain tables in, strings out, no
+-- Director calls, so the manual and the specs can pin every word. The one
+-- module it reads is fan.names, the table of fan types and their names, which
+-- is pure as well. Nothing else in the driver builds a Status, a Last Action
+-- or a property text.
 --
 -- What this file keeps for the whole driver:
 --   * A value the caller did not have shows as "?" inside a sentence, or the
@@ -25,6 +27,9 @@
 --     15-character address and a date, which reaches exactly 75 where section
 --     7.1 says it stays under 75.
 
+-- Fan Model is the only text that reads the name table (fan-name-design N3).
+local names = require("fan.names")
+
 local texts = {}
 
 -- The oldest controller OS the light is known to work on (V3, section 2.1).
@@ -42,15 +47,22 @@ texts.MAX_FOUND = 16
 -- the S3 case spelt out, for a model that keeps it apart from "unset".
 texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign", "gen4", "notfan" }
 
--- Keys texts.result understands, in the contract's order (section 9.6).
+-- Keys texts.result understands, in the contract's order (section 9.6), then
+-- the eight answers of the rename job, L22 to L29 (fan-name-design 2.3).
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use", "found",
 	"found_none", "find_failed", "reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
 	"away_off", "away_already", "learning_off", "learning_already", "not_answering", "not_taken", "not_picked",
+	"name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin",
+	"name_busy",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
 local TYPED_CUT = 24
+
+-- L24 shows the fan type cut to this many characters (ECR 5.5), so the line
+-- stays at 60 whatever the fan sent.
+local TYPE_CUT = 14
 
 -- A time is shown with its date once it is older than this (section 7).
 local DAY_S = 86400
@@ -262,21 +274,53 @@ local function gen_label(generation)
 	return "?"
 end
 
--- Fan Model: "Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze" and
--- the forms of section 7.3. `pin` carries the generation, `info` the types
--- ({ fan_type, light_type, has_light, has_wind }). "" until the info is known.
+-- The name fan.names gives a fan type, or "" for none: no type, a type the
+-- table does not list (an exact match only, N1) or a lookup that fails. A
+-- broken table costs the name and nothing else, so this never raises.
+local function maker_name(fan_type)
+	if fan_type == "" then
+		return ""
+	end
+	local ok, name = pcall(names.lookup, fan_type)
+	if ok and type(name) == "string" then
+		return trim(name)
+	end
+	return ""
+end
+
+-- Fan Model: "Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze"
+-- when fan.names has a name for the type (fan-name-design N3: the name, then
+-- the type in parentheses so the table stays checkable by eye), and for a
+-- type it has none for the older "Gen 3, fan 1811-5-54, light kit
+-- F4IN-120V-R1-30, Breeze", plus the other forms of section 7.3. `pin`
+-- carries the generation, `info` the types ({ fan_type, light_type,
+-- has_light, has_wind }). "" until the info is known.
+--
+-- Length (section 7: rows under about 70): the house fan's named row is 63
+-- characters. Over the 75 entries of the research table (FNR Appendix B) the
+-- longest row is 69, "Gen 1/2, Size Matters 65 (2403-65), light kit
+-- F4IN-120V-R1-30, Breeze", and a 15-character name (the longest in that
+-- table) with the house's type on Gen 3 is 69 too. So no shortened form is
+-- needed, as Fan Automations needs one; a name longer than the table's, or a
+-- longer kit code, would have to bring one.
 function texts.fan_model(pin, info, has_wind)
 	if type(info) ~= "table" then
 		return ""
 	end
 	local generation = type(pin) == "table" and pin.generation or nil
-	local fan = val(info.fan_type)
+	local fan = "fan " .. val(info.fan_type)
+	-- The type that was looked up is the type that is shown, blanks trimmed.
+	local fan_type = trim(scalar(info.fan_type))
+	local name = maker_name(fan_type)
+	if name ~= "" then
+		fan = string.format("%s (%s)", name, fan_type)
+	end
 	local kit = scalar(info.light_type)
 	local light = "no light kit"
 	if kit ~= "" and info.has_light ~= false then
 		light = "light kit " .. kit
 	end
-	local out = string.format("Gen %s, fan %s, %s", gen_label(generation), fan, light)
+	local out = string.format("Gen %s, %s, %s", gen_label(generation), fan, light)
 	if has_wind == nil then
 		has_wind = info.has_wind
 	end
@@ -620,6 +664,9 @@ end
 --   find_fans                        the build has Find Fans (L7)
 --   at, now                          seconds: when the reboot was sent (L11, L20)
 --   which                            "away" or "learning" (L19)
+--   fan, light                       the two item names the rename job set or
+--                                    found (L22, L23); never read from a pin
+--   fan_type                         the model the name table lacks (L24)
 local function fields(args)
 	local a = type(args) == "table" and args or {}
 	local pin = type(a.pin) == "table" and a.pin or {}
@@ -647,6 +694,9 @@ local function fields(args)
 		at = a.at,
 		now = a.now,
 		which = a.which,
+		fan = scalar(a.fan),
+		light = scalar(a.light),
+		fan_type = scalar(a.fan_type),
 	}
 end
 
@@ -762,13 +812,64 @@ end
 -- L19: the answer still shows the automation on. Without `which` the text
 -- stays true without naming it.
 function RESULTS.not_taken(f)
-	local names = { away = "away mode", learning = "adaptive learning" }
-	return "The fan did not take it; it still reports " .. (names[f.which] or "it") .. " on"
+	local automation = { away = "away mode", learning = "adaptive learning" }
+	return "The fan did not take it; it still reports " .. (automation[f.which] or "it") .. " on"
 end
 
 -- L21.
 function RESULTS.not_picked(f)
 	return string.format("The fan at %s is not the one picked; Find Fans again", val(f.address))
+end
+
+-- L22 to L29: what Name Items After Fan answers (fan-name-design 2.3, ECR
+-- 5.5; the keys are the rename job's outcomes under the action's names).
+-- L22 and L23 print the two names as the job hands them over, "Sample" and
+-- "Sample Light", so the item names appear exactly as Composer shows them.
+
+-- L22: the action renamed.
+function RESULTS.name_renamed(f)
+	return string.format("Items named %s and %s", val(f.fan), val(f.light))
+end
+
+-- L23: nothing to change.
+function RESULTS.name_same(f)
+	return string.format("Items already named %s and %s", val(f.fan), val(f.light))
+end
+
+-- L24: the table has no name for the model. What the fan sent is echoed cut
+-- to TYPE_CUT characters with no marker, every byte outside printable ASCII
+-- shown as "?" (as S3 does for the typed text).
+function RESULTS.name_unknown(f)
+	local shown = ascii(trim(f.fan_type)):sub(1, TYPE_CUT)
+	if shown == "" then
+		shown = "?"
+	end
+	return string.format("No name known for fan type %s; items not renamed", shown)
+end
+
+-- L25: the fan type is not read yet.
+function RESULTS.name_no_type()
+	return "Fan type not read yet; try again in a moment"
+end
+
+-- L26: the items' ids were not found.
+function RESULTS.name_no_ids()
+	return "Items not renamed: this device's items were not found"
+end
+
+-- L27: Director did not confirm the new names.
+function RESULTS.name_unconfirmed()
+	return "Rename not confirmed; check the item names in Composer"
+end
+
+-- L28: no fan is pinned.
+function RESULTS.name_no_pin()
+	return "Nothing to name the items after: no fan is set up yet"
+end
+
+-- L29: a rename is already pending.
+function RESULTS.name_busy()
+	return "Naming in progress; try again in a moment"
 end
 
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see
@@ -779,6 +880,28 @@ function texts.result(key, args)
 		return ""
 	end
 	return build(fields(args))
+end
+
+-- The tail the second write of a Use Selected Fan line carries once the
+-- guarded rename has ended (fan-name-design 2.3, ECR 5.5), by the job's
+-- outcome. An outcome with nothing to add gets "": "same" (the names already
+-- matched), "busy", "no_pin" and anything the job does not name. L2 to L4
+-- plus the longest tail stay under 70 characters: L3 "(was ...)" is 51, so
+-- 66, and 68 with two WAC_ ids.
+local SUFFIXES = {
+	renamed = "; items renamed",
+	kept = "; names kept",
+	no_name = "; not renamed",
+	no_type = "; not renamed",
+	no_ids = "; not renamed",
+	unconfirmed = "; not renamed",
+}
+
+function texts.rename_suffix(outcome)
+	if type(outcome) ~= "string" then
+		return ""
+	end
+	return SUFFIXES[outcome] or ""
 end
 
 -- List rows ----------------------------------------------------------------------

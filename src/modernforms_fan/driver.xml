@@ -312,28 +312,36 @@
 				<sort_order>2</sort_order>
 				<params/>
 			</action>
+			<!-- fan-name-design N5 (#37): names both items after the fan's product
+			     name, whatever they are called. -->
+			<action>
+				<name>Name Items After Fan</name>
+				<command>Name Items After Fan</command>
+				<sort_order>3</sort_order>
+				<params/>
+			</action>
 			<action>
 				<name>Reboot Fan</name>
 				<command>Reboot Fan</command>
-				<sort_order>3</sort_order>
+				<sort_order>4</sort_order>
 				<params/>
 			</action>
 			<action>
 				<name>Turn Off Away Mode</name>
 				<command>Turn Off Away Mode</command>
-				<sort_order>4</sort_order>
+				<sort_order>5</sort_order>
 				<params/>
 			</action>
 			<action>
 				<name>Turn Off Adaptive Learning</name>
 				<command>Turn Off Adaptive Learning</command>
-				<sort_order>5</sort_order>
+				<sort_order>6</sort_order>
 				<params/>
 			</action>
 			<action>
 				<name>Migration Report</name>
 				<command>Migration Report</command>
-				<sort_order>6</sort_order>
+				<sort_order>7</sort_order>
 				<params/>
 			</action>
 		</actions>

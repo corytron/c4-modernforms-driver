@@ -59,15 +59,16 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li><b>Live state</b>: the fan reports nothing by itself, so the driver asks it, every 15 seconds and every 2 seconds for 20 seconds after any change. A change made with the remote, the wall control or the Modern Forms app shows up in Control4 within that time: on Navigators, in programming events and on the keypad LEDs.</li>
 <li><b>A fan that goes away is handled</b>: when the fan stops answering (power cut at the wall, Wi-Fi gone), the driver keeps the last state, says so in <b>Status</b>, fires the event <b>Fan Offline</b> and, when the fan answers again, <b>Fan Online</b>. It never replays old commands (chapter 7).</li>
 <li><b>One fan, checked</b>: the driver learns the fan's identity at the first contact and sends nothing to a different fan that happens to answer at the same address, until you accept that fan with a click (chapter 3).</li>
+<li><b>The fan's name</b>: the driver looks up the fan's product name, for example Aviator 5, from the model number the fan reports, and shows it in <b>Fan Model</b>. When you click, it can name the fan item and the light item after it (chapter 3).</li>
 <li><b>For dealers</b>: a read-only <b>Migration Report</b> for replacing the stock WAC driver, with a way back from every step (chapter 11).</li>
 </ul>
 
-<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver never adds, renames, moves or deletes a Control4 device and never changes keypad programming; the Migration Report only reads.</p>
+<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver never adds, moves or deletes a Control4 device and never changes keypad programming. It renames its own two items only when you click <b>Use Selected Fan</b> or <b>Name Items After Fan</b>, and never one you named yourself (chapter 3). The Migration Report only reads.</p>
 
 <p>This is an independent driver. It is not made, endorsed or supported by Modern Forms, WAC Lighting or Snap One (Control4); the trademark notices are at the end of this page.</p>
 
 <h3>What appears in Composer</h3>
-<p>Adding the driver creates two items, as the stock driver does: <b>Modern Forms Fan</b>, the fan, and under it <b>Modern Forms Fan Light</b>, the light. The fan item is the main one. It carries every property and action of the driver, this Documentation tab and the fan's <b>Preset Level</b>. The light item shows only Control4's own light settings page (Default On Brightness, hold ramp rates, the keypad LED colours). Both use Control4's standard fan and light icons, and you may rename them; the driver never does. Selecting either item in Connections lists all twelve Button Links as its outputs.</p>
+<p>Adding the driver creates two items, as the stock driver does: <b>Modern Forms Fan</b>, the fan, and under it <b>Modern Forms Fan Light</b>, the light. The fan item is the main one. It carries every property and action of the driver, this Documentation tab and the fan's <b>Preset Level</b>. The light item shows only Control4's own light settings page (Default On Brightness, hold ramp rates, the keypad LED colours). Both use Control4's standard fan and light icons. You may rename them at any time: the driver then leaves them alone, and <b>Name Items After Fan</b> gives them the fan's product name whenever you want it (chapter 3). Selecting either item in Connections lists all twelve Button Links as its outputs.</p>
 
 <p>Words used here: a <i>Navigator</i> is anything you control the house from (touch screens, remotes, the Control4 app); a <i>link</i> is one of the driver's Button Links; the <i>shown</i> speed is the speed the driver believes the fan has right now, counting a command it has just sent; <i>Gen 3</i> and the like are the fan's hardware generation, which the <b>Fan Model</b> row names.</p>
 
@@ -97,6 +98,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <ul>
 <li><b>Status</b> changes to <code>Waiting for the fan at 10.0.2.151</code> and, within a few seconds, to <code>Online: fan speed 3, light 40 %</code>. <b>Fan ID</b>, <b>Fan Model</b> and <b>Firmware</b> fill in, and <b>Last Action</b> reads <code>Learned fan MF_00005E005301 (Gen 3) at 10.0.2.151</code>.</li>
 <li>That is all it takes on a new device: the first contact pins the fan (below) with no further click.</li>
+<li>The first contact leaves the names of the two items alone. To name them after the fan, click <b>Use Selected Fan</b> or <b>Name Items After Fan</b> (<a href="#item-names">The names of the two items</a>, below).</li>
 <li>After adding devices choose <b>File</b> &raquo; <b>Refresh Navigators</b> so the touch screens and the app show the new tiles.</li>
 <li>An empty <b>Fan Address</b> stops every request and Status says the device is not set up; the learned identity is kept, so typing the old address back resumes. Text that is not an IPv4 address gives <code>Fan Address "fan.local" is not an IPv4 address</code> (the typed text cut to 24 characters), and nothing is sent until it is corrected.</li>
 </ul>
@@ -118,7 +120,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 </ul>
 
 <h3 id="use-selected-fan">Use Selected Fan</h3>
-<p>The click that accepts a fan. The target is the pick in <b>Found Fans</b> when there is one, otherwise <b>Fan Address</b>. The driver reads that fan's identity once and sends it nothing else. The pick is cleared after every outcome.</p>
+<p>The click that accepts a fan. The target is the pick in <b>Found Fans</b> when there is one, otherwise <b>Fan Address</b>. The driver reads that fan's identity once and sends it nothing else. The pick is cleared after every outcome. When the click leaves a fan set up, it also looks at the names of the two items (see the endings below, and <a href="#item-names">The names of the two items</a>).</p>
 <table>
 <tr><th>The target answers</th><th>What happens</th><th>Last Action</th></tr>
 <tr><td>as the fan this device already uses, at its current address</td><td>Nothing changes.</td><td><code>Already using fan MF_00005E005301 at 10.0.2.151</code></td></tr>
@@ -128,6 +130,38 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td>as a Gen 4 fan, or not as a fan</td><td>Nothing changes.</td><td><code>10.0.2.151 is not a Gen 1 to 3 Modern Forms fan; nothing changed</code></td></tr>
 <tr><td>(a pick, and another fan now answers at the picked address)</td><td>Nothing changes.</td><td><code>The fan at 10.0.2.151 is not the one picked; Find Fans again</code></td></tr>
 <tr><td>(no pick and no address)</td><td>Nothing to do.</td><td><code>Nothing to use: pick a fan in Found Fans, or enter Fan Address</code></td></tr>
+</table>
+<p>After the first three rows, the driver checks the names of the two items. About two seconds later it writes the same <b>Last Action</b> line again, with one of three endings:</p>
+<table>
+<tr><th>Ending</th><th>What happened</th></tr>
+<tr><td><code>; items renamed</code></td><td>Both items still had the names they were created with, or the names the driver gave them, so they now carry the fan's product name. Example: <code>Already using fan MF_00005E005301 at 10.0.2.151; items renamed</code>.</td></tr>
+<tr><td><code>; names kept</code></td><td>At least one item has a name you typed, so the driver changed neither. <b>Name Items After Fan</b> names them anyway, when you want that.</td></tr>
+<tr><td><code>; not renamed</code></td><td>The driver could not rename: it has no name for this model, has not read the model yet, did not find its two items, or Control4 did not confirm the new names. Click <b>Name Items After Fan</b>; its <b>Last Action</b> line says which.</td></tr>
+<tr><td>(no ending)</td><td>The items already carried the right names, so nothing was done.</td></tr>
+</table>
+
+<h3 id="item-names">The names of the two items</h3>
+<p>The fan reports its model number, for example <code>1811-5-54</code>. The driver looks that number up in a list of Modern Forms product names that comes with the driver. Only an exact match counts; the driver never guesses a name. A hit is shown in <b>Fan Model</b>, for example <code>Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze</code>. Naming the items means giving the fan item that name, <code>Aviator 5</code>, and the light item the same name followed by "Light", <code>Aviator 5 Light</code>. A fan without a light kit gets its light item named the same way, so a kit added later needs nothing more.</p>
+<ul>
+<li><b>When.</b> Only when you click <b>Use Selected Fan</b> (above) or <b>Name Items After Fan</b> (below). Nothing else renames the items: not start-up, a driver update, a project restore, a new address typed in <b>Fan Address</b> (the first contact with a fan you typed in included), a firmware update, or a light kit added or removed. For a fan you typed in, click <b>Use Selected Fan</b> (with nothing picked it checks the typed address) or <b>Name Items After Fan</b> to name the items.</li>
+<li><b>Your names stay.</b> <b>Use Selected Fan</b> renames the items only while both still have the names they were created with (<b>Modern Forms Fan</b> and <b>Modern Forms Fan Light</b>) or the names the driver gave them. A name you typed, or a dealer typed, is never overwritten by it: both items stay as they are and the line ends <code>; names kept</code>.</li>
+<li><b>Name Items After Fan</b> is the way back. It is an action on the Actions tab, a click and never programmed. It names both items after the fan whatever they are called now, and says what it did. It works from the model the driver remembers, so it also works while the fan is off or not answering. Clicking it again changes nothing and says so.</li>
+<li><b>Two fans of one model get the same name.</b> The driver adds no number and no room. Rename one of the items yourself: the driver then leaves it alone.</li>
+<li><b>A model the driver has no name for</b> gets no name: <b>Fan Model</b> keeps the model number (<code>Gen 3, fan 9999-5-120, light kit F4IN-120V-R1-30, Breeze</code>) and nothing is renamed. Note the <b>Fan Model</b> text and open an issue on the project's GitHub page (chapter 15); a later driver can add the name.</li>
+<li><b>The name never comes from the Modern Forms app.</b> The fan's name in the app is often a room name, and the driver does not even keep it (chapter 14).</li>
+<li><b>After a rename</b> choose <b>File</b> &raquo; <b>Refresh Navigators</b> so the touch screens and the app show the new names. A voice assistant that knows the fan by its old name needs a new discovery, and a routine that says the old name needs the new one. Anything that looks the fan up by its name, such as some third-party drivers, will not find it under the old name.</li>
+</ul>
+<p><b>Name Items After Fan</b> writes one of these lines in <b>Last Action</b>:</p>
+<table>
+<tr><th>Last Action</th><th>Meaning</th></tr>
+<tr><td><code>Items named Aviator 5 and Aviator 5 Light</code></td><td>Done. Choose File &raquo; Refresh Navigators.</td></tr>
+<tr><td><code>Items already named Aviator 5 and Aviator 5 Light</code></td><td>Nothing to change.</td></tr>
+<tr><td><code>No name known for fan type 9999-5-120; items not renamed</code></td><td>The driver has no name for this model (the type is cut to 14 characters). Note <b>Fan Model</b> and open an issue.</td></tr>
+<tr><td><code>Fan type not read yet; try again in a moment</code></td><td>The fan has not told the driver its model yet.</td></tr>
+<tr><td><code>Items not renamed: this device's items were not found</code></td><td>The driver could not find its own two items in the project. Nothing was changed.</td></tr>
+<tr><td><code>Rename not confirmed; check the item names in Composer</code></td><td>Control4 did not confirm the new names. Look at the names in the System Design tree and click the action again.</td></tr>
+<tr><td><code>Nothing to name the items after: no fan is set up yet</code></td><td>Set up a fan first (above).</td></tr>
+<tr><td><code>Naming in progress; try again in a moment</code></td><td>Another naming is still running.</td></tr>
 </table>
 
 <h3 id="status-texts">Status texts and what to do</h3>
@@ -294,12 +328,12 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <table>
 <tr><th>What happened</th><th>What the driver shows</th><th>What to do</th></tr>
 <tr><td>The <b>same fan got a new address</b> (a lease changed, no reservation)</td><td>Not answering at the old address, or <code>Another fan&hellip;</code> if something else took it.</td><td>Click <b>Find Fans</b>, pick the entry marked as this device's fan or the entry with its MAC digits, and click <b>Use Selected Fan</b>; or type the new address in <b>Fan Address</b> and <b>Set</b>. <b>Last Action</b> reads <code>Same fan MF_00005E005301, now at 10.0.2.152</code>. Then reserve the address in the router.</td></tr>
-<tr><td>The fan or its Wi-Fi receiver was <b>replaced</b> (a new MAC address)</td><td>A different fan answers at the old address, or none at all.</td><td>Find or type the new fan's address, pick it, click <b>Use Selected Fan</b>: the device is re-pointed (<code>Now using fan MF_00005E005302 (was MF_00005E005301)</code>) and its links, programming and Navigators stay. Set the new fan up in the Modern Forms app and pair its remote and wall control again.</td></tr>
+<tr><td>The fan or its Wi-Fi receiver was <b>replaced</b> (a new MAC address)</td><td>A different fan answers at the old address, or none at all.</td><td>Find or type the new fan's address, pick it, click <b>Use Selected Fan</b>: the device is re-pointed (<code>Now using fan MF_00005E005302 (was MF_00005E005301)</code>) and its links, programming and Navigators stay. If the two items still have the names they were created with, or the names the driver gave them, they take the new fan's product name when it differs (the line ends <code>; items renamed</code>; a fan of the same model needs no change and the line has no ending). A name you typed stays (<code>; names kept</code>), and so do the old names when the driver has no name for the new model; <b>Name Items After Fan</b> changes them when you want that (chapter 3). Set the new fan up in the Modern Forms app and pair its remote and wall control again.</td></tr>
 <tr><td>The fan was <b>reset</b> (Wi-Fi reset, factory reset) or you changed routers</td><td>Not answering until the fan is set up again.</td><td>Set it up again in the Modern Forms app. Its MAC address does not change, so it is recognised as the same fan; if it came back at a new address, use the first row. A factory reset also clears the fan's remote pairings, so pair the remote and the wall control again.</td></tr>
-<tr><td>The fan got a <b>firmware update</b></td><td><b>Firmware</b> reads <code>02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052</code></td><td>Nothing. The driver reads the firmware again at every first contact and every six hours.</td></tr>
-<tr><td>The <b>light kit</b> was added or removed</td><td><b>Fan Model</b> and the light change after the next first contact.</td><td>Nothing.</td></tr>
+<tr><td>The fan got a <b>firmware update</b></td><td><b>Firmware</b> reads <code>02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052</code></td><td>Nothing. The driver reads the firmware again at every first contact and every six hours. The names of the two items do not change by themselves.</td></tr>
+<tr><td>The <b>light kit</b> was added or removed</td><td><b>Fan Model</b> and the light change after the next first contact.</td><td>Nothing. The names of the two items do not change by themselves.</td></tr>
 </table>
-<p>Until you accept a different fan, the driver sends it nothing.</p>
+<p>Until you accept a different fan, the driver sends it nothing. None of the rows above renames the two items on its own; their names change only when you click (chapter 3).</p>
 
 <!-- ================================================================ -->
 <h2 id="ch9">9. The fan's own automations</h2>
@@ -321,11 +355,11 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><th>Property</th><th>Default</th><th>What it shows or does</th></tr>
 <tr><td><b>Driver Version</b></td><td>(set by the driver)</td><td>The build number of the installed driver, for example <code>12</code>; a newer build has a higher one. Read-only.</td></tr>
 <tr><td><b>Status</b></td><td></td><td>One line about the fan: the texts of chapter 3. Read-only.</td></tr>
-<tr><td><b>Last Action</b></td><td></td><td>The result of the last action you clicked, or of the driver's own <code>Learned fan&hellip;</code> and <code>Same fan&hellip;</code> lines. Every line is also written to the log. Read-only.</td></tr>
+<tr><td><b>Last Action</b></td><td></td><td>The result of the last action you clicked, or of the driver's own <code>Learned fan&hellip;</code> and <code>Same fan&hellip;</code> lines. After <b>Use Selected Fan</b> the line may be written again with an ending about naming the items (chapter 3). Every line is also written to the log. Read-only.</td></tr>
 <tr><td><b>Fan Address</b></td><td>empty</td><td>The fan's IPv4 address. Editable; click <b>Set</b>.</td></tr>
 <tr><td><b>Found Fans</b></td><td>empty</td><td>The list <b>Find Fans</b> fills (chapter 3). A pick waits for <b>Use Selected Fan</b>.</td></tr>
 <tr><td><b>Fan ID</b></td><td>empty until the first contact</td><td>The learned identity: <code>MF_00005E005301 (MAC 00:00:5e:00:53:01)</code>. Read-only. It is also the copy of the identity that a restored project carries.</td></tr>
-<tr><td><b>Fan Model</b></td><td></td><td>For example <code>Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze</code>, or <code>Gen 3, fan 1811-5-54, no light kit</code>; <code>Gen 1/2, &hellip;</code> or <code>Gen ?, &hellip;</code> when the generation is not clear. Read-only.</td></tr>
+<tr><td><b>Fan Model</b></td><td></td><td>For example <code>Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze</code>, or <code>Gen 3, Aviator 5 (1811-5-54), no light kit</code>. The product name comes from the model number the fan reports (chapter 3); a model the driver has no name for keeps the number alone, for example <code>Gen 3, fan 9999-5-120, light kit F4IN-120V-R1-30, Breeze</code>. <code>Gen 1/2, &hellip;</code> or <code>Gen ?, &hellip;</code> when the generation is not clear. Read-only.</td></tr>
 <tr><td><b>Firmware</b></td><td></td><td>For example <code>02.00.0052 (motor 03.00.0000) since 2026-10-27</code>; after a change, <code>02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052</code>. Read-only.</td></tr>
 <tr><td><b>Last Seen</b></td><td></td><td>When the fan last answered and how fast, for example <code>2026-10-27 18:02:10, answered in 0.31 s</code>; written at most every 10 seconds. Read-only.</td></tr>
 <tr><td><b>Last Change By</b></td><td></td><td>Who changed the fan when it was not Control4 (chapter 9). Read-only.</td></tr>
@@ -347,7 +381,8 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <table>
 <tr><th>Action</th><th>What it does</th></tr>
 <tr><td><b>Find Fans</b></td><td>One multicast DNS query on the controller's own network, 3 seconds of answers, the result in <b>Found Fans</b> (chapter 3).</td></tr>
-<tr><td><b>Use Selected Fan</b></td><td>Accepts the fan picked in <b>Found Fans</b>, else the one at <b>Fan Address</b> (chapter 3).</td></tr>
+<tr><td><b>Use Selected Fan</b></td><td>Accepts the fan picked in <b>Found Fans</b>, else the one at <b>Fan Address</b>. Then names the two items after the fan, but only while they still have their original names or the names the driver gave them (chapter 3).</td></tr>
+<tr><td><b>Name Items After Fan</b></td><td>Names the fan item and the light item after the fan's product name, whatever they are called now; also works while the fan is off (chapter 3).</td></tr>
 <tr><td><b>Reboot Fan</b></td><td>Restarts the fan's Wi-Fi module; only while the fan answers (chapter 7).</td></tr>
 <tr><td><b>Turn Off Away Mode</b></td><td>Switches the fan's Away mode off (chapter 9).</td></tr>
 <tr><td><b>Turn Off Adaptive Learning</b></td><td>Switches the fan's adaptive learning off (chapter 9).</td></tr>
@@ -372,6 +407,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <h3>The rules</h3>
 <ul>
 <li><b>Beside, never instead.</b> A Control4 device cannot be converted to another driver, and this driver never replaces the stock one automatically. Add the Modern Forms Fan device beside the stock device; rename its items "Fan (new)" and "Fan Light (new)" while both exist.</li>
+<li><b>Your names stay.</b> Rename the new items before you click <b>Use Selected Fan</b>, then to "Fan" and "Fan Light" at the end. The driver keeps names you typed: the click ends <code>; names kept</code> and changes nothing. (Click it first and a new device's items are named after the fan's product name; rename them afterwards, which does no harm.) Do not click <b>Name Items After Fan</b> during the move: it would put the product name over the names you chose (chapter 3).</li>
 <li><b>Disable before bind.</b> For each keypad button, disable its old programming lines <i>before</i> you bind its link, so one press never reaches the fan through both drivers. Disable, do not delete, until the second sitting.</li>
 <li><b>Single taps become links; double taps stay programming.</b> Bind the speed buttons to Fan Speed 1 to 6 and Off to Fan Off. Rebuild a double tap as a line on the button's own Double Tap event, aimed at the new fan, and use <b>Speed N Link Also Lit At</b> to keep that button lit at the double-tap speed. Up and Down can bind to Light Top and Light Bottom or keep their programming, re-aimed at the new light.</li>
 <li><b>The LED workaround goes in one step</b>, after the last button has moved: the keypad's LED lines, the stock fan's speed-changed script and the settle timer. While a button is on Follow Connection, a programmed LED line still acts on it and can repaint it. Afterwards a bound button shows the keypad's own on and off colours, or, with <b>Speed LED Colors</b> set to <code>Per speed</code>, a colour for each speed.</li>
@@ -466,7 +502,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 
 <!-- CHANGELOG -->
 
-<p class="caption">Modern Forms Fan driver for Control4. Copyright 2026 Cory Fair; licensed under the Apache License, Version 2.0 (the LICENSE and NOTICE files that come with the driver). Modern Forms and WAC Lighting are trademarks of their respective owners; Control4 and Composer are trademarks of Snap One, LLC. This project is not affiliated with, endorsed by or supported by Modern Forms, WAC Lighting or Snap One.</p>
+<p class="caption">Modern Forms Fan driver for Control4. Copyright 2026 Cory Fair; licensed under the Apache License, Version 2.0 (the LICENSE and NOTICE files that come with the driver). Modern Forms and WAC Lighting are trademarks of their respective owners, and the product names the driver shows (such as Aviator) are theirs and used only to say which fan is meant; Control4 and Composer are trademarks of Snap One, LLC. This project is not affiliated with, endorsed by or supported by Modern Forms, WAC Lighting or Snap One.</p>
 
 </body>
 </html>

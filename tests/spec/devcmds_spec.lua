@@ -112,6 +112,39 @@ local function fake_light(over)
 	return { debug = function() return report end, report = report }
 end
 
+-- The names job of fan-name-design 2.2 as far as Dev Names Plan asks it: plan(mode) answers a
+-- copy of the table the spec gives, with the mode it was asked for, and job.modes says which
+-- modes it was asked for. run() is there to be caught: the command must never reach it.
+local function fake_names(plan)
+	local job = { modes = {}, ran = 0 }
+	function job.plan(_, mode)
+		job.modes[#job.modes + 1] = mode
+		local copy = {}
+		for key, value in pairs(plan) do copy[key] = value end
+		copy.mode = mode
+		return copy
+	end
+	function job.run()
+		job.ran = job.ran + 1
+		error("Dev Names Plan must not run the job")
+	end
+	return job
+end
+
+-- What the job plans for the house fan (type 1811-5-54, named Aviator 5 by the contract)
+-- while both items still have their shipped names, and the line Dev Names Plan prints for it.
+local PLAN = {
+	outcome = "renamed", fan_type = "1811-5-54", fan_id = 1205, light_id = 1206,
+	fan_live = "Modern Forms Fan", light_live = "Modern Forms Fan Light",
+	fan_to = "Aviator 5", light_to = "Aviator 5 Light", fan_ours = true, light_ours = true,
+}
+
+local function plan_line(mode)
+	return "Dev Names Plan: mode=" .. mode .. ' would=renamed fan_type=1811-5-54 fan_id=1205 '
+		.. 'fan_live="Modern Forms Fan" fan_to="Aviator 5" fan_ours=1 light_id=1206 '
+		.. 'light_live="Modern Forms Fan Light" light_to="Aviator 5 Light" light_ours=1; nothing was renamed'
+end
+
 -- A fan/wire.lua with the surface devcmds uses: constants, decode, body
 -- (section 9.3's refusals: unknown, mix, range, empty), state and info.
 local function fake_wire()
@@ -186,7 +219,7 @@ local function new_commands(over)
 	env.wire = fake_wire()
 	for key, value in pairs(over or {}) do env[key] = value end
 	env.commands, env.stop = devcmds.new({
-		model = env.model, fan = env.fan, links = env.links, light = env.light, log = env.log,
+		model = env.model, fan = env.fan, links = env.links, light = env.light, names = env.names, log = env.log,
 		prop = env.prop or function(name, value) env.rows[name] = value end,
 		inject = env.inject or function(binding, command, params)
 			env.injected[#env.injected + 1] = { binding, command, params }
@@ -218,8 +251,8 @@ end
 
 describe("fan.devcmds", function()
 	describe("the table for devloop.set_signed_commands", function()
-		it("holds the four commands of section 12 under the names common/dispatch.lua gives them, and nothing else",
-			function()
+		it("holds the five commands of section 12 and fan-name-design 2.4 under the names common/dispatch.lua gives "
+			.. "them, and nothing else", function()
 				local env = new_commands()
 				local names = {}
 				for name, fn in pairs(env.commands) do
@@ -227,7 +260,7 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Fan_State", "Dev_Press", "Dev_Proxy", "Dev_Request" }, names)
+				assert.same({ "Dev_Fan_State", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request" }, names)
 				assert.is_function(env.stop)
 			end)
 
@@ -236,12 +269,13 @@ describe("fan.devcmds", function()
 			local commands = devcmds.new({ log = log })
 			assert.has_no.errors(function()
 				commands.Dev_Fan_State()
+				commands.Dev_Names_Plan({ MODE = "forced" })
 				commands.Dev_Press({ LINK = "303", ACTION = "tap" })
 				commands.Dev_Proxy({ BINDING = "5001", COMMAND = "ON" })
 				commands.Dev_Request({ BODY = '{"queryDynamicShadowData":1}' })
 				commands.Dev_Press(nil)
 			end)
-			assert.is_true(#log.texts("warn") >= 4)
+			assert.is_true(#log.texts("warn") >= 5)
 		end)
 
 		it("falls back to common.log when no logger is given", function()
@@ -983,6 +1017,166 @@ describe("fan.devcmds", function()
 		end)
 	end)
 
+	describe("Dev Names Plan", function()
+		it("prints what a guarded click would decide as one line, and says nothing was renamed", function()
+			local job = fake_names(PLAN)
+			local env = new_commands({ names = job })
+			env.commands.Dev_Names_Plan({})
+			assert.same({ plan_line("guarded") }, env.log.texts("always"))
+			assert.same({ "guarded" }, job.modes)
+			assert.equal(0, job.ran)
+			assert.same({}, warned(env))
+			-- it only reads: no row, no message to a proxy, no timer
+			assert.same({}, env.rows)
+			assert.same({}, env.injected)
+			assert.equal(0, #env.clock.list)
+		end)
+
+		it("is one line: no newline, single spaces between the pairs", function()
+			local env = new_commands({ names = fake_names(PLAN) })
+			env.commands.Dev_Names_Plan({})
+			local line = env.log.texts("always")[1]
+			assert.is_nil(line:find("[\n\r\t]"))
+			assert.is_nil(line:find("  ", 1, true))
+		end)
+
+		it("plans the forced click for MODE=forced, in any case and with padding", function()
+			for _, value in ipairs({ "forced", "FORCED", "  Forced " }) do
+				local job = fake_names(PLAN)
+				local env = new_commands({ names = job })
+				env.commands.Dev_Names_Plan({ MODE = value })
+				assert.same({ "forced" }, job.modes, value)
+				assert.same({ plan_line("forced") }, env.log.texts("always"), value)
+			end
+		end)
+
+		it("takes no MODE, an empty one (devctl.py run ... MODE=) and guarded as guarded", function()
+			for _, params in ipairs({ {}, { MODE = "" }, { MODE = "   " }, { MODE = "guarded" }, { MODE = " GUARDED " } }) do
+				local job = fake_names(PLAN)
+				local env = new_commands({ names = job })
+				env.commands.Dev_Names_Plan(params)
+				assert.same({ "guarded" }, job.modes, tostring(params.MODE))
+				assert.same({ plan_line("guarded") }, env.log.texts("always"), tostring(params.MODE))
+			end
+			local job = fake_names(PLAN)
+			local env = new_commands({ names = job })
+			env.commands.Dev_Names_Plan(nil)
+			assert.same({ "guarded" }, job.modes)
+		end)
+
+		it("refuses a MODE that is neither, and asks the job nothing", function()
+			for _, bad in ipairs({ "both", "rename", "1", "forced guarded", "forced;", "force", 5, true }) do
+				local job = fake_names(PLAN)
+				local env = new_commands({ names = job })
+				env.commands.Dev_Names_Plan({ MODE = bad })
+				assert.same({}, job.modes, tostring(bad))
+				assert.same({}, env.log.texts("always"), tostring(bad))
+				assert.equal(1, #warned(env), tostring(bad))
+				assert.truthy(warned(env)[1]:find("^Dev Names Plan refused: MODE"), tostring(bad))
+			end
+		end)
+
+		it("says the names job is missing when there is none, or when it has no plan", function()
+			for _, names in ipairs({ false, {}, { plan = "not a function" }, "job" }) do
+				local env = new_commands({ names = names or nil })
+				env.commands.Dev_Names_Plan({ MODE = "forced" })
+				assert.same({ "Dev Names Plan refused: the names job is missing; nothing was done" }, warned(env))
+				assert.same({}, env.log.texts("always"))
+			end
+		end)
+
+		it("says the job is missing before it judges a MODE", function()
+			local env = new_commands()
+			env.commands.Dev_Names_Plan({ MODE = "both" })
+			assert.truthy(warned(env)[1]:find("the names job is missing", 1, true))
+		end)
+
+		it("contains a job whose plan raises, and one that answers no table", function()
+			local raising = fake_names(PLAN)
+			raising.plan = function() error("job kaput") end
+			local env = new_commands({ names = raising })
+			assert.has_no.errors(function() env.commands.Dev_Names_Plan({}) end)
+			assert.truthy(warned(env)[1]:find("^Dev Names Plan refused: the plan could not be made"))
+			assert.truthy(warned(env)[1]:find("job kaput", 1, true))
+			for _, answer in ipairs({ "plan", 5, true }) do
+				local job = fake_names(PLAN)
+				job.plan = function() return answer end
+				local silent = new_commands({ names = job })
+				silent.commands.Dev_Names_Plan({})
+				assert.truthy(warned(silent)[1]:find("the names job gave no plan", 1, true), tostring(answer))
+			end
+			local nothing = fake_names(PLAN)
+			nothing.plan = function() end
+			local env2 = new_commands({ names = nothing })
+			env2.commands.Dev_Names_Plan({})
+			assert.truthy(warned(env2)[1]:find("the names job gave no plan", 1, true))
+		end)
+
+		it("writes a dash for what the plan did not get as far as", function()
+			local env = new_commands({ names = fake_names({ outcome = "no_name", fan_type = "9999-9-99" }) })
+			env.commands.Dev_Names_Plan({ MODE = "forced" })
+			assert.same({ "Dev Names Plan: mode=forced would=no_name fan_type=9999-9-99 fan_id=- fan_live=- fan_to=- "
+				.. "fan_ours=- light_id=- light_live=- light_to=- light_ours=-; nothing was renamed" },
+				env.log.texts("always"))
+		end)
+
+		it("prints the contract's table alone too: the mode is the one asked for, the extra pairs read dashes", function()
+			local job = fake_names(PLAN)
+			job.plan = function()
+				return { outcome = "same", fan_id = 1205, light_id = 1206, fan_live = "Aviator 5",
+					light_live = "Aviator 5 Light", fan_to = "Aviator 5", light_to = "Aviator 5 Light" }
+			end
+			local env = new_commands({ names = job })
+			env.commands.Dev_Names_Plan({})
+			assert.same({ 'Dev Names Plan: mode=guarded would=same fan_type=- fan_id=1205 fan_live="Aviator 5" '
+				.. 'fan_to="Aviator 5" fan_ours=- light_id=1206 light_live="Aviator 5 Light" '
+				.. 'light_to="Aviator 5 Light" light_ours=-; nothing was renamed' }, env.log.texts("always"))
+		end)
+
+		it("writes the ours flags as 1 and 0, and an id that is no number as ?", function()
+			local plan = {}
+			for key, value in pairs(PLAN) do plan[key] = value end
+			plan.fan_ours, plan.light_ours, plan.fan_id, plan.light_id = false, true, "abc", 0 / 0
+			local env = new_commands({ names = fake_names(plan) })
+			env.commands.Dev_Names_Plan({})
+			local line = env.log.texts("always")[1]
+			assert.truthy(line:find("fan_ours=0", 1, true))
+			assert.truthy(line:find("light_ours=1", 1, true))
+			assert.truthy(line:find("fan_id=? ", 1, true))
+			assert.truthy(line:find("light_id=? ", 1, true))
+		end)
+
+		it("quotes the owner's names, cleaned of control characters and cut, and keeps the type one word", function()
+			local plan = {}
+			for key, value in pairs(PLAN) do plan[key] = value end
+			plan.fan_live, plan.light_live = "Bad\nline\tname", string.rep("n", 80)
+			plan.fan_type = "99\n9 9=x"
+			local env = new_commands({ names = fake_names(plan) })
+			env.commands.Dev_Names_Plan({})
+			local line = env.log.texts("always")[1]
+			assert.is_nil(line:find("[\n\r\t]"))
+			assert.truthy(line:find('fan_live="Bad?line?name"', 1, true))
+			assert.truthy(line:find('light_live="' .. string.rep("n", 60) .. '..."', 1, true))
+			assert.truthy(line:find("fan_type=99?9_9_x ", 1, true))
+		end)
+
+		it("contains a plan it cannot read", function()
+			local plan = {}
+			for key, value in pairs(PLAN) do plan[key] = value end
+			plan.fan_live = setmetatable({}, { __tostring = function() error("name kaput") end })
+			local env = new_commands({ names = fake_names(plan) })
+			assert.has_no.errors(function() env.commands.Dev_Names_Plan({}) end)
+			assert.truthy(warned(env)[1]:find("^Dev Names Plan refused: the plan could not be read"))
+			assert.same({}, env.log.texts("always"))
+		end)
+
+		it("prints a line the redactor leaves alone: ids and names, no address, no client id", function()
+			local line = plan_line("guarded")
+			assert.equal(line, devcmds.redact(line, {}))
+			assert.equal(line, devcmds.redactor(function() return PIN end)(line))
+		end)
+	end)
+
 	describe("the redactor", function()
 		local function redactor(pin)
 			return devcmds.redactor(function() return pin end)
@@ -1215,6 +1409,19 @@ describe("fan.devcmds", function()
 			end)
 		end)
 
+		it("runs Dev Names Plan from a signed execute, with its MODE", function()
+			with_devloop(function(devloop)
+				local job = fake_names(PLAN)
+				local env = new_commands({ names = job })
+				devloop.set_signed_commands(env.commands)
+				assert.is_nil(devloop.execute("Dev Names Plan", { MODE = "forced" }))
+				assert.is_nil(devloop.execute("Dev Names Plan", {}))
+				assert.same({ "forced", "guarded" }, job.modes)
+				assert.equal(0, job.ran)
+				assert.same({ plan_line("forced"), plan_line("guarded") }, env.log.texts("always"))
+			end)
+		end)
+
 		it("also finds them as a Composer action (LUA_ACTION) and keeps ACTION out of the parameters", function()
 			with_devloop(function(devloop)
 				local env = new_commands()
@@ -1229,7 +1436,7 @@ describe("fan.devcmds", function()
 				package.loaded["common.dispatch"] = nil
 				local dispatch = require("common.dispatch")
 				new_commands()
-				for _, name in ipairs({ "Dev_Fan_State", "Dev_Press", "Dev_Proxy", "Dev_Request" }) do
+				for _, name in ipairs({ "Dev_Fan_State", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request" }) do
 					assert.is_nil(dispatch.commands[name], name)
 				end
 				package.loaded["common.dispatch"] = nil

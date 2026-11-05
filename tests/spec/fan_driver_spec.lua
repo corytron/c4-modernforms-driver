@@ -185,13 +185,13 @@ describe("Modern Forms Fan driver", function()
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
 			end)
 
-		it("declares the six actions with sort_order, the two events and the one condition", function()
+		it("declares the seven actions with sort_order, the two events and the one condition", function()
 			local actions = {}
 			for body in bare:gmatch("<action>(.-)</action>") do
 				actions[#actions + 1] = field(body, "sort_order") .. ":" .. field(body, "command")
 			end
-			assert.same({ "1:Find Fans", "2:Use Selected Fan", "3:Reboot Fan", "4:Turn Off Away Mode",
-				"5:Turn Off Adaptive Learning", "6:Migration Report" }, actions)
+			assert.same({ "1:Find Fans", "2:Use Selected Fan", "3:Name Items After Fan", "4:Reboot Fan",
+				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning", "7:Migration Report" }, actions)
 			local events = {}
 			for body in bare:gmatch("<event>(.-)</event>") do
 				events[#events + 1] = field(body, "id") .. ":" .. field(body, "name")
@@ -510,6 +510,83 @@ describe("Modern Forms Fan driver", function()
 			answer(c4, mf.state({ fanOn = false, fanSpeed = 3 }))
 			env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" })
 			assert.equal("by this fan: 0", row4(c4):match("by this fan: .*"))
+		end)
+	end)
+
+	describe("naming the items after the fan (fan-name-design, #37)", function()
+		-- The two proxy items as the fake project holds them, given the names
+		-- Composer gives a new device (the proxies' name attributes).
+		local function items(env, fan_name, light_name)
+			local c4 = env.C4
+			local function one(binding)
+				return (next(c4:GetBoundConsumerDevices(c4:GetDeviceID(), binding) or {}))
+			end
+			local fan_id, light_id = one(5001), one(5002)
+			fake.project.devices[fan_id].name = fan_name or "Modern Forms Fan"
+			fake.project.devices[light_id].name = light_name or "Modern Forms Fan Light"
+			return fan_id, light_id
+		end
+
+		local function name_of(id)
+			return fake.project.devices[id].name
+		end
+
+		-- Use Selected Fan on Fan Address: the same fan answers its info read.
+		local function use_selected(env, c4)
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Use Selected Fan" })
+			for _ = 1, 3 do
+				local data = last_sent(c4)
+				if data == '{"queryStaticShadowData":1}' then
+					answer(c4, mf.INFO)
+				elseif data == '{"queryDynamicShadowData":1}' then
+					answer(c4, mf.state({ fanOn = true, fanSpeed = 3 }))
+				end
+			end
+			c4.advance(2500)
+		end
+
+		it("shows the product name in Fan Model", function()
+			local env = online_driver()
+			assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze", env.Properties["Fan Model"])
+		end)
+
+		it("Use Selected Fan names both items of a fresh device after the fan", function()
+			local env, c4 = online_driver()
+			local fan_id, light_id = items(env)
+			use_selected(env, c4)
+			assert.equal("Aviator 5", name_of(fan_id))
+			assert.equal("Aviator 5 Light", name_of(light_id))
+			assert.truthy(env.Properties["Last Action"]:find("; items renamed$"), env.Properties["Last Action"])
+		end)
+
+		it("Use Selected Fan keeps names someone typed, and Name Items After Fan takes them back", function()
+			local env, c4 = online_driver()
+			local fan_id, light_id = items(env, "Fan", "Fan Light")
+			use_selected(env, c4)
+			assert.equal("Fan", name_of(fan_id))
+			assert.equal("Fan Light", name_of(light_id))
+			assert.truthy(env.Properties["Last Action"]:find("; names kept$"), env.Properties["Last Action"])
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			c4.advance(2500)
+			assert.equal("Aviator 5", name_of(fan_id))
+			assert.equal("Aviator 5 Light", name_of(light_id))
+			assert.truthy(env.Properties["Last Action"]:find("Aviator 5", 1, true), env.Properties["Last Action"])
+		end)
+
+		it("renames nothing at start-up or on a poll", function()
+			local _, c4 = online_driver()
+			c4.advance(60000)
+			assert.same({}, c4.calls_to("RenameDevice"))
+		end)
+
+		it("Name Items After Fan with no fan set up refuses", function()
+			local env, c4 = fake.load_driver(DRIVER, {})
+			env.OnDriverInit("DIT_STARTUP")
+			env.OnDriverLateInit("DIT_STARTUP")
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Name Items After Fan" })
+			c4.advance(10)
+			assert.same({}, c4.calls_to("RenameDevice"))
+			assert.truthy(env.Properties["Last Action"] ~= "", "it says why")
 		end)
 	end)
 

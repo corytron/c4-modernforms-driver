@@ -95,7 +95,9 @@ Windows Composer session.
 1. **The project is the owner's.** The driver may change its own properties,
    its persisted data and, when asked, the fan. It never adds, deletes,
    renames, moves, binds, unbinds or re-programs anything in the project by
-   itself (F21: most of it has no API anyway). Reading the project (devices,
+   itself (F21: most of it has no API anyway). The one exception is D15: its
+   own two items are renamed on two clicks, never over a name the owner
+   typed. Reading the project (devices,
    bindings, programming; F19, F20) is always allowed, and is how the driver
    helps with everything it may not do.
 2. **The Control4 device is the identity.** A fan that is replaced, reset
@@ -275,7 +277,7 @@ the migration adds a device and changes no capability [assumed, as in M1].
 | D12 | Controller replaced | the project moves to the new controller | A: check the identity again; nothing of ours is tied to the controller unless the fan needs a secret (fan side) | — | [assumed] |
 | D13 | OS 3.x to 4.x | fan proxy: no change documented through 3.4.2, no 4.x pages; `light_v2`: `hide_proxy_*` dynamic from 4.2.1 | A: nothing; re-run the Composer checklist after an upgrade | — | F12, F33; FAN `3_whats_new/` |
 | D14 | A proxy moved to another room | programming keeps the device; descriptions show "Room->Name" | A: nothing; no behaviour depends on the room | — | FUND `10_conditionals/_2-SIMPLECONDITIONAL.md` (the NAME macro) [assumed: ids kept] |
-| D15 | A proxy renamed in Composer | the name is the owner's | F: `RenameDevice` by the driver (each call refreshes the whole project); the fan's own name shown read-only in `Fan Name` | — | API `22_miscellaneous/_32-RenameDevice.md` |
+| D15 | A proxy renamed in Composer | the name is the owner's | **Changed 2026-11-04 (#37, N9 of [`fan-name-design.md`](fan-name-design.md#1-decisions)):** was F, now only on two clicks. O: Use Selected Fan names the fan item and the light item after the fan's product name, guarded: only while both still have the shipped names or the names the driver last wrote (N4), else `; names kept`. O: the action Name Items After Fan names them whatever they are called (N5). F: every other moment (start-up, update, restore, poll, a new address, a firmware or light-kit change, the first contact from a typed `Fan Address`) and the app's name for the fan, which the driver drops (V20 of [`v1-design.md`](v1-design.md)); the early plan's read-only `Fan Name` row did not ship. Each `RenameDevice` call refreshes the whole project. The cases behind it: [`edge-cases-rename.md`](edge-cases-rename.md) | `Last Action`: the usual line, then about 2 s later the same with `; items renamed`, `; names kept` or `; not renamed`; the action's own line | API `22_miscellaneous/_32-RenameDevice.md` |
 | D16 | Two fans in one project | two devices with the same default names | A: each device keeps its own identity; never `SINGLETON_ID` | — | F5 |
 | D17 | Two of our devices on one fan (a re-add, a typo) | both command it | A: detect it (our devices by file name, each one's identity in a hidden variable read with `GetDeviceVariable`) and say so on both. F: disabling either. O: the owner deletes or re-points one | "Also controlled by device 1234 (Second Room)" | F20 [assumed: H11] |
 | D18 | Fan hardware replaced (new identity, same place) | the fan side sees the mismatch | O: `Use Selected Fan` re-points the same device; links, programming and names stay. F: adopting a different fan by itself; deleting the device to fix it | "Wrong fan at 10.0.2.151; Use Selected Fan to accept it" | rule 2 |
@@ -385,8 +387,8 @@ them when our notifications arrive. So the driver owns their timing:
 | U3 | The fan offline | the fan proxy has no offline flag (F8): the tile stays live with the last speed; taps per P3; the owner sees `Status`, the ONLINE variable and Fan Offline. Whether ONLINE_CHANGED sent to the fan proxy does anything (a community driver sends it) is H3; LEDs per Q5 | F8, F31 |
 | U4 | Before the first read (new device, after a restart) | the light tile disabled; the fan tile shows what its proxy holds [assumed] | R6 |
 | U5 | Where the devices show | both proxies land in the room chosen at the add; the fan among the room's comfort controls, the light among its lights [assumed: the owner's eyes once] | F3 |
-| U6 | Names | the proxies' default names come from their `name` attributes; two fans in a room are renamed by the owner | F3 |
-| U7 | After adds, renames, capability changes | File ▸ Refresh Navigators (WS) | HUE `design.md`, "Keypad and scene dimmer: verified on hardware" |
+| U6 | Names | the proxies' default names come from their `name` attributes; since 2026-11-04 (#37) Use Selected Fan and the action Name Items After Fan rename the two items after the fan's product name (D15, N9 of [`fan-name-design.md`](fan-name-design.md#1-decisions)), the first only while both carry the default names or the driver's own; two fans of one model get the same names (no number, no room), so the owner renames one, and a name typed is kept | F3; [`edge-cases-rename.md`](edge-cases-rename.md) RC11 |
+| U7 | After adds, renames (the driver's own, D15, included), capability changes | File ▸ Refresh Navigators (WS); a voice assistant that knows the fan under its old name needs a new discovery, and a routine that says it needs the new name [assumed, [`edge-cases-rename.md`](edge-cases-rename.md) RF9] | HUE `design.md`, "Keypad and scene dimmer: verified on hardware" |
 | U8 | Long texts in Composer | rows under about 70 characters; lists as DYNAMIC_LIST (the Hue `Room Mappings` lesson) | F29; HUE `edge-cases-ux.md`, §6 |
 | U9 | The Actions tab | every action carries `sort_order` | F29 |
 | U10 | The tree icon | D25 | F28 |

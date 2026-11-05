@@ -46,7 +46,7 @@ At load every entry is checked with `valid()`; one that fails is dropped
 local rename = require("fan.rename")
 local job = rename.new({
 	ids = fn() -> fan_id|nil, light_id|nil,      -- the two proxy ids (driver.lua: the bound consumers of 5001, 5002)
-	display_name = fn(id) -> string|nil,        -- C4:GetDeviceDisplayName (API 22_miscellaneous)
+	display_name = fn(id) -> string|nil,        -- C4:GetDeviceDisplayName (API 32_serial_network_device/_6)
 	rename = fn(id, name),                      -- C4:RenameDevice (API 22_miscellaneous/_32-RenameDevice.md)
 	fan_type = fn() -> string|nil,              -- model:info().fan_type, stored, so known while the fan is silent
 	pinned = fn() -> bool,

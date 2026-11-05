@@ -354,7 +354,15 @@ theirs read otherwise: the light's Default On Brightness (100) and the fan's
 preset (Level 3, the new driver's default 3, V11 of v1-design.md). In Phase 6
 the stock items become "Fan (old)" and "Fan Light (old)" first, and the new
 items then take "Fan" and "Fan Light", so no two items ever share a name;
-File ▸ Refresh Navigators follows. Basis: in Connections' lower list and in
+File ▸ Refresh Navigators follows. The driver leaves all of these names
+alone: since #37 Use Selected Fan names the two items after the fan's
+product name only while both still carry the names a new device is created
+with or the names the driver itself wrote, and the "(new)" names and the
+family's "Fan" and "Fan Light" are neither, so the confirming click ends `;
+names kept` and changes nothing; the action Name Items After Fan would force
+the product name over them, so no brief clicks it (5.1)
+([`fan-name-design.md`](fan-name-design.md#1-decisions), N4 and N8). Basis:
+in Connections' lower list and in
 Programming both devices offer the same links and commands, and WS picks by
 name ([`composer-remote.md`](composer-remote.md), the helper module);
 [`edge-cases-control4.md`](edge-cases-control4.md#26-migration-checklist-outline),
@@ -446,14 +454,24 @@ turns the phases into briefs and section 6 collects the ways back.
      types that address into `Fan Address` and clicks Set. Then the
      confirming action v1-design.md names (such as `Use Selected Fan`). WS
      compares the two addresses on its side and reports only whether they
-     match.
+     match. The order of steps 3 and 4 matters for the names: with the
+     "(new)" names typed first, the click finds names the driver did not
+     give and keeps them, and its `Last Action` ends `; names kept` (`; not
+     renamed` if the driver has no name for the model). Click it on a fresh
+     device before step 3 and it names the items after the fan's product
+     name instead (`; items renamed`: `Aviator 5` and `Aviator 5 Light` on
+     the house's fan) and step 3 then renames them again; no harm, but the
+     pair carries no "(new)" mark in between, so step 3 stays first. WS
+     never clicks `Name Items After Fan` in any phase (5.1).
   5. Nothing else: no binding, no programming, the stock device untouched.
 - **Check:** no "Restart Director?"; `Driver Version` is the build; `Status`
   reads online, with a speed and a light level that agree with the fan's;
   `Fan ID` is filled (reported as `MF_00005E005301`); `Keypad Links` shows
   nothing bound; `Migration` reads "Not run yet: click Migration Report on
-  the Actions tab"; System Design shows the two new items and nothing else
-  changed (rule 6).
+  the Actions tab"; the confirming action's `Last Action` ends `; names
+  kept` (or `; not renamed`, never `; items renamed`) and the two items are
+  still "Fan (new)" and "Fan Light (new)"; System Design shows the two new
+  items and nothing else changed (rule 6).
 - **Way back:** delete the new device; nothing binds or names it yet. Its
   driver file may stay in Composer's store.
 
@@ -574,7 +592,9 @@ turns the phases into briefs and section 6 collects the ways back.
      the same command or condition on the new device by drag (or by Find and
      Replace, if H9 shows it can swap a line's device).
   2. Names (G14): the stock items "Fan (old)" and "Fan Light (old)", then
-     the new items "Fan" and "Fan Light"; the stock items hidden from the
+     the new items "Fan" and "Fan Light" (typed in Composer, as before: the
+     driver renames nothing here and WS does not click `Name Items After
+     Fan`); the stock items hidden from the
      Navigators where Phase 0 found the setting; File ▸ Refresh Navigators.
   3. The disarm (G13), if the stock driver polls: its `IP Address` cleared
      with Set, the value kept in the local migration folder.
@@ -646,7 +666,11 @@ turns the phases into briefs and section 6 collects the ways back.
   ("Fan"), where the stock device's parent was its light ("Fan Light").
   Migration Report #2 read "nothing enabled names it; safe to remove" and #3
   "is gone; nothing names it"; row 4 read "unknown" for both speeds, fixed
-  by #35.
+  by #35. The items keep "Fan" and "Fan Light" when the build with the
+  fan's product name (#37) arrives: its Use Selected Fan finds names that are
+  neither a default nor the driver's and keeps them, and only the owner's own
+  click on `Name Items After Fan` would give them the product name instead
+  ([`fan-name-design.md`](fan-name-design.md#1-decisions), N8).
 
 ## 4. The Migration Report
 
@@ -887,6 +911,11 @@ by setting the verdict back with `C4:UpdateProperty`, which raises no
   17); the Programming view read from screenshots and Copy All only (rule
   19); the new device never deleted and added again once Phase 3 has begun
   (rule 20).
+- The action `Name Items After Fan` is never clicked in a migration round
+  (G14): it forces the fan's product name over whatever the items are
+  called, the "(new)" names that the session picks Connections rows by
+  included. `Use Selected Fan` is fine: it leaves names the driver did not
+  give alone and says so (`; names kept`).
 - Where files go: screenshots under `C:\c4-mf\shots\`; backups, Copy All
   files and anything holding the house's names, the project's device ids,
   the fan's address or the stock device's private rows under
@@ -900,7 +929,7 @@ by setting the verdict back with `C4:UpdateProperty`, which raises no
 | Phase | Read | Change (the named hard-to-undo steps) | Report | Stop if |
 | --- | --- | --- | --- | --- |
 | 0 | section 1 and M0's files | the backup only | each script's Copy All against M0's; the backup's path and size; the File menu's backup and Load Project items; where visibility is set; the Driver Update Agent's list | a dialog other than the backup's offers a change |
-| 1 | G4, G14, Phase 1 | the install; the device added; the renames; the Default On Brightness and preset Sets, if needed; `Fan Address` and Set, or the `Found Fans` pick; the confirming action | Phase 1's check; whether the addresses match | "Restart Director?"; an install error; `Status` not online within a minute |
+| 1 | G4, G14, Phase 1 | the install; the device added; the renames; the Default On Brightness and preset Sets, if needed; `Fan Address` and Set, or the `Found Fans` pick; the confirming action (never `Name Items After Fan`) | Phase 1's check, the confirming action's `Last Action` and the two item names included; whether the addresses match | "Restart Director?"; an install error; `Status` not online within a minute |
 | 2 | section 4, G13 | the beta's install | the `Migration` rows (the dropped list read with `Get-ComboListItemsMsaa`, scrolled by its scrollbar); row 4 a minute after the round trip; `Keypad Links` | the report fails |
 | 3 | 1.4 (the order Medium, Med-High, Off, Low, High), G6, G7 | the backup; every Disable Event and Disable Item; every binding; the two `Also Lit At` Sets | per button: the Copy All summary, both lists, LED Behavior, `Keypad Links`; a pause after Medium for the owner's press | a binding lands on a stock link or on another button (Disconnect it); a script holds a line 1.3 does not list |
 | 4 | 1.3 (I2, I6, I8, I9) | Disable Item on Up's and Down's old lines; the four new lines | the Copy All summaries; each new line's text as shown | a line lands inside an If unintended (delete it); no speed parameter is offered |
@@ -935,6 +964,13 @@ request sets `release: none` and `build: none` again; with an install
 recorded, the drift run then reports drift without an issue
 ([`cicd-gitops-design.md`](cicd-gitops-design.md#9-automation-decisions),
 section 9). A device kept unused leaves the desired state as it is.
+
+The driver's own naming (V28 of [`v1-design.md`](v1-design.md)) adds no row
+to this table. It renames only on a click, the migration never clicks
+`Name Items After Fan`, and in Phase 1's order `Use Selected Fan` finds the
+names the session typed and changes nothing, so the driver has renamed
+nothing that a way back would have to undo: Phase 6's "the new items to
+"… (new)" first" stands as written.
 
 ## 7. Recording the installs
 

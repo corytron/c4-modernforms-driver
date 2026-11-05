@@ -1,9 +1,38 @@
 -- fan.texts: every owner-visible string of the driver, verbatim from the v1
--- contract's section 7 (docs/v1-design.md). The module is pure, so nothing
--- here needs the fake runtime. Times are built from local-time fields, so the
--- specs hold in any time zone.
+-- contract's section 7 (docs/v1-design.md) and, for the fan's name and the
+-- rename job's answers, from docs/fan-name-design.md 2.3. The module is pure,
+-- so nothing here needs the fake runtime. Times are built from local-time
+-- fields, so the specs hold in any time zone.
+--
+-- texts.lua requires fan.names, the table of fan types and their names. This
+-- spec is about wording, not about the table (names_spec.lua owns that), so
+-- texts is loaded once against a fake of names' interface (fan-name-design
+-- 2.1) and both module entries go back at once: the fake is bound inside this
+-- instance of texts, and every other spec requires the real fan.names and its
+-- own fan.texts. Which types the fake knows is up to each test through KNOWN;
+-- it knows none by default, so every older Fan Model example shows the text
+-- of a type without a name, as before the feature.
 
-local texts = require("fan.texts")
+local KNOWN = {}
+local fake_names = {
+	-- A trimmed exact match, nil for anything else (fan-name-design 2.1).
+	lookup = function(fan_type)
+		if type(fan_type) ~= "string" then
+			return nil
+		end
+		return KNOWN[(fan_type:match("^%s*(.-)%s*$"))]
+	end,
+	light = function(name)
+		return name and (name .. " Light") or nil
+	end,
+}
+local FAKE_LOOKUP = fake_names.lookup
+
+local saved_names, saved_texts = package.loaded["fan.names"], package.loaded["fan.texts"]
+package.loaded["fan.names"], package.loaded["fan.texts"] = fake_names, nil
+local loaded, texts = pcall(require, "fan.texts")
+package.loaded["fan.names"], package.loaded["fan.texts"] = saved_names, saved_texts
+assert(loaded, texts)
 
 local ADDR = "10.0.2.151"
 local ADDR2 = "10.0.2.152"
@@ -38,19 +67,31 @@ local function online(over)
 end
 
 describe("fan.texts", function()
-	describe("the interface of section 9.6", function()
+	-- A test that taught the fake table a type or swapped its lookup leaves
+	-- nothing behind for the next one.
+	after_each(function()
+		for fan_type in pairs(KNOWN) do
+			KNOWN[fan_type] = nil
+		end
+		fake_names.lookup = FAKE_LOOKUP
+	end)
+
+	describe("the interface of section 9.6 and fan-name-design 2.3", function()
 		it("offers every function the contract lists", function()
 			for _, name in ipairs({ "status", "result", "fan_id", "fan_model", "firmware", "last_seen", "change_by",
-				"automations", "keypad_links", "found_fans", "suffix", "mac", "clock" }) do
+				"automations", "keypad_links", "found_fans", "suffix", "mac", "clock", "rename_suffix" }) do
 				assert.is_function(texts[name], name)
 			end
 		end)
 
-		it("lists the 21 result keys of section 9.6, each with a text of its own", function()
-			assert.equal(21, #texts.RESULT_KEYS)
+		it("lists the 21 result keys of section 9.6 and the 8 of fan-name-design 2.3, each with a text of its own", function()
+			assert.equal(29, #texts.RESULT_KEYS)
+			assert.same({ "name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed",
+				"name_no_pin", "name_busy" }, { unpack(texts.RESULT_KEYS, 22) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
-				local text = texts.result(key, { client_id = ID1, address = ADDR, count = 2, which = "away", at = T })
+				local text = texts.result(key, { client_id = ID1, address = ADDR, count = 2, which = "away", at = T,
+					fan = "Sample", light = "Sample Light", fan_type = "1811-5-54" })
 				assert.is_true(#text > 0, key)
 				assert.is_nil(seen[text], key .. " repeats another key's text")
 				seen[text] = true
@@ -69,36 +110,56 @@ describe("fan.texts", function()
 			end
 		end
 
-		it("is pure: no line of code names Director, a log, the clock or a require", function()
+		-- The one require is fan.names, on a line of its own (fan-name-design 2.3).
+		it("is pure: no line of code names Director, a log, the clock or a require but fan.names", function()
 			local path = assert(module_path(), "fan/texts.lua is on the path")
 			local file = assert(io.open(path, "r"))
 			local number = 0
+			local requires = 0
 			for line in file:lines() do
 				number = number + 1
 				if not line:match("^%s*%-%-") then
-					for _, forbidden in ipairs({ "C4", "Properties", "PersistGetValue", "print", "require", "log%.", "os%.time",
+					for _, forbidden in ipairs({ "C4", "Properties", "PersistGetValue", "print", "log%.", "os%.time",
 						"os%.clock", "os%.getenv", "io%.", "loadstring", "dofile" }) do
 						assert.is_nil(line:find(forbidden), path .. ":" .. number .. " uses " .. forbidden .. ": " .. line)
+					end
+					if line:find("require", 1, true) then
+						requires = requires + 1
+						assert.equal('local names = require("fan.names")', line, path .. ":" .. number)
 					end
 				end
 			end
 			file:close()
+			assert.equal(1, requires, "fan.names is the only module texts.lua requires")
 		end)
 
-		it("is pure: it runs with the standard library alone, no C4, no print, no require", function()
+		it("is pure: it runs with the standard library and fan.names alone, no C4, no print, no other require", function()
 			local path = assert(module_path(), "fan/texts.lua is on the path")
 			local sandbox = {}
 			for _, name in ipairs({ "assert", "error", "ipairs", "math", "next", "os", "pairs", "pcall", "select",
 				"string", "table", "tonumber", "tostring", "type", "unpack" }) do
 				sandbox[name] = _G[name]
 			end
+			local asked = {}
+			sandbox.require = function(name)
+				asked[#asked + 1] = name
+				if name ~= "fan.names" then
+					error("fan/texts.lua asked for " .. tostring(name))
+				end
+				return fake_names
+			end
 			local chunk = assert(loadfile(path))
 			setfenv(chunk, sandbox)
 			local pure = chunk()
+			assert.same({ "fan.names" }, asked)
 			assert.equal("Waiting for the fan at " .. ADDR, pure.status({ phase = "waiting", address = ADDR }))
 			assert.equal("Away mode is already off", pure.result("away_already"))
 			assert.equal("None", pure.automations({}))
 			assert.equal("14:02", pure.clock(T, SOON))
+			KNOWN["1811-5-54"] = "Aviator 5"
+			assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit", pure.fan_model({ generation = "3" },
+				{ fan_type = "1811-5-54" }))
+			assert.equal("; items renamed", pure.rename_suffix("renamed"))
 		end)
 	end)
 
@@ -596,6 +657,95 @@ describe("fan.texts", function()
 			assert.equal("The fan did not take it; it still reports it on", r("not_taken", {}))
 		end)
 
+		-- L22 to L29: what Name Items After Fan answers (fan-name-design 2.3, ECR 5.5).
+		describe("L22 to L29, the rename job's answers", function()
+			local both = { fan = "Sample", light = "Sample Light" }
+
+			-- { id, key, args, the text verbatim, its length }
+			local cases = {
+				{ "L22", "name_renamed", both, "Items named Sample and Sample Light", 35 },
+				{ "L23", "name_same", both, "Items already named Sample and Sample Light", 43 },
+				{ "L24", "name_unknown", { fan_type = "1811-5-54" },
+					"No name known for fan type 1811-5-54; items not renamed", 55 },
+				{ "L25", "name_no_type", {}, "Fan type not read yet; try again in a moment", 44 },
+				{ "L26", "name_no_ids", {}, "Items not renamed: this device's items were not found", 53 },
+				{ "L27", "name_unconfirmed", {}, "Rename not confirmed; check the item names in Composer", 54 },
+				{ "L28", "name_no_pin", {}, "Nothing to name the items after: no fan is set up yet", 53 },
+				{ "L29", "name_busy", {}, "Naming in progress; try again in a moment", 41 },
+			}
+			for _, case in ipairs(cases) do
+				it(case[1] .. " " .. case[2] .. " says '" .. case[4] .. "' (" .. case[5] .. " characters)", function()
+					local text = r(case[2], case[3])
+					assert.equal(case[4], text)
+					assert.equal(case[5], #text)
+					assert.is_true(#text <= 70)
+				end)
+			end
+
+			it("the texts that name nothing do not depend on the args", function()
+				for _, key in ipairs({ "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin", "name_busy" }) do
+					assert.equal(r(key, {}), r(key, { fan = "x", light = "y", fan_type = "z", address = ADDR, client_id = ID1 }), key)
+					assert.equal(r(key, {}), r(key), key)
+				end
+			end)
+
+			it("L22 and L23 print the two names as the job hands them over", function()
+				local aviator = { fan = "Aviator 5", light = "Aviator 5 Light" }
+				assert.equal("Items named Aviator 5 and Aviator 5 Light", r("name_renamed", aviator))
+				assert.equal("Items already named Aviator 5 and Aviator 5 Light", r("name_same", aviator))
+			end)
+
+			it("L22 and L23 stay within 70 characters for the longest name of the research table, 15 characters", function()
+				local long = { fan = "Size Matters 65", light = "Size Matters 65 Light" }
+				assert.equal("Items named Size Matters 65 and Size Matters 65 Light", r("name_renamed", long))
+				assert.equal(53, #r("name_renamed", long))
+				assert.equal("Items already named Size Matters 65 and Size Matters 65 Light", r("name_same", long))
+				assert.equal(61, #r("name_same", long))
+			end)
+
+			it("L22 and L23 read the names from the args, never from the pin", function()
+				local pin = { client_id = ID1, fan = "From The Pin", light = "From The Pin Light" }
+				assert.equal("Items named ? and ?", r("name_renamed", { pin = pin }))
+				assert.equal("Items already named ? and ?", r("name_same", { pin = pin }))
+			end)
+
+			it("L24 cuts the fan type to 14 characters, no marker", function()
+				assert.equal("No name known for fan type ABCDEFGHIJKLMN; items not renamed",
+					r("name_unknown", { fan_type = "ABCDEFGHIJKLMNOPQRST" }))
+				assert.equal("No name known for fan type ABCDEFGHIJKLMN; items not renamed",
+					r("name_unknown", { fan_type = "ABCDEFGHIJKLMN" }), "14 stay whole")
+				assert.equal("No name known for fan type ABCDEFGHIJKLM; items not renamed",
+					r("name_unknown", { fan_type = "ABCDEFGHIJKLM" }), "13 stay whole")
+				assert.equal(60, #r("name_unknown", { fan_type = string.rep("x", 100) }), "the longest it gets")
+			end)
+
+			it("L24 trims the type, shows bytes outside printable ASCII as ? and says ? for none", function()
+				assert.equal("No name known for fan type 1811-5-54; items not renamed",
+					r("name_unknown", { fan_type = "  1811-5-54 \t" }))
+				assert.equal("No name known for fan type caf??-5-54; items not renamed",
+					r("name_unknown", { fan_type = "caf\195\169-5-54" }))
+				assert.equal("No name known for fan type a?b?c; items not renamed", r("name_unknown", { fan_type = "a\1b\127c" }))
+				for _, none in ipairs({ "", "   ", false, true, {}, 0 / 0 }) do
+					assert.equal("No name known for fan type ?; items not renamed",
+						r("name_unknown", { fan_type = none }), tostring(none))
+				end
+				assert.equal("No name known for fan type ?; items not renamed", r("name_unknown", {}))
+				assert.equal("No name known for fan type ?; items not renamed", r("name_unknown"))
+			end)
+
+			it("L24 takes the type from the args, never from a pin", function()
+				assert.equal("No name known for fan type ?; items not renamed",
+					r("name_unknown", { pin = { fan_type = "1811-5-54" } }))
+			end)
+
+			it("a missing name is ?, never an error or the word nil", function()
+				assert.equal("Items named ? and ?", r("name_renamed", {}))
+				assert.equal("Items already named ? and ?", r("name_same", nil))
+				assert.equal("Items named Sample and ?", r("name_renamed", { fan = "Sample" }))
+				assert.equal("Items named ? and Sample Light", r("name_renamed", { light = "Sample Light" }))
+			end)
+		end)
+
 		it("a missing value is ?, never an error or the word nil", function()
 			assert.equal("Learned fan ? (Gen ?) at ?", r("learned", {}))
 			assert.equal("Same fan ?, now at ?", r("moved", nil))
@@ -609,6 +759,106 @@ describe("fan.texts", function()
 			assert.equal("", r(nil, {}))
 			assert.equal("", r(5, {}))
 			assert.equal("", r("__index", {}))
+		end)
+	end)
+
+	-- The second write of a Use Selected Fan line, once the guarded rename has
+	-- ended: the same L2, L3 or L4 and one short tail (fan-name-design 2.3, ECR 5.5).
+	describe("rename_suffix (fan-name-design 2.3)", function()
+		it("renamed: items renamed", function()
+			assert.equal("; items renamed", texts.rename_suffix("renamed"))
+		end)
+
+		it("kept: names kept", function()
+			assert.equal("; names kept", texts.rename_suffix("kept"))
+		end)
+
+		it("no name, no type, no ids and an unconfirmed rename: not renamed", function()
+			for _, outcome in ipairs({ "no_name", "no_type", "no_ids", "unconfirmed" }) do
+				assert.equal("; not renamed", texts.rename_suffix(outcome), outcome)
+			end
+		end)
+
+		it("same, busy, no_pin and anything else add nothing", function()
+			for _, outcome in ipairs({ "same", "busy", "no_pin", "", " ", "Renamed", "renamed ", "name_renamed", "forced",
+				"guarded", "__index", false, true, 0, 5, 0 / 0, math.huge, {}, { "renamed" }, print }) do
+				assert.equal("", texts.rename_suffix(outcome), tostring(outcome))
+			end
+			assert.equal("", texts.rename_suffix(nil))
+			assert.equal("", texts.rename_suffix())
+		end)
+
+		it("every suffix starts with '; ' so it continues the line it follows", function()
+			for _, outcome in ipairs({ "renamed", "kept", "no_name", "no_type", "no_ids", "unconfirmed" }) do
+				assert.equal("; ", texts.rename_suffix(outcome):sub(1, 2), outcome)
+			end
+		end)
+
+		describe("L2, L3 and L4 plus the longest suffix", function()
+			local outcomes = { "renamed", "kept", "no_name", "no_type", "no_ids", "unconfirmed" }
+
+			-- The longest tail of all the outcomes.
+			local function longest()
+				local best = ""
+				for _, outcome in ipairs(outcomes) do
+					if #texts.rename_suffix(outcome) > #best then
+						best = texts.rename_suffix(outcome)
+					end
+				end
+				return best
+			end
+
+			-- Every tail on every line, the line kept as the first write made it.
+			local function assert_within(cases, limit)
+				for _, case in ipairs(cases) do
+					local line = texts.result(case[1], case[2])
+					assert.is_true(#line > 0, case[1])
+					for _, outcome in ipairs(outcomes) do
+						local whole = line .. texts.rename_suffix(outcome)
+						assert.is_true(#whole <= limit, #whole .. " > " .. limit .. ": " .. whole)
+					end
+				end
+			end
+
+			it("the longest suffix is '; items renamed', 15 characters", function()
+				assert.equal("; items renamed", longest())
+				assert.equal(15, #longest())
+			end)
+
+			it("stay at or under 70 characters with the placeholders", function()
+				local placeholders = {
+					{ "moved", { client_id = ID1, address = ADDR2 } },
+					{ "now_using", { client_id = ID2, was = ID1, address = ADDR } },
+					{ "now_using", { client_id = ID2, address = ADDR } },
+					{ "already", { client_id = ID1, address = ADDR } },
+				}
+				assert_within(placeholders, 70)
+				-- ECR 5.5: L3 with its "was" part is the longest, 51, so 66.
+				local was = texts.result("now_using", { client_id = ID2, was = ID1, address = ADDR })
+				assert.equal(51, #was)
+				assert.equal(66, #(was .. longest()))
+				assert.equal("Now using fan MF_00005E005302 (was MF_00005E005301); items renamed", was .. longest())
+			end)
+
+			it("and with the longest inputs: WAC_ client ids and a 15-character address, 68", function()
+				local worst = {
+					{ "moved", { client_id = "WAC_00005E005301", address = "255.255.255.255" } },
+					{ "now_using", { client_id = "WAC_00005E005302", was = "WAC_00005E005301", address = "255.255.255.255" } },
+					{ "now_using", { client_id = "WAC_00005E005302", address = "255.255.255.255" } },
+					{ "already", { client_id = "WAC_00005E005301", address = "255.255.255.255" } },
+				}
+				assert_within(worst, 70)
+				assert.equal(68, #(texts.result("already", worst[4][2]) .. longest()))
+				assert.equal(68, #(texts.result("now_using", worst[2][2]) .. longest()))
+			end)
+
+			it("the line itself is the first write's: the suffix only follows it", function()
+				local args = { client_id = ID1, address = ADDR }
+				assert.equal(texts.result("already", args) .. "; names kept",
+					texts.result("already", args) .. texts.rename_suffix("kept"))
+				assert.equal("Already using fan MF_00005E005301 at 10.0.2.151; names kept",
+					texts.result("already", args) .. texts.rename_suffix("kept"))
+			end)
 		end)
 	end)
 
@@ -656,6 +906,9 @@ describe("fan.texts", function()
 		describe("Fan Model", function()
 			local info = { fan_type = "1811-5-54", light_type = "F4IN-120V-R1-30", has_light = true }
 
+			-- Until a test teaches the fake table a name (the block after these),
+			-- 1811-5-54 is a type without one: the examples here are the text the
+			-- row had before fan-name-design N3, which a type without a name keeps.
 			it("M0's values, with Breeze", function()
 				assert.equal("Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze",
 					texts.fan_model({ generation = "3" }, info, true))
@@ -698,6 +951,137 @@ describe("fan.texts", function()
 			it("is empty until the info is known", function()
 				assert.equal("", texts.fan_model({ generation = "3" }, nil, true))
 				assert.equal("", texts.fan_model(nil, nil))
+			end)
+
+			describe("with a name from fan.names (fan-name-design N3)", function()
+				before_each(function()
+					KNOWN["1811-5-54"] = "Aviator 5"
+				end)
+
+				-- Replace the fake's lookup by `reply`; returns the types it was asked for.
+				local function asked_with(reply)
+					local asked = {}
+					fake_names.lookup = function(fan_type)
+						asked[#asked + 1] = fan_type
+						return reply(fan_type)
+					end
+					return asked
+				end
+
+				it("the name, then the type in parentheses, in place of 'fan <type>'", function()
+					local row = texts.fan_model({ generation = "3" }, info, true)
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze", row)
+					assert.equal(63, #row)
+				end)
+
+				it("the rest of the row is as before: Breeze, the light kit and the generation", function()
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30",
+						texts.fan_model({ generation = "3" }, info, false))
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30",
+						texts.fan_model({ generation = "3" }, info))
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze",
+						texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54", light_type = "F4IN-120V-R1-30",
+							has_wind = true }), "Breeze from the info")
+					assert.equal("Gen 1/2, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30",
+						texts.fan_model({ generation = "1/2" }, info))
+					assert.equal("Gen ?, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30", texts.fan_model(nil, info))
+					assert.equal("Gen ?, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30",
+						texts.fan_model({ generation = "4" }, info))
+				end)
+
+				it("no light kit, whichever way the info says so", function()
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit",
+						texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54", light_type = "", has_light = false }))
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit",
+						texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54" }, false))
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit", texts.fan_model({ generation = "3" },
+						{ fan_type = "1811-5-54", light_type = "F4IN-120V-R1-30", has_light = false }), "has_light false wins")
+				end)
+
+				it("a type the table has no name for keeps the older text, whatever else the table lists", function()
+					KNOWN["2006-52"] = "Zephyr 52"
+					assert.equal("Gen 3, fan 2003-52, light kit F4IN-120V-R1-30, Breeze", texts.fan_model({ generation = "3" },
+						{ fan_type = "2003-52", light_type = "F4IN-120V-R1-30", has_light = true }, true))
+					assert.equal("Gen 3, Zephyr 52 (2006-52), light kit F4IN-120V-R1-30", texts.fan_model({ generation = "3" },
+						{ fan_type = "2006-52", light_type = "F4IN-120V-R1-30", has_light = true }))
+				end)
+
+				it("the type is looked up and shown without the blanks around it", function()
+					local asked = asked_with(FAKE_LOOKUP)
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit",
+						texts.fan_model({ generation = "3" }, { fan_type = "  1811-5-54\t" }))
+					assert.same({ "1811-5-54" }, asked)
+				end)
+
+				it("looks up only a type there is: no type, an empty or blank one, or text that is not one asks nothing", function()
+					local asked = asked_with(function()
+						return "Aviator 5"
+					end)
+					assert.equal("Gen 3, fan ?, no light kit", texts.fan_model({ generation = "3" }, {}))
+					for _, odd in ipairs({ "", "   ", true, false, {}, 0 / 0, math.huge, print }) do
+						texts.fan_model({ generation = "3" }, { fan_type = odd })
+					end
+					assert.same({}, asked)
+				end)
+
+				it("a lookup with no usable answer gives the older text: nothing, empty, not text", function()
+					for _, reply in ipairs({ false, "", "   ", 5, true, {}, print }) do
+						asked_with(function()
+							return reply
+						end)
+						assert.equal("Gen 3, fan 1811-5-54, no light kit",
+							texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54" }), tostring(reply))
+					end
+					fake_names.lookup = function() end
+					assert.equal("Gen 3, fan 1811-5-54, no light kit",
+						texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54" }), "nil")
+				end)
+
+				it("a lookup that raises costs the name and nothing else", function()
+					fake_names.lookup = function()
+						error("table kaput")
+					end
+					local ok, row = pcall(texts.fan_model, { generation = "3" }, info, true)
+					assert(ok, row)
+					assert.equal("Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze", row)
+					fake_names.lookup = nil
+					ok, row = pcall(texts.fan_model, { generation = "3" }, info, true)
+					assert(ok, row)
+					assert.equal("Gen 3, fan 1811-5-54, light kit F4IN-120V-R1-30, Breeze", row, "a table with no lookup")
+				end)
+
+				it("blanks around the name it gets are dropped", function()
+					KNOWN["1811-5-54"] = "  Aviator 5 "
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), no light kit",
+						texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54" }))
+				end)
+
+				it("reads only the type, the kit and the generation, not the brand, the motor or the owner's name", function()
+					local row = texts.fan_model({ generation = "3", client_id = ID1, mac = MAC1 },
+						{ fan_type = "1811-5-54", light_type = "F4IN-120V-R1-30", brand = 1, motor = "DC125X20",
+							deviceName = "Example Fan", owner = "owner@example.com" }, true)
+					assert.equal("Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30, Breeze", row)
+				end)
+
+				-- Section 7: rows under about 70 characters. The longest name in the
+				-- research table (FNR Appendix B) is 15 characters.
+				it("stays within 70 characters for a 15-character name: 69 on Gen 3 with the house's type and kit", function()
+					KNOWN["1811-5-54"] = "Fifteen Letters"
+					assert.equal(15, #"Fifteen Letters")
+					local row = texts.fan_model({ generation = "3" }, info, true)
+					assert.equal("Gen 3, Fifteen Letters (1811-5-54), light kit F4IN-120V-R1-30, Breeze", row)
+					assert.equal(69, #row)
+					assert.is_true(#row <= 70)
+				end)
+
+				it("and for the longest row in that table, Gen 1/2 with Size Matters 65: 69 as well", function()
+					KNOWN["2403-65"] = "Size Matters 65"
+					local row = texts.fan_model({ generation = "1/2" },
+						{ fan_type = "2403-65", light_type = "F4IN-120V-R1-30", has_light = true }, true)
+					assert.equal("Gen 1/2, Size Matters 65 (2403-65), light kit F4IN-120V-R1-30, Breeze", row)
+					assert.equal(69, #row)
+					assert.is_true(#row <= 70)
+				end)
 			end)
 		end)
 
@@ -1131,8 +1515,16 @@ describe("fan.texts", function()
 			assert_clean(texts.automations(with({ schedule_set = true, away = true })))
 			assert_clean(texts.fan_id(with({ client_id = ID1, mac = MAC1 })))
 			assert_clean(texts.fan_model(with({ generation = "3" }), with({ fan_type = "1811-5-54", light_type = "L" }), true))
+			KNOWN["1811-5-54"] = "Aviator 5"
+			assert_clean(texts.fan_model(with({ generation = "3" }), with({ fan_type = "1811-5-54", light_type = "L" }), true))
 			assert_clean(texts.firmware(with({ firmware = "02.00.0052", mcu_firmware = "03.00.0000" })))
 			assert_clean(texts.result("learned", with({ client_id = ID1, generation = "3", address = ADDR })))
+			assert_clean(texts.result("name_renamed", with({ fan = "Sample", light = "Sample Light" })))
+			assert_clean(texts.result("name_same", with({ fan = "Sample", light = "Sample Light" })))
+			assert_clean(texts.result("name_unknown", with({ fan_type = "1811-5-54" })))
+			for _, key in ipairs({ "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin", "name_busy" }) do
+				assert_clean(texts.result(key, with({ client_id = ID1, address = ADDR })))
+			end
 			assert_clean(texts.change_by(blob.owner, T, SOON))
 			assert_clean(table.concat(texts.found_fans({ with({ instance = "MF_Fan_005301", address = ADDR }) }), "|"))
 			assert_clean(table.concat(texts.keypad_links({ with({ link_name = "Fan Off", keypad_name = "K", device_id = 1 }) }),
@@ -1194,13 +1586,20 @@ describe("fan.texts", function()
 			end
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				for _, which in ipairs({ "away", "learning" }) do
+					-- L22 to L24 with the longest name of the research table and a type that gets cut.
 					add("L " .. key .. " " .. which, texts.result(key, { client_id = client, was = client, address = address,
-						generation = "1/2", count = 16, find_fans = true, at = T, now = now, which = which }))
+						generation = "1/2", count = 16, find_fans = true, at = T, now = now, which = which,
+						fan = "Size Matters 65", light = "Size Matters 65 Light", fan_type = string.rep("x", 20) }))
 				end
 			end
 			add("Fan ID", texts.fan_id({ client_id = client, mac = "00005E005301" }))
 			add("Fan Model", texts.fan_model({ generation = "1/2" },
 				{ fan_type = "1811-5-54", light_type = "F4IN-120V-R1-30", has_light = true }, true))
+			-- With a name: the longest row of the research table (FNR Appendix B).
+			KNOWN["2403-65"] = "Size Matters 65"
+			add("Fan Model named", texts.fan_model({ generation = "1/2" },
+				{ fan_type = "2403-65", light_type = "F4IN-120V-R1-30", has_light = true }, true))
+			KNOWN["2403-65"] = nil
 			add("Firmware", texts.firmware({ firmware = "02.00.0060", mcu_firmware = "03.00.0000",
 				firmware_since = "2026-11-02", firmware_was = "02.00.0052" }))
 			add("Last Seen", texts.last_seen(T, 12345))
@@ -1270,7 +1669,7 @@ describe("fan.texts", function()
 		-- Every function that takes plain positional arguments, with every pair of odd values.
 		local positional = {
 			suffix = 1, mac = 1, clock = 2, fan_id = 1, fan_model = 3, firmware = 1, last_seen = 2, change_by = 3,
-			automations = 2, list_item = 1, os_is_old = 1, parse_fan_id = 1, result = 2,
+			automations = 2, list_item = 1, os_is_old = 1, parse_fan_id = 1, result = 2, rename_suffix = 1,
 		}
 		for name, arity in pairs(positional) do
 			it(name .. " takes any value in any place", function()
@@ -1332,7 +1731,7 @@ describe("fan.texts", function()
 
 		it("result takes any value for each field of its args, for every key", function()
 			local fields = { "client_id", "generation", "address", "was", "count", "list", "find_fans", "at", "now", "which",
-				"pin" }
+				"pin", "fan", "light", "fan_type" }
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				for _, field in ipairs(fields) do
 					for _, a in ipairs(WEIRD) do
@@ -1373,6 +1772,28 @@ describe("fan.texts", function()
 					plain(texts.fan_model(info, info), "fan_model/" .. field)
 					plain(texts.fan_id(info), "fan_id/" .. field)
 				end
+			end
+		end)
+
+		it("fan_model takes any value for the type, the pin and the info while the table knows the type", function()
+			KNOWN["1811-5-54"] = "Aviator 5"
+			for _, a in ipairs(WEIRD) do
+				plain(texts.fan_model({ generation = "3" }, { fan_type = a }), "fan_model type")
+				plain(texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54", light_type = a, has_light = a }, a),
+					"fan_model kit")
+				plain(texts.fan_model(a, { fan_type = "1811-5-54" }), "fan_model pin")
+				plain(texts.fan_model({ generation = a }, { fan_type = "1811-5-54" }), "fan_model generation")
+			end
+		end)
+
+		it("fan_model takes any answer from the name table: it shows a name only when the answer is text", function()
+			for _, a in ipairs(WEIRD) do
+				fake_names.lookup = function()
+					return a
+				end
+				local ok, out = pcall(texts.fan_model, { generation = "3" }, { fan_type = "1811-5-54" })
+				assert(ok, "fan_model raised: " .. tostring(out))
+				plain(out, "fan_model name")
 			end
 		end)
 
