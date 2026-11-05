@@ -1,6 +1,6 @@
 -- Modern Forms Fan driver (docs/v1-design.md): the coordinator. It builds the
 -- modules of fan/ and common/ (the wire and the transport, the state model,
--- the fan proxy, the fan links, the light, Find Fans, the Migration Report),
+-- the fan proxy, the fan links, the light, Find Fans, the item names),
 -- hands each what touches Director as arguments, and wires the DriverWorks
 -- entry points, the properties, the actions, the events and the Online
 -- variable to them. Nothing here decides what the fan does: the model does
@@ -33,7 +33,6 @@ local fanproxy_mod = require("fan.fanproxy")
 local links_mod = require("fan.links")
 local light_mod = require("fan.light")
 local discovery_mod = require("fan.discovery")
-local migration_mod = require("fan.migration")
 local names = require("fan.names")
 local rename_mod = require("fan.rename")
 
@@ -160,7 +159,7 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, migration, names_job
+local model, fan, links, light, discovery, names_job
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 local found = { items = {}, list = {} } -- the last Find Fans, row by row
 
@@ -353,63 +352,6 @@ discovery = discovery_mod.new({
 	log = log,
 })
 
--- The Migration Report (migration-design.md section 4): reads the project only
--- when its action is clicked.
-migration = migration_mod.new({
-	get_devices = function()
-		return C4:GetDevices({})
-	end,
-	get_all_code_items = function()
-		return C4:GetAllCodeItems()
-	end,
-	get_device_variables = function(id)
-		return C4:GetDeviceVariables(id)
-	end,
-	-- Row 4's "by this fan": the speed this device shows, 0 when off (#35).
-	shown_speed = function()
-		local shown = model:shown() or {}
-		if shown.fan_on == false then
-			return 0
-		end
-		return shown.speed
-	end,
-	get_bindings_by_device = function(id)
-		return C4:GetBindingsByDevice(id)
-	end,
-	get_bound_consumer_devices = function(id, link)
-		return C4:GetBoundConsumerDevices(id, link)
-	end,
-	get_device_display_name = function(id)
-		return C4:GetDeviceDisplayName(id)
-	end,
-	get_device_id = function()
-		return C4:GetDeviceID()
-	end,
-	-- C4:GetProxyDevices documents one id; this device has two proxies, so the ids
-	-- come from the bound consumers of both proxy bindings, as common/device.lua
-	-- looks up its own (verified on the Hue drivers).
-	get_proxy_devices = function()
-		local ids = {}
-		for _, binding in ipairs({ FAN_BINDING, LIGHT_BINDING }) do
-			for id in pairs(C4:GetBoundConsumerDevices(C4:GetDeviceID(), binding) or {}) do
-				ids[#ids + 1] = id
-			end
-		end
-		return ids
-	end,
-	property = function(name)
-		return Properties[name]
-	end,
-	now = os.time,
-	log = log,
-	store = store,
-	-- The shown row moves only with both calls (the Hue project, 2026-10).
-	update_list = function(items, selected)
-		C4:UpdatePropertyList("Migration", table.concat(items, ","), selected)
-		C4:UpdateProperty("Migration", selected)
-	end,
-})
-
 -- Properties ---------------------------------------------------------------------
 
 local function trimmed(value)
@@ -484,14 +426,6 @@ dispatch.properties["Keypad_Links"] = function()
 	if keypad_items[1] then
 		C4:UpdateProperty("Keypad Links", keypad_items[1])
 	end
-end
-
-dispatch.properties["Migration"] = function()
-	migration:snap_back()
-end
-
-dispatch.properties["Stock_Device"] = function()
-	migration:stock_device_changed()
 end
 
 -- Found Fans: a pick waits for Use Selected Fan; nothing to do here.
@@ -733,11 +667,6 @@ dispatch.commands["Turn_Off_Adaptive_Learning"] = function()
 	end)
 end
 
-dispatch.commands["Migration_Report"] = function()
-	migration:run()
-	dev.result(migration:verdict())
-end
-
 -- Lifecycle ----------------------------------------------------------------------
 
 dispatch.install(_G)
@@ -762,10 +691,10 @@ end
 function OnDriverLateInit()
 	dev.load_settings()
 	dev.load_colors()
-	-- The Migration list is rebuilt from the persisted verdict before the
-	-- replay, so the replayed handlers do not publish an empty one; Found Fans
-	-- starts with no pick (lists are not persisted, FUND 15/_2).
-	migration:restore()
+	-- The Migration Report's verdict, persisted by v1.0-beta.1 and beta.2, goes
+	-- with the report (#45). Found Fans starts with no pick (lists are not
+	-- persisted, FUND 15/_2).
+	pcall(C4.PersistDeleteValue, C4, "mf_migration") -- API 26.5_persistence/_2
 	prop_list("Found Fans", { PICK_ROW }, PICK_ROW)
 	dispatch.replay_properties(Properties)
 	dev.show_driver_version(1)

@@ -10,9 +10,11 @@ WAC device; the same evening the bedroom keypad was cut over to its Button
 Links and the stock device was removed (deploy issue #30, the round in
 Discussion #34). The owner tests it from 2026-11-05. v1.0-beta.2
 (build 29, the colour per speed of #31) is published but was not installed;
-the next install is v1.0-beta.3 with the colours, the Migration Report's
-speed-row fix (#35) and the fan's product name (#37: built, reviewed by an
-Opus agent, its findings fixed on PR #42).
+the next install is v1.0-beta.3 with the colours, the fan's product name
+(#37, merged with #42) and without the Migration Report, the Migration and
+Stock Device rows (#45: one-off tooling for the house's cutover, which is
+done; the owner's rule since 2026-11-04 keeps such tooling out of the
+driver).
 
 ## What runs on the house
 
@@ -82,7 +84,7 @@ where each stands on 2026-10-27.
   whether to run them.
 - **#26** M3, the build: the driver is written and unit-tested (the transport,
   the state model, the fan proxy and links, the light, Find Fans, the
-  Migration Report, the manual and the Composer checklist; `driver.xml` from
+  Migration Report (removed again by #45), the manual and the Composer checklist; `driver.xml` from
   section 2 of [`v1-design.md`](v1-design.md)), as
   [`v1-design.md`](v1-design.md#912-as-built-m3-26) says it was built. Nothing of
   it has run on the house: the owner decided (2026-11-04) to test once, with
@@ -111,8 +113,8 @@ Decided, not open (2026-10-27, #6; the specification is
   public open-source clients and its own read-only measurements
   ([`design.md`](design.md), "Method").
 - The migration: one cutover sitting with the stock programming disabled,
-  not deleted; the stock device and the LED workaround removed later, once
-  the driver's Migration Report reads safe to remove.
+  not deleted; the stock device and the LED workaround removed later (done
+  on 2026-11-04; the Migration Report that checked it is removed by #45).
 - The 1.0 codename is "Arrakis".
 - Control4 is the source of truth: automations live in Control4
   programming, not in the Modern Forms app (`CLAUDE.md`).

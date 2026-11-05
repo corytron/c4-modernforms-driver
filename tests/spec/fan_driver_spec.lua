@@ -179,19 +179,19 @@ describe("Modern Forms Fan driver", function()
 					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
-					"Migration", "Stock Device", "Debug Mode", "Dev Server", "Dev State" }, names)
+					"Debug Mode", "Dev Server", "Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
 			end)
 
-		it("declares the seven actions with sort_order, the two events and the one condition", function()
+		it("declares the six actions with sort_order, the two events and the one condition", function()
 			local actions = {}
 			for body in bare:gmatch("<action>(.-)</action>") do
 				actions[#actions + 1] = field(body, "sort_order") .. ":" .. field(body, "command")
 			end
 			assert.same({ "1:Find Fans", "2:Use Selected Fan", "3:Name Items After Fan", "4:Reboot Fan",
-				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning", "7:Migration Report" }, actions)
+				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning" }, actions)
 			local events = {}
 			for body in bare:gmatch("<event>(.-)</event>") do
 				events[#events + 1] = field(body, "id") .. ":" .. field(body, "name")
@@ -466,50 +466,20 @@ describe("Modern Forms Fan driver", function()
 			assert.equal("Nothing to use: pick a fan in Found Fans, or enter Fan Address", env.Properties["Last Action"])
 		end)
 
+		it("late init deletes the Migration Report's persisted verdict, which went with the report (#45)", function()
+			local env, c4 = fake.load_driver(DRIVER, {})
+			env.OnDriverInit("DIT_STARTUP")
+			env.OnDriverLateInit("DIT_STARTUP")
+			local deleted = {}
+			for _, call in ipairs(c4.calls_to("PersistDeleteValue")) do deleted[#deleted + 1] = call[1] end
+			assert.same({ "mf_migration" }, deleted)
+		end)
+
 		it("Reboot Fan with no fan refuses", function()
 			local env = fake.load_driver(DRIVER, {})
 			env.OnDriverLateInit("DIT_STARTUP")
 			env.ExecuteCommand("LUA_ACTION", { ACTION = "Reboot Fan" })
 			assert.truthy(env.Properties["Last Action"]:find("^Reboot not sent"), env.Properties["Last Action"])
-		end)
-
-		it("Migration Report runs without a project to read and reports instead of raising", function()
-			local env = fake.load_driver(DRIVER, {})
-			env.OnDriverLateInit("DIT_STARTUP")
-			assert.has_no.errors(function() env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" }) end)
-			assert.truthy(env.Properties["Last Action"] ~= "", "the verdict is Last Action")
-		end)
-
-		it("Migration Report shows this fan's own speed, and 0 when it is off (#35)", function()
-			local function row4(c4)
-				local lists = c4.calls_to("UpdatePropertyList")
-				for index = #lists, 1, -1 do
-					if lists[index][1] == "Migration" then
-						return lists[index][2]:match("Speed held by the stock fan: [^;]+; by this fan: [^,]+")
-					end
-				end
-			end
-			local env, c4 = online_driver()
-			-- One stock device in the room, its fan proxy holding speed 2 as the
-			-- house's did (M1: CURRENT_SPEED); no programming.
-			c4.GetDevices = function()
-				return { [559] = { deviceName = "Fan", roomId = 7, roomName = "Example Room",
-					driverFileName = "wac_mf_fan_and_light_controller(v4).c4z",
-					proxies = { [560] = { driverFileName = "fan.c4i", deviceName = "Fan" } } } }
-			end
-			c4.GetDeviceVariables = function(_, id)
-				if id == 560 then
-					return { ["1001"] = { name = "CURRENT_SPEED", value = "2" } }
-				end
-				return {}
-			end
-			c4.GetAllCodeItems = function() return {} end
-			env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" })
-			assert.equal("Speed held by the stock fan: 2; by this fan: 3", row4(c4))
-			env.ReceivedFromProxy(5001, "OFF", {})
-			answer(c4, mf.state({ fanOn = false, fanSpeed = 3 }))
-			env.ExecuteCommand("LUA_ACTION", { ACTION = "Migration Report" })
-			assert.equal("by this fan: 0", row4(c4):match("by this fan: .*"))
 		end)
 	end)
 

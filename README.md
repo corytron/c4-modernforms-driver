@@ -176,8 +176,10 @@ which today says that the driver is not ready) will be the owner's manual. A few
   capabilities. Answer Yes, then **reboot the controller from System
   Manager** (Tools > System Manager): the new code loads only with the
   reboot. Builds that change only Lua or connections take effect at once.
-- Moving a house from the stock driver will follow the migration contract;
-  until it exists, leave the stock driver and its programming as they are.
+- Moving a house from the stock WAC driver is done by hand: add this
+  driver's device beside the stock one, move the keypad bindings and the
+  programming over, then delete the stock device. The Documentation tab
+  says how.
 
 ## How a change reaches the house
 
@@ -214,7 +216,7 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
 src/common/          the author's shared Lua modules (log, dispatch, device, devloop), staged into
                      each package as common/
 src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab) and fan/ (the
-                     wire, the state model, the proxies, the links, Find Fans, the Migration Report)
+                     wire, the state model, the proxies, the links, Find Fans, the item names)
 tests/               busted specs (spec/), the fake DriverWorks runtime (helpers/), and the fan
                      API fixtures (fixtures/) once the research has recorded them
 tools/               build.sh; check.sh (every check, as CI runs it) and setup-checks.sh (its
