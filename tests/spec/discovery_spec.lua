@@ -772,6 +772,14 @@ describe("fan.discovery", function()
 			return { instance = "MF_Fan_005301", address = address, mac = mac or PIN, port = port or 80 }
 		end
 
+		it("trims the current address in linear time (#49)", function()
+			local runs = (" "):rep(100000)
+			local started = os.clock()
+			assert.same({}, discovery.candidates({ entry(CURRENT) }, PIN, runs .. CURRENT .. runs))
+			assert.same({ CURRENT }, discovery.candidates({ entry(CURRENT) }, PIN, "10.0" .. runs .. ".2.151"))
+			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
+		end)
+
 		it("takes the entries of the pinned MAC, in either case, and of no other MAC", function()
 			local heard = {
 				entry(ip(172, 16, 0, 1), "00005E005302"),

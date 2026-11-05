@@ -2396,6 +2396,16 @@ describe("fan.model address changes (3.5, N1, S1, S3, S4)", function()
 			assert.equal("", h.m:status_view().typed)
 		end)
 
+		it("trims a typed address with long runs of blanks in linear time (#49)", function()
+			local h = new_harness()
+			local runs = (" "):rep(100000)
+			local started = os.clock()
+			assert.is_nil(h.m:set_address(runs .. "10.0.2.151" .. runs))
+			assert.equal("10.0.2.151", h.transport.address)
+			assert.equal("invalid", h.m:set_address("10.0" .. runs .. ".2.151"))
+			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
+		end)
+
 	it("S4 the same address typed again restarts the contact on a new epoch", function()
 		local h = steady(new_harness())
 		local epoch = h.transport.epoch

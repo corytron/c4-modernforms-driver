@@ -318,6 +318,15 @@ describe("Modern Forms Fan driver", function()
 			assert.equal("http://10.0.2.152/mf", c4.last_transfer().url)
 		end)
 
+		it("trims a Fan Address with long runs of blanks in linear time (#49)", function()
+			local env, c4 = online_driver()
+			local started = os.clock()
+			env.Properties["Fan Address"] = (" "):rep(100000) .. "10.0.2.152" .. (" "):rep(100000)
+			env.OnPropertyChanged("Fan Address")
+			assert.equal("http://10.0.2.152/mf", c4.last_transfer().url)
+			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
+		end)
+
 		it("says so on a Fan Address that is no address", function()
 			local env = online_driver()
 			env.Properties["Fan Address"] = "fan.local"
