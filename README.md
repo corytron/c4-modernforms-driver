@@ -213,8 +213,8 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
 ```
 src/common/          the author's shared Lua modules (log, dispatch, device, devloop), staged into
                      each package as common/
-src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab); a skeleton
-                     that proves the build until the v1 contract
+src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab) and fan/ (the
+                     wire, the state model, the proxies, the links, Find Fans, the Migration Report)
 tests/               busted specs (spec/), the fake DriverWorks runtime (helpers/), and the fan
                      API fixtures (fixtures/) once the research has recorded them
 tools/               build.sh; check.sh (every check, as CI runs it) and setup-checks.sh (its

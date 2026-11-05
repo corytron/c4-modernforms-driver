@@ -78,6 +78,14 @@ where each stands on 2026-10-27.
   controller's (K9). Open: K8's three taps in the Control4 app (the owner's
   phone); the probe and its test room stay installed until the owner decides
   whether to run them.
+- **#26** M3, the build: the driver is written and unit-tested (the transport,
+  the state model, the fan proxy and links, the light, Find Fans, the
+  Migration Report, the manual and the Composer checklist; `driver.xml` from
+  section 2 of [`v1-design.md`](v1-design.md)), as
+  [`v1-design.md`](v1-design.md#912-as-built-m3-26) says it was built. Nothing of
+  it has run on the house: the owner decided (2026-11-04) to test once, with
+  the complete driver, so the first install is a prerelease through the
+  [`docs/composer-checklist.md`](composer-checklist.md).
 - **#14** Three owner questions from the v1 contract (a colour per speed on
   the keypad, the Cycle link wrapping, custom icons), each with a default.
 - **M1**, the probes of [`v1-design.md`](v1-design.md#11-hardware-checks-before-the-first-install)

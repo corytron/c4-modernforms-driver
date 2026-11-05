@@ -120,5 +120,5 @@ assumptions and the questions for the owner.
   Connections and Programming by synthetic drag.
 - [`composer-checklist.md`](composer-checklist.md): the steps only
   Composer, a Navigator, a keypad or the Modern Forms app can show, as the
-  owner runs them, with a "Done" line per step; a skeleton until the v1
-  contract fills in its texts.
+  owner runs them, with a "Done" line per step, for the first full-featured
+  test build of the driver.

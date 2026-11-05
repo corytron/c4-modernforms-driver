@@ -10,27 +10,211 @@
 	<control>lua_gen</control>
 	<controlmethod>IP</controlmethod>
 	<driver>DriverWorks</driver>
-	<!-- The scaffold (docs/scaffold-design.md section 7): a combo driver, its own
-	     UI in Composer and no Control4 proxy until the v1 contract picks the fan
-	     and light_v2 proxies [verified: Fundamentals 5/_2.5 Combo Driver: the
-	     combo element and a proxy entry naming the driver itself]. No icons, no
-	     connections, no capabilities, actions or events yet. -->
-	<combo>true</combo>
-	<!-- 3.3.0 is a stand-in that the v1 research (#2) replaces with the minimum it
-	     picks and justifies; the fan proxy's per-speed links need 3.4.2 (CLAUDE.md,
-	     Targets). The element is documented as a top-level devicedata tag giving
-	     the minimum OS for an automatic driver update [verified: Fundamentals
-	     14/_1]; what it does for a manual install is not documented. -->
+	<!-- docs/v1-design.md section 2.1: 3.3.0, the light_v2 brightness target API
+	     (V3). The tag is documented as an auto-update gate [verified: Fundamentals
+	     14/_1]; hardware check K9 (2026-11-04) showed that Composer Pro also
+	     refuses to add a package whose minimum is above the controller's OS. The
+	     driver checks the version at run time as well. -->
 	<minimum_os_version>3.3.0</minimum_os_version>
 	<config>
 		<script jit="1" file="driver.lua"/>
 		<documentation file="www/documentation.html"/>
+		<!-- Section 2.5: the properties in this order, never reordered. Rows 20 to 27
+		     of the section (a colour per speed, V27) are not in this build: the
+		     owner has not said yes (#14). -->
 		<properties>
 			<property>
 				<name>Driver Version</name>
 				<default></default>
 				<type>STRING</type>
 				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Status</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Last Action</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<!-- The fan's IPv4 address; the row's Set button delivers an edit (ECC F29). -->
+			<property>
+				<name>Fan Address</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>false</readonly>
+			</property>
+			<!-- V5a, Find Fans (hardware check K10 passed): the list of the last Find
+			     Fans; a pick waits for Use Selected Fan. -->
+			<property>
+				<name>Found Fans</name>
+				<type>DYNAMIC_LIST</type>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Fan ID</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Fan Model</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Firmware</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Last Seen</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Last Change By</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Fan Automations</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Poll Interval (s)</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>10</minimum>
+				<maximum>120</maximum>
+				<default>15</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- Section 7.3: the keypad buttons bound to the driver's links; a pick
+			     snaps back to the first row. -->
+			<property>
+				<name>Keypad Links</name>
+				<type>DYNAMIC_LIST</type>
+				<readonly>false</readonly>
+			</property>
+			<!-- V26: a speed link lit at one more speed. -->
+			<property>
+				<name>Speed 1 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 2 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 3 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 4 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 5 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Speed 6 Link Also Lit At</name>
+				<type>LIST</type>
+				<items>
+					<item>No other speed</item>
+					<item>Speed 1</item>
+					<item>Speed 2</item>
+					<item>Speed 3</item>
+					<item>Speed 4</item>
+					<item>Speed 5</item>
+					<item>Speed 6</item>
+				</items>
+				<default>No other speed</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- docs/migration-design.md section 4: the Migration Report's verdict and
+			     rows; a pick changes nothing. -->
+			<property>
+				<name>Migration</name>
+				<type>DYNAMIC_LIST</type>
+				<readonly>false</readonly>
+			</property>
+			<!-- Names this fan's stock WAC device when the report cannot tell. The item
+			     is the stock package's file name as hardware check K1 read it; that the
+			     Select dialog lists the device under it is assumed (seen at first use)
+			     [FUND 15/_3.1-DEVICESELECTOR.md]. -->
+			<property>
+				<name>Stock Device</name>
+				<type>DEVICE_SELECTOR</type>
+				<items>
+					<item>wac_mf_fan_and_light_controller(v4).c4z</item>
+				</items>
+				<multiselect>false</multiselect>
 			</property>
 			<property>
 				<name>Debug Mode</name>
@@ -50,10 +234,337 @@
 				<type>STRING</type>
 				<readonly>false</readonly>
 			</property>
+			<property>
+				<name>Dev State</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
 			<!-- DEV-ONLY END -->
 		</properties>
+		<!-- Section 2.6: sort_order on every action (without it Composer lists them
+		     in reverse, ECC F29); name and command are the same text. -->
+		<actions>
+			<action>
+				<name>Find Fans</name>
+				<command>Find Fans</command>
+				<sort_order>1</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Use Selected Fan</name>
+				<command>Use Selected Fan</command>
+				<sort_order>2</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Reboot Fan</name>
+				<command>Reboot Fan</command>
+				<sort_order>3</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Turn Off Away Mode</name>
+				<command>Turn Off Away Mode</command>
+				<sort_order>4</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Turn Off Adaptive Learning</name>
+				<command>Turn Off Adaptive Learning</command>
+				<sort_order>5</sort_order>
+				<params/>
+			</action>
+			<action>
+				<name>Migration Report</name>
+				<command>Migration Report</command>
+				<sort_order>6</sort_order>
+				<params/>
+			</action>
+		</actions>
 	</config>
+	<!-- Section 2.2: the fan is declared first and primary (the first-declared
+	     proxy is the parent item, K2 and K4), the light second. No images (V24). -->
 	<proxies>
-		<proxy name="Modern Forms Fan">modernforms_fan</proxy>
+		<proxy proxybindingid="5001" name="Modern Forms Fan" primary="True">fan</proxy>
+		<proxy proxybindingid="5002" name="Modern Forms Fan Light">light_v2</proxy>
 	</proxies>
+	<!-- Section 2.3: one flat block for both proxies; no name is in both lists
+	     [FAN 43_fan_capabilities/, LV2 5_light_v2_capabilities/]. A capability
+	     change on an installed device costs the owner a controller reboot. -->
+	<capabilities>
+		<!-- Fan. -->
+		<discrete_levels>6</discrete_levels>
+		<speed_names>Level 1,Level 2,Level 3,Level 4,Level 5,Level 6</speed_names>
+		<preset_speed>3</preset_speed>
+		<can_set_preset>True</can_set_preset>
+		<can_reverse>True</can_reverse>
+		<!-- Light. -->
+		<dimmer>True</dimmer>
+		<set_level>True</set_level>
+		<ramp_level>True</ramp_level>
+		<on_off>True</on_off>
+		<min_max>False</min_max>
+		<click_rates>False</click_rates>
+		<hold_rates>True</hold_rates>
+		<hold_rate_min>1000</hold_rate_min>
+		<supports_default_on>True</supports_default_on>
+		<cold_start>False</cold_start>
+		<has_leds>True</has_leds>
+		<has_button_events>False</has_button_events>
+		<supports_target>True</supports_target>
+		<supports_brightness_stop>True</supports_brightness_stop>
+		<supports_color>False</supports_color>
+		<supports_color_correlated_temperature>False</supports_color_correlated_temperature>
+		<supports_broadcast_scenes>False</supports_broadcast_scenes>
+		<supports_multichannel_scenes>False</supports_multichannel_scenes>
+		<advanced_scene_support>False</advanced_scene_support>
+		<load_group_support>False</load_group_support>
+		<reduced_als_support>True</reduced_als_support>
+		<hide_proxy_properties>False</hide_proxy_properties>
+		<hide_proxy_events>False</hide_proxy_events>
+		<buttons_are_virtual>True</buttons_are_virtual>
+	</capabilities>
+	<!-- Section 2.7: ids are fixed forever (ECC F24); id 3 is reserved. The fan's
+	     and the light's own events are the proxies'. -->
+	<events>
+		<event>
+			<id>1</id>
+			<name>Fan Offline</name>
+			<description>When NAME stops answering on the network</description>
+			<sort_order>1</sort_order>
+		</event>
+		<event>
+			<id>2</id>
+			<name>Fan Online</name>
+			<description>When NAME answers on the network again</description>
+			<sort_order>2</sort_order>
+		</event>
+	</events>
+	<conditionals>
+		<conditional>
+			<id>0</id>
+			<name>BOOL_ONLINE</name>
+			<type>BOOL</type>
+			<condition_statement>Fan is online</condition_statement>
+			<description>NAME fan is online is STRING</description>
+			<true_text>True</true_text>
+			<false_text>False</false_text>
+		</conditional>
+	</conditionals>
+	<!-- Section 2.4: every link is a provider control binding of class
+	     BUTTON_LINK with no proxybindingid (hardware K4: the attribute buys no
+	     placement). Reserved, never declared in v1: 203 to 209, 309 to 319. -->
+	<connections>
+		<connection>
+			<id>5001</id>
+			<facing>6</facing>
+			<connectionname>FAN</connectionname>
+			<type>2</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>FAN</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>5002</id>
+			<facing>6</facing>
+			<connectionname>LIGHT</connectionname>
+			<type>2</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>LIGHT_V2</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>200</id>
+			<facing>6</facing>
+			<connectionname>Light Top Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>201</id>
+			<facing>6</facing>
+			<connectionname>Light Bottom Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>202</id>
+			<facing>6</facing>
+			<connectionname>Light Toggle Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>300</id>
+			<facing>6</facing>
+			<connectionname>Fan Off Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>301</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 1 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>302</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 2 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>303</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 3 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>304</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 4 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>305</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 5 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>306</id>
+			<facing>6</facing>
+			<connectionname>Fan Speed 6 Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>307</id>
+			<facing>6</facing>
+			<connectionname>Fan Toggle Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>308</id>
+			<facing>6</facing>
+			<connectionname>Fan Cycle Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+	</connections>
 </devicedata>
