@@ -21,13 +21,14 @@
 --       address = fn() -> string,          -- the current Fan Address
 --       enabled = fn() -> bool,            -- Follow Address Changes is On (F7)
 --       timer = fn(ms, cb) -> object with :Cancel(),   -- C4:SetTimer
---       now = fn() -> ms, random = fn() -> 0..1 (default math.random),
---       seed = number,                     -- the device id, for the first window's jitter
+--       now = fn() -> ms, random = fn() -> 0..1 (tests; default: a generator of its own, see seed),
+--       seed = fn() -> number or a number, -- the device id, read at the first arm: window 1's slot and the seed
+--                                          -- of the generator (with the clock), so devices never step alike
 --       on_followed = fn(address, was),    -- driver.lua: the Fan Address row and Last Action L30 (F6)
 --       on_refused = fn(),                 -- driver.lua: Last Action L31, once per streak (F6)
 --       log = common/log.lua,
 --   })
---   f:phase_changed(phase), f:address_edited(), f:contact(), f:switch(on), f:state(), f:stop()
+--   f:phase_changed(phase), f:address_edited(), f:clicked(), f:contact(), f:switch(on), f:state(), f:stop()
 --
 -- Lua 5.1: no goto, no integer division, no bit operators.
 
@@ -39,7 +40,9 @@ follow.OFFLINE_LIKE = { offline = true, foreign = true, gen4 = true, notfan = tr
 
 -- The schedule (F3; ECA 3.3).
 follow.FIRST_MS = 2000                                      -- window 1: 2 s after arming,
-follow.JITTER_MS = 3000                                     -- plus 0 to 3 s from the seed and random()
+follow.SLOTS = 8                                            -- plus the device's slot (its id mod 8)
+follow.SLOT_MS = 3500                                       -- of 3.5 s each, longer than a window (3 s),
+follow.JITTER_MS = 500                                      -- plus 0 to 0.5 s from random()
 follow.LADDER_MS = { 30000, 60000, 120000, 300000, 600000 } -- windows 2 to 6, after the previous one closed
 follow.CAP_MS = 900000                                      -- window 7 on: every 15 min
 follow.SPREAD = 0.2                                         -- each step +/-20 %
@@ -49,8 +52,27 @@ follow.MAX_READS = 3                                        -- addresses read in
 follow.GUARD_MAX = 3                                        -- follows in an hour; the next is refused (F6)
 follow.GUARD_MS = 3600000
 
--- A prime, so that consecutive device ids land far apart within the 3 s of jitter.
-local SEED_STEP = 7919
+-- The generator of its own (Park and Miller's minimal standard): LuaJIT seeds every Lua state alike, so two
+-- devices drawing from math.random would step alike forever (review of #48). The products stay below 2^46, exact
+-- in a double.
+local PM_MODULUS, PM_MULTIPLIER = 2147483647, 16807
+local SEED_STEP = 7919 -- spreads consecutive device ids across the generator's seeds
+
+local function park_miller(state)
+	return function()
+		state = (state * PM_MULTIPLIER) % PM_MODULUS
+		return state / PM_MODULUS
+	end
+end
+
+-- A device id as a whole number >= 0; anything else is 0.
+local function seed_of(value)
+	local n = math.floor(math.abs(tonumber(value) or 0))
+	if not (n >= 0 and n < 9007199254740992) then -- NaN, infinity, or past exact integers
+		return 0
+	end
+	return n
+end
 
 -- Helpers -----------------------------------------------------------------------------------------------------
 
@@ -115,19 +137,14 @@ Follower.__index = Follower
 -- Never raises and calls no option: building the follower in OnDriverInit sends and arms nothing (ECA E8).
 function follow.new(opts)
 	opts = type(opts) == "table" and opts or {}
-	local seed = math.floor(math.abs(tonumber(opts.seed) or 0))
-	if not (seed >= 0 and seed < 9007199254740992) then -- NaN, infinity, or past exact integers
-		seed = 0
-	end
-	local spread = follow.JITTER_MS + 1
 	return setmetatable({
 		o = opts,
-		random = opts.random or math.random,
-		seed_ms = (seed % spread) * SEED_STEP % spread,
+		random = opts.random,  -- nil until the first arm makes the generator of its own
+		seeded = nil,          -- the device id, once read (seed_value)
 		stopped = false,
 		switched = true,       -- switch()'s last word; Follow Address Changes defaults to On (F7)
 		pending = false,       -- the typed address has not answered yet (F5)
-		edits = 0,             -- address_edited() calls, so a window knows whether the owner typed since it opened
+		edits = 0,             -- address_edited() and clicked() calls, so a window knows whether the owner acted since
 		tracked = nil,         -- the phase phase_changed() last reported
 		armed = false,
 		step = 1,              -- the window that is due or under way (state() shows it)
@@ -159,8 +176,31 @@ function Follower:now()
 	return self.last_now or 0
 end
 
--- 0..1; a broken or missing random() is the middle of every range.
+-- The device id (seed), read once, at the first arm and never at load (API 22/_11: GetDeviceID is not for
+-- OnDriverInit); it also seeds the generator of its own when no random() was given.
+function Follower:seed_value()
+	if self.seeded == nil then
+		local value = self.o.seed
+		if type(value) == "function" then
+			local ok, v = pcall(value)
+			if not ok then
+				self:say("error", "Follow: the device id could not be read: %s", tostring(v))
+			end
+			value = ok and v or nil
+		end
+		self.seeded = seed_of(value)
+		if self.random == nil then
+			self.random = park_miller((self.seeded * SEED_STEP + math.floor(math.abs(self:now()))) % (PM_MODULUS - 1) + 1)
+		end
+	end
+	return self.seeded
+end
+
+-- 0..1; a broken random() is the middle of every range.
 function Follower:rand()
+	if self.random == nil then
+		self:seed_value()
+	end
 	local ok, r = pcall(self.random)
 	if not ok or type(r) ~= "number" or r ~= r then
 		return 0.5
@@ -241,8 +281,8 @@ function Follower:current()
 	return trim(text)
 end
 
--- The pinned fan's MAC as 12 digits, else the 12 digits of its client id (ECA 3.2), or nil: no pin, or one that
--- names no MAC either way.
+-- The pinned fan's MAC as 12 digits, or nil: no pin, or a pin without a MAC. None is taken from the client id:
+-- model:follow refuses a pin without a MAC (F2), so a window for one could never end in a follow (review of #48).
 function Follower:pinned_mac()
 	local ok, pin = pcall(self.o.identity)
 	if not ok then
@@ -252,12 +292,7 @@ function Follower:pinned_mac()
 	if type(pin) ~= "table" then
 		return nil
 	end
-	local mac = mac_digits(pin.mac12) or mac_digits(pin.mac)
-	if mac == nil and type(pin.client_id) == "string" then
-		local digits = trim(pin.client_id):match("^%a+_(%x%x%x%x%x%x%x%x%x%x%x%x)$")
-		mac = digits and digits:upper() or nil
-	end
-	return mac
+	return mac_digits(pin.mac12) or mac_digits(pin.mac)
 end
 
 -- Follow Address Changes (F7): the last switch() and, when it is given, enabled(). Only true or "On" is On; one
@@ -310,12 +345,11 @@ end
 
 -- The schedule (F3; ECA 3.3) -------------------------------------------------------------------------------------
 
--- Window 1: 2 s plus 0..3 s. The seed shifts the jitter by device, so two devices whose random() runs alike (two
--- Lua states seeded alike) still open apart.
+-- Window 1: 2 s, plus the device's slot (its id mod 8, 3.5 s each: longer than a window, so two devices armed
+-- together in different slots never share one), plus 0..0.5 s.
 function Follower:first_delay()
-	local spread = follow.JITTER_MS + 1
-	local jitter = (self.seed_ms + math.floor(self:rand() * follow.JITTER_MS + 0.5)) % spread
-	return follow.FIRST_MS + jitter
+	local slot = self:seed_value() % follow.SLOTS
+	return follow.FIRST_MS + slot * follow.SLOT_MS + math.floor(self:rand() * follow.JITTER_MS + 0.5)
 end
 
 -- Window `step` (2 on) after the previous one closed: its step +/-20 %, never under 30 s.
@@ -515,6 +549,14 @@ function Follower:read_next(w)
 		self:disarm()
 		return
 	end
+	-- F4: an edit or a Use Selected Fan click since the window opened drops its candidates and their retries; the
+	-- ladder goes on.
+	if self.edits ~= w.edits then
+		self:say("debug", "Follow: %s not read (the owner acted since window %d opened)", address, w.n)
+		w.queue, w.unverified = {}, {}
+		self:reads_done(w)
+		return
+	end
 	if not self:guard_ok() then
 		if not self.refusing then
 			self.refusing = true
@@ -666,6 +708,14 @@ function Follower:address_edited()
 		self:say("debug", "Follow: disarmed (Fan Address typed)")
 	end
 	self:disarm()
+end
+
+-- A Use Selected Fan click (F4): a window open now drops its candidates, as after an edit, but nothing is pending.
+function Follower:clicked()
+	if self.stopped then
+		return
+	end
+	self.edits = self.edits + 1
 end
 
 -- A contact succeeded at the current address: the typed address has answered (F5).

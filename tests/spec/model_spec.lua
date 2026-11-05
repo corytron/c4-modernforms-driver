@@ -15,6 +15,8 @@ local function ip(...)
 	return table.concat({ ... }, ".")
 end
 
+local THIRD = ip(10, 0, 2, 153) -- a third private address, for a second candidate
+
 local NIL = {} -- in a JSON override: remove the key
 
 -- Virtual time ------------------------------------------------------------------
@@ -2944,17 +2946,37 @@ describe("fan.model follow: the pinned fan at a new address (address-follow-desi
 		local calls = {}
 		h.m:follow("10.0.2.152", MAC, function(key)
 			calls[#calls + 1] = key
-			h.m:follow("192.0.2.153", MAC, function(k) calls[#calls + 1] = k end)
+			h.m:follow(THIRD, MAC, function(k) calls[#calls + 1] = k end)
 		end)
 		ok(h, info_json(OTHER))
 		assert.same({ "not_same" }, calls)
 		gap(h)
 		assert.equal("info", pending(h).kind)
-		assert.equal("192.0.2.153", last_sent(h).address, "the next candidate goes before the contact at 10.0.2.151")
+		assert.equal(THIRD, last_sent(h).address, "the next candidate goes before the contact at 10.0.2.151")
 		ok(h, h.info)
 		assert.same({ "not_same", "followed" }, calls)
-		assert.equal("192.0.2.153", h.m:identity().address)
+		assert.equal(THIRD, h.m:identity().address)
 		assert.equal("waiting", h.m:phase())
+	end)
+
+	it("refuses an address outside the private and link-local blocks without reading it (F8)", function()
+		for _, address in ipairs({ "192.0.2.153", ip(8, 8, 8, 8), ip(172, 32, 0, 1), ip(100, 64, 0, 1) }) do
+			local h = offline()
+			local sent = #h.transport.sent
+			local got
+			h.m:follow(address, MAC, function(key) got = key end)
+			gap(h)
+			assert.equal("not_same", got, address)
+			for i = sent + 1, #h.transport.sent do
+				assert.is_true(h.transport.sent[i].address ~= address, address .. " was read")
+			end
+		end
+		for _, address in ipairs({ ip(172, 16, 0, 9), ip(169, 254, 1, 2), ip(192, 168, 1, 50) }) do
+			local h = offline()
+			h.m:follow(address, MAC, function() end)
+			gap(h)
+			assert.equal(address, last_sent(h).address, address .. " is read")
+		end
 	end)
 
 	it("a follow asked for from the callback of one being given up is refused (busy), never stranded", function()

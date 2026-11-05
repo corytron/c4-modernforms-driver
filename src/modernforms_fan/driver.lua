@@ -218,15 +218,16 @@ end
 -- Section 6.1: the phase carries what the driver applies (detail.online for
 -- the Online variable and the light, detail.event for the two events).
 function listener.phase(phase, detail, old)
-	light:phase(phase, detail)
-	-- The follower (address-follow-design F2, F5): online is the pinned fan
-	-- answering at Fan Address, the contact that ends a pending typed address.
+	-- The follower first (address-follow-design F2, F5), so a fault further on
+	-- cannot keep it from arming: online is the pinned fan answering at Fan
+	-- Address, the contact that ends a pending typed address.
 	if follower then
 		if phase == "online" then
 			follower:contact()
 		end
 		follower:phase_changed(phase)
 	end
+	light:phase(phase, detail)
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -390,8 +391,11 @@ follower = follow_mod.new({
 	end,
 	timer = timer,
 	now = now_ms,
-	random = math.random,
-	seed = C4:GetDeviceID(),
+	-- Read at the first arm, after late init: never at load (API 22/_11). The
+	-- follower draws its jitter from a generator of its own, seeded from it.
+	seed = function()
+		return C4:GetDeviceID()
+	end,
 	on_followed = function(address, was)
 		prop("Fan Address", address)
 		result("followed", { pin = model:identity(), address = address, was = was })
@@ -412,7 +416,17 @@ dispatch.properties["Fan_Address"] = function(value)
 		return
 	end
 	-- The owner's typed address wins until the pinned fan answers there (F5).
-	follower:address_edited()
+	-- Two values are no such edit: an empty one is the stop switch (the
+	-- follower never looks without an address), and the address the pinned fan
+	-- was last seen at, typed back, resumes (v1-design 3.5): it is known to be
+	-- the fan's, as a contact there would show.
+	local typed = trimmed(value)
+	local pin = model:identity()
+	if pin and pin.address and typed == pin.address then
+		follower:contact()
+	elseif typed ~= "" then
+		follower:address_edited()
+	end
 	model:set_address(value)
 	refresh_status()
 end
@@ -652,6 +666,8 @@ end
 
 -- Use Selected Fan: the pick, else Fan Address (section 3.5).
 dispatch.commands["Use_Selected_Fan"] = function()
+	-- A window open now drops its candidates (address-follow-design F4).
+	follower:clicked()
 	local pick = picked_fan()
 	local address, mac
 	if pick then

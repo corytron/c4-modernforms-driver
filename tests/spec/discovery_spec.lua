@@ -1413,9 +1413,9 @@ describe("fan.discovery", function()
 			assert.same({}, discovery.candidates(got.calls[1].heard, PIN, MOVED))
 		end)
 
-		it("keeps at most 8 pairs, the first heard, while the list goes on: a ninth is not kept, whoever sent it",
+		it("keeps as many pairs as fans (64), so ten other fans heard first do not crowd the pinned one out",
 			function()
-				assert.equal(8, discovery.MAX_HEARD)
+				assert.equal(discovery.MAX_FOUND, discovery.MAX_HEARD)
 				local world = new_world()
 				local got = hearing()
 				world.finder:find(got.callback)
@@ -1426,11 +1426,22 @@ describe("fan.discovery", function()
 				world.advance(3000)
 				local call = got.calls[1]
 				assert.equal(11, #call.list)
-				assert.equal(8, #call.heard)
+				assert.equal(11, #call.heard)
 				assert.equal("MF_Fan_000001", call.heard[1].instance)
-				assert.equal("MF_Fan_000008", call.heard[8].instance)
-				assert.same({}, discovery.candidates(call.heard, PIN, CURRENT))
+				assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
 			end)
+
+		it("keeps at most 64 pairs, the first heard: a 65th is not kept, whoever sent it", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			for index = 1, 70 do
+				world.finder:received(6001, 5353, fx.fan_message({ fan = numbered_fan(index) }))
+			end
+			world.advance(3000)
+			assert.equal(64, #got.calls[1].heard)
+			assert.equal("MF_Fan_000064", got.calls[1].heard[64].instance)
+		end)
 
 		it("gives both lists empty, with the error, when the window cannot be had", function()
 			local closed = new_world({ open = function() return false end })

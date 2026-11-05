@@ -627,32 +627,45 @@ describe("Modern Forms Fan driver", function()
 	describe("following the pinned fan to a new address (address-follow-design, #39)", function()
 		local MOVED = "10.0.2.152"
 
-		-- Runs the fake clock 100 ms at a time for `ms`: every open request to FAN
-		-- fails (the fan has gone), a request to MOVED gets the fan's answers, and
-		-- each Find Fans query is answered by the fan from MOVED (announce false: none).
-		local function run(env, c4, ms, announce)
+		-- Runs the fake clock 100 ms at a time for `ms`. The fan answers at `o.at`
+		-- (MOVED unless given; false: nowhere): a request there gets its answers,
+		-- every other request fails. Each Find Fans query is answered from o.at by
+		-- the fan's announcement there (o.message, K10_MOVED unless given), unless
+		-- o.announce is false or the fan is nowhere.
+		local function run(env, c4, ms, o)
+			o = o or {}
+			local at = o.at == nil and MOVED or o.at
 			local queries = #c4.calls_to("SendToNetwork")
 			for _ = 1, ms / 100 do
 				for _, t in ipairs(c4.open_transfers()) do
-					if t.url:find("//" .. FAN .. "/", 1, true) then
-						t:fail(-1, "timeout")
-					elseif t.url:find("//" .. MOVED .. "/", 1, true) then
+					if at and t.url:find("//" .. at .. "/", 1, true) then
 						if t.data == '{"queryStaticShadowData":1}' then
 							t:respond(200, mf.INFO)
 						else
 							t:respond(200, mf.state({ fanOn = true, fanSpeed = 3 }))
 						end
+					else
+						t:fail(-1, "timeout")
 					end
 				end
 				local now = #c4.calls_to("SendToNetwork")
 				if now > queries then
 					queries = now
-					if announce ~= false then
-						fake.network_receive(env, 6001, 5353, mdns.K10_MOVED, MOVED)
+					if at and o.announce ~= false then
+						fake.network_receive(env, 6001, 5353, o.message or mdns.K10_MOVED, at)
 					end
 				end
 				c4.advance(100)
 			end
+		end
+
+		local function queries(c4)
+			return #c4.calls_to("SendToNetwork")
+		end
+
+		local function set(env, name, value)
+			env.Properties[name] = value
+			env.OnPropertyChanged(name)
 		end
 
 		it("declares Follow Address Changes, On by default, after Found Fans", function()
@@ -670,10 +683,70 @@ describe("Modern Forms Fan driver", function()
 
 		it("does not look while the fan answers", function()
 			local env, c4 = online_driver()
-			local before = #c4.calls_to("SendToNetwork")
-			c4.advance(120000)
-			assert.equal(before, #c4.calls_to("SendToNetwork"))
+			local before = queries(c4)
+			run(env, c4, 600000, { at = FAN, message = mdns.K10_FIRST })
+			assert.equal(before, queries(c4))
 			assert.equal(FAN, env.Properties["Fan Address"])
+			assert.truthy(env.Properties["Status"]:find("Online", 1, true), env.Properties["Status"])
+		end)
+
+		it("an address the owner types wins until the fan answers there; the next loss after that is followed", function()
+			local env, c4 = online_driver()
+			set(env, "Fan Address", MOVED)
+			local before = queries(c4)
+			run(env, c4, 3600 * 1000, { at = false })
+			assert.equal(before, queries(c4), "no window while the typed address has not answered")
+			assert.equal(MOVED, env.Properties["Fan Address"])
+			run(env, c4, 30000, { at = MOVED, announce = false })
+			assert.truthy(env.Properties["Status"]:find("Online", 1, true), env.Properties["Status"])
+			-- The fan goes back to the first address and says so there.
+			run(env, c4, 300000, { at = FAN, message = mdns.K10_FIRST })
+			assert.equal(FAN, env.Properties["Fan Address"])
+			assert.equal("Followed fan MF_00005E005301 to " .. FAN .. " (was " .. MOVED .. ")", env.Properties["Last Action"])
+		end)
+
+		it("typing back the address the fan was last seen at resumes following (v1-design 3.5)", function()
+			local env, c4 = online_driver()
+			set(env, "Fan Address", "")
+			c4.advance(1000)
+			set(env, "Fan Address", FAN)
+			run(env, c4, 300000)
+			assert.equal(MOVED, env.Properties["Fan Address"])
+		end)
+
+		it("typing back the last address after a wrong one ends the wait for the wrong one", function()
+			local env, c4 = online_driver()
+			set(env, "Fan Address", table.concat({ 10, 0, 2, 99 }, ".")) -- nothing answers there: pending
+			c4.advance(1000)
+			set(env, "Fan Address", FAN)
+			run(env, c4, 300000)
+			assert.equal(MOVED, env.Properties["Fan Address"])
+		end)
+
+		it("Follow Address Changes switched Off while looking stops the windows, and On starts them again", function()
+			local env, c4 = online_driver()
+			run(env, c4, 90000, { at = false })
+			local armed = queries(c4)
+			assert.is_true(armed > 0, "windows while the fan is away")
+			set(env, "Follow Address Changes", "Off")
+			run(env, c4, 3600 * 1000, { at = false })
+			assert.equal(armed, queries(c4), "none while Off")
+			set(env, "Follow Address Changes", "On")
+			run(env, c4, 40000, { at = false })
+			assert.is_true(queries(c4) > armed, "windows again once On")
+		end)
+
+		it("a restart while the fan is away still follows it (the replayed Fan Address is no edit)", function()
+			local env, c4 = online_driver()
+			local persisted = {}
+			for k, v in pairs(c4.persist) do persisted[k] = v end
+			env.OnDriverDestroyed()
+			local env2, c42 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN, ["Fan ID"] = env.Properties["Fan ID"] })
+			for k, v in pairs(persisted) do c42.persist[k] = v end
+			env2.OnDriverInit("DIT_STARTUP")
+			env2.OnDriverLateInit("DIT_STARTUP")
+			run(env2, c42, 300000)
+			assert.equal(MOVED, env2.Properties["Fan Address"])
 		end)
 
 		it("stays at the typed address with Follow Address Changes Off", function()
@@ -686,7 +759,7 @@ describe("Modern Forms Fan driver", function()
 		it("does not follow a fan whose answer at the new address is another fan", function()
 			local env, c4 = online_driver()
 			local other = mf.INFO:gsub("00005E005301", "00005E005302")
-			local queries = 0
+			local seen = 0
 			for _ = 1, 1200 do
 				for _, t in ipairs(c4.open_transfers()) do
 					if t.url:find("//" .. FAN .. "/", 1, true) then
@@ -695,22 +768,25 @@ describe("Modern Forms Fan driver", function()
 						t:respond(200, other)
 					end
 				end
-				local now = #c4.calls_to("SendToNetwork")
-				if now > queries then
-					queries = now
+				local now = queries(c4)
+				if now > seen then
+					seen = now
 					fake.network_receive(env, 6001, 5353, mdns.K10_MOVED, MOVED)
 				end
 				c4.advance(100)
 			end
+			assert.is_true(seen > 0, "it looked")
 			assert.equal(FAN, env.Properties["Fan Address"])
 		end)
 
-		it("stops with the driver", function()
+		it("stops with the driver, also while it is looking", function()
 			local env, c4 = online_driver()
+			run(env, c4, 90000, { at = false })
+			local armed = queries(c4)
+			assert.is_true(armed > 0, "windows while the fan is away")
 			env.OnDriverDestroyed()
-			local before = #c4.calls_to("SendToNetwork")
-			c4.advance(300000)
-			assert.equal(before, #c4.calls_to("SendToNetwork"))
+			c4.advance(3600 * 1000)
+			assert.equal(armed, queries(c4))
 		end)
 	end)
 

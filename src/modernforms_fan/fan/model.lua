@@ -2014,6 +2014,17 @@ end
 
 -- Following the pinned fan (address-follow-design 2.2) -----------------------
 
+-- RFC 1918's private blocks and the link-local block (RFC 3927): the only addresses a follow
+-- reads (F8). discovery.candidates checks the same; this is the last step before the request.
+local function private_address(addr)
+	local a, b = addr:match("^(%d+)%.(%d+)%.%d+%.%d+$")
+	a, b = tonumber(a), tonumber(b)
+	if not a then
+		return false
+	end
+	return a == 10 or (a == 172 and b >= 16 and b <= 31) or (a == 192 and b == 168) or (a == 169 and b == 254)
+end
+
 -- Use Selected Fan's one info read at `address`, restricted to the pinned fan, for
 -- fan/follow.lua. `mac12` is the MAC the fan's multicast DNS answer carried there (F1).
 -- cb(key, args), once, through pcall:
@@ -2042,8 +2053,9 @@ function Model:follow(address, mac12, cb)
 		return self:finish_use(tell, "busy", args)
 	end
 	local mac = self.wire.mac12(mac12)
-	if not addr or addr == self.address or not mac or mac ~= self.wire.mac12(pin.mac) then
-		-- F4, F8: nothing is read where the pinned fan's own answer did not put it.
+	if not addr or not private_address(addr) or addr == self.address or not mac or mac ~= self.wire.mac12(pin.mac) then
+		-- F4, F8: nothing is read where the pinned fan's own answer did not put it, and never
+		-- outside the private and link-local blocks, whatever the caller was told.
 		return self:finish_use(tell, "not_same", args)
 	end
 	self:begin_use({ address = addr, mac12 = mac, cb = cb, follow = true })

@@ -116,7 +116,7 @@ local function rig(o)
 		timer = timer,
 		now = function() return r.clock end,
 		random = seeded(12345),
-		seed = 4242,
+		seed = 4248, -- slot 0 (4248 mod 8): window 1 at 2 to 2.5 s
 		on_followed = function(address, was)
 			r.followed[#r.followed + 1] = { address = address, was = was }
 		end,
@@ -270,13 +270,13 @@ describe("fan.follow", function()
 			assert.equal("idle", r.f:state())
 		end)
 
-		it("arms on each offline-like phase: window 1 opens 2 to 5 s later", function()
+		it("arms on each offline-like phase: window 1 opens 2 to 2.5 s later in slot 0", function()
 			for _, phase in ipairs({ "offline", "foreign", "gen4", "notfan" }) do
 				local r = rig()
 				r.go(phase)
 				assert.equal("armed:1", r.f:state(), phase)
 				local delay = r.next_due()
-				assert.is_true(delay >= 2000 and delay <= 5000, phase .. ": " .. tostring(delay))
+				assert.is_true(delay >= 2000 and delay <= 2500, phase .. ": " .. tostring(delay))
 				r.step()
 				assert.equal(1, #r.finds, phase)
 			end
@@ -309,12 +309,14 @@ describe("fan.follow", function()
 				end
 			end)
 
-		it("takes the 12 digits of the client id when the pin has no MAC (ECA 3.2)", function()
+		it("does not arm for a pin without a MAC: none is taken from the client id (F2, review of #48)", function()
 			local r = rig()
 			r.pin = { client_id = "MF_00005e005301", address = "10.0.2.151" }
 			r.go("offline")
-			r.window({})
-			assert.equal(MAC, r.asked[1].mac12)
+			assert.equal("idle", r.f:state())
+			assert.same({}, r.live())
+			r.advance(3600 * 1000)
+			assert.same({}, r.finds)
 		end)
 
 		it("reads the pin's MAC with separators as 12 uppercase digits", function()
@@ -349,12 +351,13 @@ describe("fan.follow", function()
 		end
 
 		local RANGES = {
-			{ 2000, 5000 }, { 30000, 36000 }, { 48000, 72000 }, { 96000, 144000 }, { 240000, 360000 },
+			{ 2000, 27000 }, { 30000, 36000 }, { 48000, 72000 }, { 96000, 144000 }, { 240000, 360000 },
 			{ 480000, 720000 },
 		}
 		local CAP = { 720000, 1080000 }
 
-		it("opens window 1 at 2 to 5 s, then 30 s, 1, 2, 5 and 10 min, then every 15 min, each +/-20 %", function()
+		it("opens window 1 at 2 s plus a 3.5 s slot per device plus 0 to 0.5 s, then 30 s, 1, 2, 5 and 10 min, then"
+			.. " every 15 min, each +/-20 %", function()
 			for _, seed in ipairs({ 1, 7, 12345, 99991 }) do
 				local r = rig({ opts = { random = seeded(seed), seed = seed } })
 				for i, ms in ipairs(ladder(r, 12)) do
@@ -369,19 +372,59 @@ describe("fan.follow", function()
 			local low = ladder(rig({ opts = { random = constant(0), seed = 0 } }), 9)
 			assert.same({ 2000, 30000, 48000, 96000, 240000, 480000, 720000, 720000, 720000 }, low)
 			local high = ladder(rig({ opts = { random = constant(1), seed = 0 } }), 9)
-			assert.same({ 5000, 36000, 72000, 144000, 360000, 720000, 1080000, 1080000, 1080000 }, high)
+			assert.same({ 2500, 36000, 72000, 144000, 360000, 720000, 1080000, 1080000, 1080000 }, high)
+			local last = ladder(rig({ opts = { random = constant(1), seed = 7 } }), 1)
+			assert.same({ 27000 }, last, "slot 7, the last")
 		end)
 
-		it("shifts window 1 by the seed: two devices with the same random() open apart", function()
-			local function first(seed)
-				local r = rig({ opts = { random = constant(0), seed = seed } })
+		it("puts window 1 of devices in neighbouring slots more than a window apart, whatever random() says", function()
+			local function first(seed, value)
+				local r = rig({ opts = { random = constant(value), seed = seed } })
 				r.go("offline")
 				return r.next_due()
 			end
-			local a, b = first(101), first(102)
-			assert.is_true(a >= 2000 and a <= 5000 and b >= 2000 and b <= 5000)
-			assert.is_true(math.abs(a - b) >= 500, a .. " and " .. b)
-			assert.equal(a, first(101), "the same seed, the same delay")
+			for id = 100, 115 do
+				local a, b = first(id, 1), first(id + 1, 0)
+				if id % 8 ~= 7 then
+					assert.is_true(b - a >= 3000, id .. ": " .. a .. " and " .. b)
+				end
+			end
+			assert.equal(first(101, 0.5), first(101, 0.5), "the same seed, the same delay")
+		end)
+
+		it("reads the device id at the first arm, not when it is built, and only once", function()
+			local calls = 0
+			local r = rig({ opts = { seed = function() calls = calls + 1 return 4249 end } })
+			assert.equal(0, calls, "not at load (API 22/_11)")
+			r.go("offline")
+			assert.equal(1, calls)
+			assert.is_true(r.next_due() >= 5500 and r.next_due() <= 6000, "slot 1")
+			r.go("online")
+			r.go("offline")
+			assert.equal(1, calls)
+		end)
+
+		it("takes slot 0 when the device id cannot be read", function()
+			local r = rig({ opts = { seed = raises } })
+			r.go("offline")
+			assert.is_true(r.next_due() >= 2000 and r.next_due() <= 2500)
+		end)
+
+		it("draws from a generator of its own without random(): two devices step apart, not alike", function()
+			local function delays(seed)
+				local r = rig({ without = { "random" }, opts = { seed = seed } })
+				return ladder(r, 8)
+			end
+			local a, b = delays(15), delays(16)
+			local same = 0
+			for i = 2, 8 do
+				if a[i] == b[i] then
+					same = same + 1
+				end
+				local range = RANGES[i] or CAP
+				assert.is_true(a[i] >= range[1] and a[i] <= range[2], "window " .. i .. ": " .. a[i])
+			end
+			assert.is_true(same < 7, "the ladders differ")
 		end)
 
 		it("opens no window less than 30 s after the last one closed, across a disarm", function()
@@ -1051,7 +1094,37 @@ describe("fan.follow", function()
 		it("a random() that raises is the middle of the range", function()
 			local r = rig({ opts = { random = raises, seed = 0 } })
 			r.go("offline")
-			assert.equal(3500, r.next_due())
+			assert.equal(2250, r.next_due())
+		end)
+	end)
+
+	describe("clicked() (F4: a Use Selected Fan click)", function()
+		it("drops the candidates of the window open at the click; nothing pending, the ladder goes on", function()
+			local r = rig()
+			r.go("offline")
+			r.step()
+			r.f:clicked()
+			r.close({ entry("10.0.2.152") })
+			assert.same({}, r.reads)
+			assert.equal("armed:2", r.f:state())
+			r.window({ entry("10.0.2.152") })
+			assert.equal(1, #r.reads, "the next window reads again")
+		end)
+
+		it("drops the retries of an unverified candidate too", function()
+			local r = rig()
+			r.go("offline")
+			r.window({ entry("10.0.2.152") })
+			r.answer("no_answer", { address = "10.0.2.152" })
+			r.f:clicked()
+			r.advance(120 * 1000)
+			assert.equal(1, #r.reads, "no retry after the click")
+		end)
+
+		it("does nothing once stopped", function()
+			local r = rig()
+			r.f:stop()
+			assert.has_no.errors(function() r.f:clicked() end)
 		end)
 	end)
 

@@ -29,7 +29,9 @@ local MAX_HOPS = 16       -- compression pointers followed in one name (section 
 local MAX_NAME = 255      -- octets of a name on the wire (RFC 1035 section 2.3.4)
 local MAX_DATAGRAM = 9000 -- the largest multicast DNS message (RFC 6762 section 17)
 local MAX_FOUND = 64      -- fans kept in one window; Found Fans lists 16 of them (section 7.3)
-local MAX_HEARD = 8       -- (instance, address) pairs kept in one window for the follower (address-follow-design 2.1)
+local MAX_HEARD = 64      -- (instance, address) pairs kept in one window for the follower (address-follow-design 2.1):
+                          -- as many as fans kept, so other fans cannot crowd the pinned one out (review of #48);
+                          -- candidates still reads at most MAX_CANDIDATES
 local MAX_CANDIDATES = 3  -- addresses a follow reads after one window (address-follow-design F4)
 local HTTP_PORT = 80      -- the SRV port of a fan's /mf interface, the only one a follow reads (F4; MFR section 7)
 local REPEAT_MS = 1000    -- the query goes out a second time this long after the first (section 9.10)

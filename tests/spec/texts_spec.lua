@@ -669,6 +669,12 @@ describe("fan.texts", function()
 					assert.equal(69, #long)
 				end)
 
+			it("L30 is at most 70 characters with a WAC_ client id and two 15-character addresses", function()
+				local text = r("followed", { client_id = "WAC_00005E005301", address = "192.168.100.200",
+					was = "192.168.100.201" })
+				assert.equal(70, #text)
+			end)
+
 			it("L30 without the old address leaves out the parenthesis", function()
 				assert.equal("Followed fan MF_00005E005301 to 10.0.2.152",
 					r("followed", { client_id = "MF_00005E005301", address = "10.0.2.152" }))
