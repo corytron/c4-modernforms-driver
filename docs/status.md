@@ -9,7 +9,9 @@ gone.** v1.0 (build 67) was released and installed in place on 2026-11-05
 (deploy issue #67, the round in Discussion #70, the announcement in
 Discussion #68): beta.3 plus Breeze in Fan Model after a restart (#59) and
 linear trims (#49), released by the owner without a hardware test of those
-two fixes. Before it, v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
+two fixes. The same day build 73 of 1.0 replaced it (deploy issue #74, the
+round in Discussion #75): Breeze stored, so Fan Model shows it before the
+fan's first answer (#69). Before it, v1.0-beta.1 (build 25) was installed on 2026-11-04 beside the stock
 WAC device; the same evening the bedroom keypad was cut over to its Button
 Links and the stock device was removed (deploy issue #30, the round in
 Discussion #34). On 2026-11-05 v1.0-beta.3 (build 51) replaced it in
@@ -23,17 +25,20 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.0, build 67**, one device: `deploy/house.yaml` and the environment
+- **v1.0, build 73**, one device: `deploy/house.yaml` and the environment
   `house` agree (deployment success, 2026-11-05). Debug Mode Off; `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
-  light kit F4IN-120V-R1-30, Breeze` (for the first 2 seconds after the
-  update without `, Breeze`, #69).
+  light kit F4IN-120V-R1-30, Breeze`, from the next start on also before
+  the fan's first answer (#69; the install itself started from build 67's
+  data, which had not stored it).
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
-  driver: two items, the fan "Fan" (the parent, with every property, action
-  and the Documentation tab) and its light "Fan Light", renamed to the
-  stock items' names; the stock device's parent was its light. Found with
+  driver: two items, the fan (the parent, with every property, action and
+  the Documentation tab) and its light, named "Aviator 5" and "Aviator 5
+  Light" since 2026-11-05 (Name Items After Fan, clicked at 16:18 outside
+  any Windows-session round; first the stock items' names "Fan" and "Fan
+  Light"); the stock device's parent was its light. Found with
   Find Fans and accepted with Use Selected Fan; Status online, Preset Level
   3, Default On Brightness 100, as on the stock device.
 - **The bedroom keypad** is bound to the driver's links: Low to Fan Speed 2
@@ -47,8 +52,7 @@ passed, the follow to a new address included (#58).
   goes at the owner's next yes). `Speed LED Colors` is `Per speed` since
   beta.3: Speed 1 `0,0,255`, Speeds 2 to 5 `128,0,255` (the keypad's own
   `#8000FF`), Speed 6 `255,96,0`, off `0,0,0`, so Low is blue at speed 1
-  and High orange at speed 6 again, as before the cutover. The items keep
-  the names "Fan" and "Fan Light" (Name Items After Fan not clicked, N8).
+  and High orange at speed 6 again, as before the cutover.
 - **The way back:** the project backup and every script's Copy All from
   before the cutover are on the Windows VM (they hold private data); re-add
   the stock driver and paste the scripts back, or load the backup.
@@ -107,8 +111,6 @@ where each stands on 2026-10-27.
   it has run on the house: the owner decided (2026-11-04) to test once, with
   the complete driver, so the first install is a prerelease through the
   [`docs/composer-checklist.md`](composer-checklist.md).
-- **#69** `Fan Model` lacks `, Breeze` until the fan's first answer after a
-  restart (display only; found at the 1.0 install).
 - **#14** Owner questions from the v1 contract: the Cycle link wrapping and
   custom icons, each with a default (the colour per speed was answered yes,
   #31, 2026-11-04).
