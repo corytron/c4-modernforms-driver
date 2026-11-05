@@ -10,16 +10,15 @@ each controller OS upgrade); every line is a check with its expected result.
 Results go into the build's issue (hardware findings as comments), and
 [`status.md`](status.md) sums them up.
 
-**A skeleton until the v1 contract.** Section 0, the release ("Naming"), the
-install ("Deploy to the house") and the prerelease are complete: they are the
-tooling the scaffold ships. Sections 1 to 4 name what must be checked on the
-hardware (the fan, its light, the keypad links and their LEDs, changes made
-with the Modern Forms app, the remote and the wall control) and leave the
-property names, actions and exact texts to the v1 contract, which fills them
-in here and in [`composer-checklist.md`](composer-checklist.md). Until then
-the driver is a skeleton that is never installed on the house
-([`scaffold-design.md`](scaffold-design.md), section 7), and the house runs
-the stock WAC driver.
+Section 0, the release ("Naming"), the install ("Deploy to the house") and
+the prerelease are the tooling the scaffold shipped. Sections 1 to 4 name
+what must be checked on the hardware (the fan, its light, the keypad links
+and their LEDs, changes made with the Modern Forms app, the remote and the
+wall control); the property names, actions and exact texts are in
+[`composer-checklist.md`](composer-checklist.md). 1.0 was released on
+2026-11-05 after the owner's own test of beta.3 on the house (#58); the
+owner released the two fixes that followed (#59, #49) untested on the
+hardware.
 
 ## 0. On this VM
 
