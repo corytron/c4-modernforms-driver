@@ -33,20 +33,25 @@ passed, the follow to a new address included (#58).
   `house` agree (deployment success, 2026-11-05). Debug Mode Off; `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
   light kit F4IN-120V-R1-30, Breeze`, and the update did not rewrite it
-  (Breeze stored since build 73, #69). The two items keep Control4's own
-  icons: Composer stamps a proxy's icon when the device is created, and
-  this one was created by beta.1 (#78; the List View pixel-identical
-  before and after).
+  (Breeze stored since build 73, #69). The device was re-created from 1.1
+  on 2026-11-05 (#91, Discussion #93), so its items show the driver's own
+  icons (#78): Composer stamps a proxy's icon when the device is created,
+  and the first device, from beta.1, had kept Control4's.
 - **Controller:** OS 3.4.3, managed with Composer Pro 3.4.2 on the Windows
   machine.
 - **The fan:** one Modern Forms fan with its light (a Gen 3), on this
   driver: two items, the fan (the parent, with every property, action and
-  the Documentation tab) and its light, named "Aviator 5" and "Aviator 5
-  Light" since 2026-11-05 (Name Items After Fan, clicked at 16:18 outside
-  any Windows-session round; first the stock items' names "Fan" and "Fan
-  Light"); the stock device's parent was its light. Found with
-  Find Fans and accepted with Use Selected Fan; Status online, Preset Level
-  3, Default On Brightness 100, as on the stock device.
+  the Documentation tab) and its light, "Aviator 5" and "Aviator 5 Light".
+  The first device (2026-11-04, beta.1) carried the stock items' names
+  "Fan" and "Fan Light" until the owner clicked Name Items After Fan on
+  2026-11-05. The same evening it was replaced by a device added from 1.1
+  for the icons (#91): Find Fans, then Use Selected Fan, which named the
+  fresh items itself. Every setting was copied, the seven bindings and both
+  Double Tap lines were moved, and the old device was deleted. The owner's
+  keypad check afterwards passed. Status online, Preset Level 3, Default
+  On Brightness 100, as on the stock device; the stock device's parent was
+  its light. In the room's Navigator list the new items took the first
+  places.
 - **The bedroom keypad** is bound to the driver's links: Low to Fan Speed 2
   (`Speed 2 Link Also Lit At` Speed 1), Medium to Fan Speed 3, Med-High to
   Fan Speed 4, High to Fan Speed 5 (`Speed 5 Link Also Lit At` Speed 6), Off
