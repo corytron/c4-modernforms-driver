@@ -1188,19 +1188,101 @@ describe("fan.links", function()
 			assert.equal(1, r.lk:debug().bound, "one link, two keypads")
 		end)
 
-		it("an unbind removes the keypad even while Director's table still lists it, and keeps the other", function()
-			local r = rig({
-				names = { [456] = "Example Keypad", [457] = "Second Keypad" },
-				project = { [303] = { [456] = "x", [457] = "x" } },
-			})
+		it("an unbind removes a keypad whose buttons the events told, even while Director's table still lists it", function()
+			local r = rig({ names = { [456] = "Example Keypad", [457] = "Second Keypad" } })
 			r.lk:late_init()
-			assert.equal(3, #r.listed[1])
+			r.lk:binding_changed(303, true, 456, 3)
+			r.lk:binding_changed(303, true, 457, 3)
+			assert.equal(3, #r.listed[#r.listed])
+			local timers = r.pending_timers()
+			r.project[303] = { [456] = "x", [457] = "x" }
 			r.lk:binding_changed(303, false, 456, 3)
 			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
 			r.project[303] = nil
 			r.lk:binding_changed(303, false, 457, 3)
 			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
 			assert.equal(0, r.lk:debug().bound)
+			assert.equal(timers, r.pending_timers(), "no second read: the events told every button")
+		end)
+
+		it("#92 an unbind of a keypad known only from Director's table: kept, read again 3 s later", function()
+			local r = rig({
+				names = { [456] = "Example Keypad", [457] = "Second Keypad" },
+				project = { [303] = { [456] = "x", [457] = "x" } },
+			})
+			r.lk:late_init()
+			local timers = r.pending_timers()
+			r.lk:binding_changed(303, false, 456, 3)
+			assert.equal(3, #r.listed[#r.listed], "another button of that keypad may still be bound")
+			assert.equal(timers + 1, r.pending_timers())
+			r.project[303] = { [457] = "x" } -- Director has caught up
+			r.advance(links.REREAD_MS)
+			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
+		end)
+
+		it("#92 two buttons of one keypad on one link: unbinding one keeps the keypad, unbinding both removes it", function()
+			local r = rig({ names = { [456] = "Example Keypad" } })
+			r.lk:late_init()
+			r.lk:binding_changed(304, true, 456, 3)
+			r.project[304] = { [456] = "x" }
+			r.lk:binding_changed(304, true, 456, 4)
+			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			r.lk:binding_changed(304, false, 456, 4)
+			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			r.project[304] = nil
+			r.lk:binding_changed(304, false, 456, 3)
+			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+		end)
+
+		it("#92 as on the house: a button bound at start, a second one bound and unbound again, the link stays", function()
+			local r = rig({ names = { [456] = "Example Keypad" }, project = { [304] = { [456] = "x" } } })
+			r.lk:late_init()
+			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			r.lk:binding_changed(304, true, 456, 5)
+			r.lk:binding_changed(304, false, 456, 5)
+			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			r.advance(links.REREAD_MS)
+			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed],
+				"the table still lists the keypad: its first button is bound")
+		end)
+
+		it("#92 an unbind that names no button takes the keypad off the link at once", function()
+			local r = rig({ names = { [456] = "Example Keypad" } })
+			r.lk:late_init()
+			r.lk:binding_changed(304, true, 456, 3)
+			r.lk:binding_changed(304, true, 456, 4)
+			r.lk:binding_changed(304, false, 456, nil)
+			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+		end)
+
+		it("#92 the second read drops a keypad the table no longer lists, keeps one an event bound", function()
+			local r = rig({
+				names = { [456] = "Example Keypad", [457] = "Second Keypad" },
+				project = { [303] = { [456] = "x" } },
+			})
+			r.lk:late_init()
+			r.lk:binding_changed(303, false, 456, 3)
+			r.lk:binding_changed(303, true, 457, 3) -- the table lags: it does not list 457 yet
+			r.project[303] = {}
+			r.advance(links.REREAD_MS)
+			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
+		end)
+
+		it("#92 without a timer for the second read, the unbind is believed at once", function()
+			local r = rig({ no_timer = true, names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
+			r.lk:late_init()
+			r.lk:binding_changed(303, false, 456, 3)
+			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+		end)
+
+		it("#92 stop() cancels a pending second read", function()
+			local r = rig({ names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
+			r.lk:late_init()
+			local timers = r.pending_timers()
+			r.lk:binding_changed(303, false, 456, 3)
+			assert.equal(timers + 1, r.pending_timers())
+			r.lk:stop()
+			assert.equal(0, r.pending_timers())
 		end)
 
 		it("an unbind that names no keypad reads Director's table instead", function()

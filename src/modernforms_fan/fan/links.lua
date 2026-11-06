@@ -54,6 +54,11 @@ links.LIGHT_LINKS = { [200] = "Light Top", [201] = "Light Bottom", [202] = "Ligh
 
 links.CLICK_WINDOW_MS = 10000 -- a click this soon after a push on its link is the same tap
 links.SECOND_LOOK_MS = 5000 -- a link that answered nil at late init is read once more (ECC C15)
+links.REREAD_MS = 3000 -- after an unbind whose keypad may have another button on the link (#92)
+
+-- A keypad Director's table lists on a link, with no binding event for it yet:
+-- it is bound there by a button (or buttons) not known by number.
+local UNKNOWN = "?"
 
 local SPEEDS = 6
 local FAN_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308 }
@@ -120,6 +125,8 @@ function links.new(opts)
 		off_color = "000000",
 		last_push = {}, -- [link] = the clock of its last DO_PUSH
 		consumers = {}, -- [link] = { [device_id] = name } once read; nil while unknown
+		buttons = {}, -- [link] = { [device_id] = { [its binding id, or UNKNOWN] = true } } (#92)
+		rereads = {}, -- [link] = the pending timer of an unbind's second read (#92)
 		touched = {}, -- [link] = true once OnBindingChanged told something about it
 		published = nil, -- the Keypad Links items last written, as one string
 		second_look = nil, -- the pending timer
@@ -440,19 +447,102 @@ function links:binding_changed(id, bound, other_device, other_binding)
 	bound = bound and true or false
 	local device_id = tonumber(other_device)
 	local set = self:read_bound(link) or {}
+	-- A keypad is one device whatever number of its buttons a link has, so the
+	-- buttons are counted per keypad: an unbind takes the keypad off the link
+	-- only with its last button (#92).
+	local before = self.consumers[link] and self.consumers[link][device_id]
+	local buttons = self:merge(link, set)
 	if device_id and device_id ~= 0 then
-		if bound then
-			set[device_id] = set[device_id] or ""
+		local mine = {}
+		for key in pairs(buttons[device_id] or {}) do
+			mine[key] = true
+		end
+		local button = tonumber(other_binding)
+		if button then
+			mine[button] = bound or nil
+		elseif bound then
+			mine[UNKNOWN] = true
 		else
-			set[device_id] = nil
+			mine = {} -- an unbind that names no button is believed for the keypad
+		end
+		local left, unknown_only = next(mine) ~= nil, true
+		for key in pairs(mine) do
+			if key ~= UNKNOWN then
+				unknown_only = false
+			end
+		end
+		if not bound and left and unknown_only and not self.timer then
+			-- With no timer for a second read, the event is believed over
+			-- Director's table, which may still lag behind it.
+			left = false
+		end
+		if left then
+			buttons[device_id] = mine
+			set[device_id] = set[device_id] or before or ""
+			if not bound and unknown_only then
+				-- Another button of this keypad may still be bound here, or the
+				-- table lags behind the unbind: the next read settles it.
+				self:reread_later(link)
+			end
+		else
+			buttons[device_id], set[device_id] = nil, nil
 		end
 	end
+	self.buttons[link] = buttons
 	self.consumers[link], self.touched[link] = set, true
 	self.log.debug("%s: keypad %s %s (its binding %s)", name, tostring(device_id), bound and "bound" or "unbound",
 		tostring(other_binding))
 	self:publish()
 	if bound and links.LINKS[link] then
 		self:answer(link)
+	end
+end
+
+-- Director's table for a link, with what the events told: a keypad in the
+-- table keeps the buttons the events named (else one unknown button), and a
+-- keypad an event bound a named button of stays though the table lags behind,
+-- until its own unbind. Adds those keypads to set; returns the buttons.
+function links:merge(link, set)
+	local known = self.buttons[link] or {}
+	local before = self.consumers[link] or {}
+	local buttons = {}
+	for dev in pairs(set) do
+		buttons[dev] = known[dev] or { [UNKNOWN] = true }
+	end
+	for dev, keys in pairs(known) do
+		if not buttons[dev] then
+			for key in pairs(keys) do
+				if key ~= UNKNOWN then
+					buttons[dev], set[dev] = keys, before[dev] or ""
+					break
+				end
+			end
+		end
+	end
+	return buttons
+end
+
+-- An unbind left a keypad whose other buttons on the link are not known: the
+-- link is read again REREAD_MS later, and Director's table is believed then.
+function links:reread_later(link)
+	local old = self.rereads[link]
+	if old and old.Cancel then
+		pcall(function() old:Cancel() end)
+	end
+	local ok, t = pcall(self.timer, links.REREAD_MS, function()
+		self.rereads[link] = nil
+		local set = self:read_bound(link)
+		if not set then
+			return
+		end
+		self.buttons[link] = self:merge(link, set)
+		self.consumers[link] = set
+		self:publish()
+	end)
+	if ok then
+		self.rereads[link] = t
+	else
+		self.log.warn("Keypad Links: link %d could not be read again: %s", link, tostring(t))
 	end
 end
 
@@ -504,6 +594,12 @@ end
 
 function links:stop()
 	self:cancel_second_look()
+	for link, t in pairs(self.rereads) do
+		self.rereads[link] = nil
+		if t and t.Cancel then
+			pcall(function() t:Cancel() end)
+		end
+	end
 end
 
 -- Dev State (section 12): the LED each fan link was last sent (nil: never)
