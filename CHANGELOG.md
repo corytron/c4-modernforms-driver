@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.1 "Jamis", build 97 (2026-11-05)
+
 ### Fixed
 
 - Keypad Links keeps a keypad on a link while another of its buttons is still bound to that link: until now, disconnecting one of two buttons of a keypad from the same link took the keypad off the row and out of the count, though the other button kept working (#92).

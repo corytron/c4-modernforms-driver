@@ -9,6 +9,6 @@
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
 release: v1.1               # 1.1 "Jamis": Fan Cycle stops at Level 6 (#77), the driver's own icons (#78)
-build: 87
+build: 97
 drivers: modernforms_fan
 debug_mode: Off
