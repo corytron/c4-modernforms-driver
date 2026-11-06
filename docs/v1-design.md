@@ -799,6 +799,12 @@ for 300–308 the link's LED; for all twelve the `Keypad Links` bookkeeping.
 At late init each link is read with `C4:GetBoundConsumerDevices(C4:GetDeviceID(),
 id)` (API `32_serial_network_device/_3-GetBoundConsumerDevices.md`); a link
 answering nil is read once more 5 s later (one nil is "unknown", ECC C15).
+The table lists keypads, not buttons, and may lag behind an event, so the
+bookkeeping counts each keypad's buttons per link from the events (#92): an
+unbind takes a keypad off a link only with its last known button; a keypad
+known only from the table (one button, which unknown) stays on an unbind and
+the link is read again 3 s later (`links.REREAD_MS`), the table believed
+then; a keypad an event bound stays while the table lags, until its unbind.
 Names come from `C4:GetDeviceDisplayName` (API `32/_6`). Binding a link
 turns the button's LED Behavior to Follow Connection by itself and
 disconnecting does not turn it back (VERIFIED-house, HUE
