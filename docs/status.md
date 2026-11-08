@@ -45,6 +45,16 @@ but never installed. The owner tested beta.3 on 2026-11-05 and every test
 passed, the follow to a new address included (#58).
 
 
+**Built on `main`, not released yet (for 1.3 "Ornithopter"):** the Breeze
+fan and the two fan modes (#121, PR #122,
+[`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)):
+the owner found that the fan is in fan mode or in Breeze mode, never both,
+so the main fan shows fan mode only, a fan speed ends Breeze and an off
+stops the fan; the Breeze device becomes a three-speed fan in a new package,
+`modernforms_breeze_fan.c4z`, which replaces the 1.2 light-type switch (the
+house's switch is deleted and the fan's action Add Breeze Fan clicked
+again).
+
 ## What runs on the house
 
 - **v1.2, build 115**, two devices, the fan and its Breeze switch:
