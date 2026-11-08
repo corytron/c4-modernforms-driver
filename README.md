@@ -11,7 +11,7 @@
 [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [License](LICENSE) and [notice](NOTICE)
 
-> **1.1 "Jamis" is the latest release:**
+> **1.2 "Thumper" is the latest release:**
 > [get the latest release](https://github.com/corytron/c4-modernforms-driver/releases/latest).
 > It is a personal project, tried on one fan (a Gen 3) and one controller;
 > [`docs/status.md`](docs/status.md) says what runs there and what is open.
@@ -22,9 +22,9 @@ interface. The driver **Modern Forms Fan** (`modernforms_fan.c4z`) makes
 the fan and its light ordinary Control4 devices: a fan with its speeds and
 a dimmable light that you switch, dim, program in Composer Pro and bind to
 keypads like any other fan and light. On a fan that has Breeze, Control4
-switches Breeze too, and a small second driver, **Modern Forms Breeze**
-(`modernforms_breeze.c4z`), shows it on the Navigators as an on/off
-switch.
+switches Breeze too, and a small second driver, **Modern Forms Breeze
+Fan** (`modernforms_breeze_fan.c4z`), shows it on the Navigators as a
+second fan with the speeds Breeze 1, Breeze 2 and Breeze 3.
 
 A personal project for one Control4 home. It is not affiliated with,
 endorsed by or supported by Modern Forms, WAC Lighting or Snap One
@@ -65,16 +65,22 @@ version.
   Breeze Strength**, the variable **Breeze**, the events **Breeze
   Started** and **Breeze Stopped** and the condition **Breeze is on**; a
   keypad button bound to **Fan Breeze** toggles it, its LED lit while
-  Breeze blows. Breeze On starts a fan that is off at its preset speed
-  first; a speed change, Off or Toggle never switches Breeze off by
-  itself, and the driver shows what the fan does then. A fan without
-  Breeze refuses the commands and says so.
-- **The Breeze switch.** Control4's fan tile has no place for Breeze, so
-  the action **Add Breeze Switch** on the fan item adds a companion on/off
-  switch, named after the fan ("Aviator 5 Breeze"), to the fan's room:
-  lit while Breeze blows, one tap toggles it, on the Control4 app and the
-  touch screens. Keep it out of "all lights" groups: off ends Breeze while
-  the fan keeps turning.
+  Breeze blows. The fan runs either in fan mode or in Breeze mode, never
+  both: the fan item shows fan mode only (off, with its speed LEDs dark,
+  while Breeze blows), a speed on it ends Breeze, and Off on it stops the
+  fan and clears Breeze. Breeze Off and Toggle Breeze stop a fan that
+  blows a breeze (since 1.3; to go back to fan mode, set a speed). A fan
+  without Breeze refuses the commands and says so.
+- **The Breeze fan.** Control4's fan tile has no place for Breeze, so
+  the action **Add Breeze Fan** on the fan item adds a second fan, named
+  after the fan ("Aviator 5 Breeze"), to the fan's room, with the speeds
+  **Breeze 1**, **Breeze 2** and **Breeze 3**: a speed starts Breeze at
+  that strength, On resumes the last one, Off ends Breeze, and it shows
+  only what the fan confirms. It lists with the room's fans on the
+  Control4 app and the touch screens; keep it out of "all fans on"
+  groups, where it and the fan item get contradictory targets. It
+  replaces 1.2's on/off Breeze switch, which is deleted before the
+  click.
 - **Button Links that work.** Thirteen Button Links of the driver's own:
   **Fan Off**, **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle**, **Fan
   Cycle** and **Fan Breeze**, and the light's **Light Top**, **Light
@@ -136,7 +142,7 @@ and never fights it. It does not set or clear the fan's own schedules,
 timers, Away mode or adaptive learning; it shows them in **Fan
 Automations** and offers two clicks, **Turn Off Away Mode** and **Turn Off
 Adaptive Learning**. It adds a Control4 device only when you click **Add
-Breeze Switch**, never moves or deletes one, and never changes keypad
+Breeze Fan**, never moves or deletes one, and never changes keypad
 programming. Automations belong in Control4 programming.
 
 ## What you need
@@ -171,8 +177,11 @@ per-speed colours, the double taps, the light's Up and Down buttons, and
 following the fan to a new address. No Gen 1 or Gen 2 fan has been tried,
 and following a new address relies on an answer seen from Gen 3 fans
 only. Breeze (#111) was built without trying the fan's own behaviour in
-Breeze on the house: whether a speed change or Off ends it is the fan's
-decision, and the driver shows what the fan reports.
+Breeze on the house; the owner has since seen on his fan that it runs in
+fan mode or in Breeze mode, never both, which the fan item and the Breeze
+fan of 1.3 (#121) follow. The rest (what the remote's power button does
+to Breeze, the direction in Breeze) the driver shows as the fan reports
+it.
 
 ## Get it
 
@@ -182,11 +191,12 @@ numbered `X.Y` and tagged `vX.Y`. The newest is always at
 [releases/latest](https://github.com/corytron/c4-modernforms-driver/releases/latest),
 and its packages download directly from
 [`releases/latest/download/modernforms_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_fan.c4z)
-and, from the first release after 1.1,
-[`releases/latest/download/modernforms_breeze.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_breeze.c4z).
+and, from 1.3 on,
+[`releases/latest/download/modernforms_breeze_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_breeze_fan.c4z)
+(1.2 carried the Breeze switch, `modernforms_breeze.c4z`, in its place).
 Each X.Y carries its own codename from Denis Villeneuve's *Dune* films, a
 major name for an X.0 and a lesser one for a point release: 1.0 is
-"Arrakis", 1.1 is "Jamis". Prereleases for testers (`X.Y-beta.N`) are marked
+"Arrakis", 1.1 is "Jamis", 1.2 is "Thumper" and 1.3 is "Ornithopter". Prereleases for testers (`X.Y-beta.N`) are marked
 **Pre-release** and never **Latest**, so the links above skip them. What
 each release changed is in [`CHANGELOG.md`](CHANGELOG.md), which each
 release's notes and the end of the driver's Documentation tab repeat.
@@ -194,7 +204,8 @@ release's notes and the end of the driver's Documentation tab repeat.
 Every release is built and attached by the repository's Release workflow
 ([`release.yml`](.github/workflows/release.yml)) from `main`, never by hand,
 and carries the two packages `modernforms_fan.c4z` and
-`modernforms_breeze.c4z` (the Breeze switch, since #111; 1.0 and 1.1 carry
+`modernforms_breeze_fan.c4z` (the Breeze fan, since #121; 1.2 carries
+`modernforms_breeze.c4z`, the Breeze switch, in its place, and 1.0 and 1.1
 the first alone), `SHA256SUMS.txt` (their checksums), `manifest.json` (what
 was built: the tag, the build number that Composer shows as **Driver
 Version**, the commit, and each package's `sha256` and size) and the
@@ -218,7 +229,7 @@ vendored here):
 
 ```sh
 git clone https://github.com/snap-one/drivers-driverpackager ~/c4-tools/drivers-driverpackager
-tools/build.sh          # -> build/modernforms_fan.c4z, build/modernforms_breeze.c4z, build/manifest.json
+tools/build.sh          # -> build/modernforms_fan.c4z, build/modernforms_breeze_fan.c4z, build/manifest.json
 tools/build.sh --dev    # development build: dev loop, Lua command window, the dev key; never install or share it as production
 ```
 
@@ -256,7 +267,7 @@ In short:
 
 1. Choose **Driver > Add or Update Driver or Agent...** and open both
    packages of the release, `modernforms_fan.c4z` and
-   `modernforms_breeze.c4z`.
+   `modernforms_breeze_fan.c4z`.
 2. Add **Modern Forms Fan** (manufacturer Modern Forms) to the fan's room.
    Two items appear: the fan, **Modern Forms Fan**, and under it its
    light, **Modern Forms Fan Light**. Add one device per fan.
@@ -267,9 +278,11 @@ In short:
    **Status** reads `Online: ...`.
 4. Choose **File > Refresh Navigators**, then bind keypad buttons to the
    driver's links in **Connections** (chapter 5 of the manual).
-5. On a fan with Breeze, for the Navigators: click **Add Breeze Switch** on
-   the fan item's **Actions** tab, then **File > Refresh Navigators** again
-   ([the Breeze switch](src/modernforms_fan/www/documentation.html#breeze-switch)
+5. On a fan with Breeze, for the Navigators: click **Add Breeze Fan** on
+   the fan item's **Actions** tab, put the new Breeze fan right after the
+   fan in the room's order where Composer allows it, then **File > Refresh
+   Navigators** again
+   ([the Breeze fan](src/modernforms_fan/www/documentation.html#breeze-fan)
    in chapter 4 of the manual).
 
 The rules that hold from then on:
@@ -278,7 +291,13 @@ The rules that hold from then on:
   with both packages at once. An update goes **in place** onto every
   existing device; never delete and re-add the device, since its
   connections, its state and every programming line that names it go with
-  it. The update that brings Breeze needs no controller reboot.
+  it. The updates that brought Breeze (1.2) and the Breeze fan (1.3)
+  need no controller reboot.
+- Coming from 1.2 with a Breeze switch: note what programming names it,
+  install both packages, delete the switch, then click **Add Breeze Fan**
+  ([upgrading from 1.2](src/modernforms_fan/www/documentation.html#upgrade-1-2)
+  in chapter 4 of the manual). A device cannot change from a light to a
+  fan in an update, so the Breeze fan is a new driver.
 - If Composer asks **Restart Director?**, the new build changes the driver's
   capabilities. Answer Yes, then **reboot the controller from System
   Manager** (Tools > System Manager): the new code loads only with the
@@ -326,8 +345,9 @@ src/common/          the author's shared Lua modules (log, dispatch, device, dev
 src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab) and fan/ (the
                      wire, the state model, the proxies, the links, finding fans, the item names,
                      Breeze)
-src/modernforms_breeze/ the Breeze switch (#111): a small light_v2 on/off driver, its Documentation
-                     tab and icons, bound to the fan driver
+src/modernforms_breeze_fan/ the Breeze fan (#121): a small fan driver with the speeds Breeze 1 to 3,
+                     its Documentation tab and icons, bound to the fan driver (it replaced 1.2's
+                     light_v2 Breeze switch, src/modernforms_breeze/)
 tests/               busted specs (spec/), the fake DriverWorks runtime (helpers/), and the fan's
                      answers and multicast DNS announcements, with placeholders (fixtures/)
 tools/               build.sh; check.sh (every check, as CI runs it) and setup-checks.sh (its

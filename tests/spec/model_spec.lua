@@ -3773,7 +3773,8 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 		if p.kind == "info" then
 			return ok(h, info_json({ clientId = fan.id, mac = fan.mac, lightType = fan.lightless and "" or nil }))
 		end
-		if p.kind == "command" then apply(fan, s.body) end
+		-- Now and then the fan answers a command without doing it (S9; BF68's "answers something else").
+		if p.kind == "command" and not (roll >= 18 and roll <= 20) then apply(fan, s.body) end
 		if p.kind == "reboot" then return fail(h, "timeout", nil, 3000) end
 		local shadow = state_of(fan)
 		if not healthy and pick(100) <= 3 then -- an answer that lacks a key (S6)
@@ -3876,6 +3877,33 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 				end
 			end
 		end
+		-- BF-D6 and BF68 seen on the wire (#121). The model's wanted fields are read directly
+		-- (white box): a fan start never goes while Breeze is still wanted, a Breeze body never
+		-- while a stop is wanted, and the second request of a pair never follows a first that
+		-- failed or was not confirmed, unless a want came since (BF69 plans that one again).
+		local wants, pair_first = 0, nil
+		local function check_pair_order(body)
+			local w = h.m.wanted
+			local breeze_wanted = (w.wind ~= nil or w.wind_speed ~= nil) and h.m:breeze_present()
+			local start = body:find('"fanOn":true', 1, true) ~= nil
+			local breeze = body:find('"wind', 1, true) ~= nil
+			if start and breeze_wanted then problem("BF-D6: a fan start before the Breeze request: " .. body) end
+			if breeze and w.fan_on == false then problem("BF-D6: a Breeze request before the stop: " .. body) end
+			local p = pair_first
+			local second = p and ((p.second == "fan" and start) or (p.second == "breeze" and breeze))
+			if second then
+				if p.result == "bad" and p.wants == wants then
+					problem("BF68: " .. body .. " after the first of its pair failed or was not confirmed")
+				end
+				pair_first = nil
+			end
+			if body:find('"wind":', 1, true) and (w.fan_on ~= nil or w.speed ~= nil) and w.fan_on ~= false then
+				return { second = "fan", field = "wind", value = body:find('"wind":true', 1, true) ~= nil }
+			elseif body == '{"fanOn":false}' and breeze_wanted then
+				return { second = "breeze", field = "fanOn", value = false }
+			end
+			return nil
+		end
 		local real_send = h.transport.send
 		local last_command, wants_since = nil, 0 -- each Control4 command is tried once (ECM P8)
 		h.transport.send = function(t, req, cb)
@@ -3889,7 +3917,27 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 			if (phase == "foreign" or phase == "gen4" or phase == "notfan") and req.kind == "command" then
 				problem("a request to the wrong fan: " .. req.kind)
 			end
-			return real_send(t, req, cb)
+			local pair_role
+			if req.kind == "command" then
+				pair_role = check_pair_order(req.body)
+			end
+			local seq, why = real_send(t, req, cb)
+			if seq and pair_role then
+				pair_first = { second = pair_role.second, field = pair_role.field, value = pair_role.value, seq = seq,
+					wants = wants }
+			end
+			return seq, why
+		end
+		-- The answers of a pair's first request, as the fan gave them (BF68).
+		local real_respond = h.transport.respond
+		h.transport.respond = function(t, result)
+			local entry = t.inflight
+			if pair_first and entry and entry.seq == pair_first.seq then
+				local j = result.json
+				pair_first.result = (result.ok and type(j) == "table" and j[pair_first.field] == pair_first.value)
+					and "ok" or "bad"
+			end
+			return real_respond(t, result)
 		end
 
 		-- Each follow asked for, with how often its callback came: exactly once (2.2). A follow
@@ -3947,8 +3995,13 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 					{ speed = pick(6) }, { level = pick(100) }, { fan_on = true, speed = 9 },
 					{ wind = true }, { wind = false }, { wind_speed = pick(4) },
 					{ fan_on = true, speed = pick(6), wind = true },
-				})[pick(13)]
+					-- the mode changes of #121 (BF-D3 to BF-D5): two groups in one want
+					{ fan_on = true, speed = pick(6), wind = true, wind_speed = pick(3) },
+					{ fan_on = true, speed = pick(6), wind = false }, { fan_on = false, wind = false },
+					{ fan_on = true, speed = pick(6), wind_speed = pick(3) }, { fan_on = false, wind = true },
+				})[pick(18)]
 				wants_since = wants_since + 1 -- before the call: the request may go out inside it
+				wants = wants + 1
 				local took, why = h.m:want(fields)
 				note(string.format("want %s -> %s %s", tostring(fields.fan_on) .. "/" .. tostring(fields.speed) .. "/"
 					.. tostring(fields.direction) .. "/" .. tostring(fields.light_on) .. "/" .. tostring(fields.level)
@@ -4028,6 +4081,7 @@ describe("fan.model robustness: seeded random operations keep the invariants", f
 			problem("the confirmed light is not the fan's")
 		end
 		wants_since = wants_since + 2
+		wants = wants + 2
 		local light_before = h.m:debug().told.light
 		h.m:want({ fan_on = true, speed = 4 })
 		h.m:want({ light_on = true, level = 55 })
@@ -4322,34 +4376,53 @@ describe("fan.model Breeze (#111, docs/breeze-design.md section 2: BZ5 to BZ10; 
 			assert.equal("on/2", h.m:debug().told.breeze)
 		end)
 
-		it("BZ6 Breeze On from off: the fan's body first, then {\"wind\":true} once the gap has passed", function()
+		-- 1.2 sent the fan's body first (BZ6); 1.3 reverses it (#121, BF-D6), so this spec now
+		-- expects {"wind":true} first and the pair reported once, at its end (BF70).
+		it("BF-D6 Breeze On from off: {\"wind\":true} first, then the fan's body once the gap has passed", function()
 			local h = steady(new_harness(), state_json({ fanOn = false, fanSpeed = 2 }))
 			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
-			assert.same({ '{"fanOn":true,"fanSpeed":4}' }, commands(h))
+			assert.same({ '{"wind":true}' }, commands(h))
 			local shown = h.m:shown()
 			assert.same({ true, 4, true }, { shown.fan_on, shown.speed, shown.wind }, "shown at once (V10)")
-			ok(h, state_json({ fanSpeed = 4 }))
-			assert.equal("command", settled_of(h, "fan")[1][3])
-			assert.same({}, settled_of(h, "breeze"), "Breeze is still wanted, so not reported yet (R5)")
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			assert.same({}, events(h, "settled"), "the pair is under way: neither group is reported yet (R5, BF70)")
+			assert.same({ "fan", "breeze" }, h.m:debug().busy)
 			h.clock.advance(model.GAP_MS - 1)
 			assert.equal(1, #commands(h), "one request at a time, 250 ms apart")
 			h.clock.advance(1)
-			assert.same({ '{"fanOn":true,"fanSpeed":4}', '{"wind":true}' }, commands(h))
+			assert.same({ '{"wind":true}', '{"fanOn":true,"fanSpeed":4}' }, commands(h))
 			ok(h, state_json({ fanSpeed = 4, wind = true }))
-			local s = settled_of(h, "breeze")
-			assert.equal(1, #s)
-			assert.equal("command", s[1][3])
-			assert.is_true(s[1][2].wind)
-			assert.is_true(s[1][2].fan_on)
+			for _, group in ipairs({ "fan", "breeze" }) do
+				local s = settled_of(h, group)
+				assert.equal(1, #s, group)
+				assert.equal("command", s[1][3], group)
+				assert.same({ true, 4, true }, { s[1][2].fan_on, s[1][2].speed, s[1][2].wind }, group)
+			end
+			assert.same({}, events(h, "outside"))
 		end)
 
-		it("BZ6 then Set Breeze Strength before Breeze has gone out: Breeze On at that strength, nothing lost", function()
+		it("BF-D6 then Set Breeze Strength while a poll is out: Breeze On at that strength, then the fan", function()
+			local h = steady(new_harness(), state_json({ fanOn = false, fanSpeed = 2 }))
+			h.clock.advance(h.clock.next_due())
+			assert.is_true(h.m:want({ fan_on = true, speed = 2, wind = true }))
+			assert.is_true(h.m:want({ wind_speed = 3 }))
+			answer(h)
+			gap(h)
+			assert.same({ '{"wind":true,"windSpeed":3}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true, windSpeed = 3 }))
+			gap(h)
+			assert.same({ '{"wind":true,"windSpeed":3}', '{"fanOn":true,"fanSpeed":2}' }, commands(h))
+		end)
+
+		it("BF-D6 then Set Breeze Strength after Breeze has gone out: the strength, then the fan, nothing lost", function()
 			local h = steady(new_harness(), state_json({ fanOn = false, fanSpeed = 2 }))
 			assert.is_true(h.m:want({ fan_on = true, speed = 2, wind = true }))
 			assert.is_true(h.m:want({ wind_speed = 3 }))
-			ok(h, state_json({ fanSpeed = 2 }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
 			gap(h)
-			assert.same({ '{"fanOn":true,"fanSpeed":2}', '{"wind":true,"windSpeed":3}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true, windSpeed = 3 }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"windSpeed":3}', '{"fanOn":true,"fanSpeed":2}' }, commands(h))
 		end)
 
 		it("a strength wanted after Breeze On joins it while a poll is out: one body", function()
@@ -4748,6 +4821,530 @@ describe("fan.model Breeze (#111, docs/breeze-design.md section 2: BZ5 to BZ10; 
 			assert.same({ '{"fanOn":true,"fanSpeed":4}' }, commands(h), "BZ7: no hidden wind:false with a speed")
 			poll(h, state_json({ fanSpeed = 4, wind = false, windSpeed = 2 }))
 			assert.equal("outside", settled_of(h, "breeze")[1][3])
+		end)
+	end)
+end)
+
+describe("fan.model fan and Breeze pairs (#121, docs/breeze-design.md BF-D6 and BF-D13; BF67 to BF70)", function()
+	local function settled_of(h, group)
+		local out = {}
+		for _, e in ipairs(events(h, "settled")) do
+			if e[1] == group then out[#out + 1] = e end
+		end
+		return out
+	end
+
+	local function commands(h)
+		local out = {}
+		for _, s in ipairs(h.transport.sent) do
+			if s.kind == "command" then out[#out + 1] = s.body end
+		end
+		return out
+	end
+
+	local function has_body(h, body)
+		for _, b in ipairs(commands(h)) do
+			if b == body then return true end
+		end
+		return false
+	end
+
+	local function why_of(h)
+		local why = {}
+		for _, e in ipairs(events(h, "settled")) do why[e[1]] = e[3] end
+		return why
+	end
+
+	-- The three states of one motor (BF-D1), past the fast window.
+	local function breezing(over) -- Breeze mode: fan on at 3 (its fan-mode speed), Breeze at strength 2
+		return steady(new_harness(), state_json(with({ fanSpeed = 3, wind = true, windSpeed = 2 }, over)))
+	end
+	local function stopped(over) -- stopped, the kept speed 2, Breeze not set
+		return steady(new_harness(), state_json(with({ fanOn = false, fanSpeed = 2 }, over)))
+	end
+
+	-- Answers the request in flight with what the fan would show after it: `over` on top of `base`.
+	local function took(h, base, over)
+		with(base, over)
+		ok(h, state_json(with({}, base)))
+	end
+
+	-- Runs a fan that does what it is told for `ms`: each command's body goes into `base`
+	-- (the keys the bodies here carry), every request is answered with `base`.
+	local function obey(h, base, ms)
+		local stop = h.clock.ms + ms
+		while h.clock.ms < stop do
+			local p = pending(h)
+			if p then
+				local body = last_sent(h).body
+				if p.kind == "command" then
+					local on = body:match('"fanOn":(%a+)')
+					if on then base.fanOn = on == "true" end
+					base.fanSpeed = tonumber(body:match('"fanSpeed":(%d+)')) or base.fanSpeed
+					base.fanDirection = body:match('"fanDirection":"(%a+)"') or base.fanDirection
+					local light = body:match('"lightOn":(%a+)')
+					if light then base.lightOn = light == "true" end
+					local wind = body:match('"wind":(%a+)')
+					if wind then base.wind = wind == "true" end
+					base.windSpeed = tonumber(body:match('"windSpeed":(%d+)')) or base.windSpeed
+				end
+				ok(h, p.kind == "info" and h.info or state_json(with({}, base)))
+			end
+			local due = h.clock.next_due()
+			if due == nil or h.clock.ms + due > stop then
+				h.clock.advance(stop - h.clock.ms)
+				break
+			end
+			h.clock.advance(due)
+		end
+	end
+
+	describe("BF-D6 the order (BF67)", function()
+		it("orders every change that holds both groups: a stop first, otherwise Breeze first, 250 ms apart", function()
+			local cases = {
+				{ "Breeze at a strength from stopped", { fanOn = false, fanSpeed = 2 },
+					{ fan_on = true, speed = 2, wind = true, wind_speed = 3 },
+					{ '{"wind":true,"windSpeed":3}', '{"fanOn":true,"fanSpeed":2}' } },
+				{ "Breeze from stopped at the kept strength", { fanOn = false, fanSpeed = 2 },
+					{ fan_on = true, speed = 2, wind = true }, { '{"wind":true}', '{"fanOn":true,"fanSpeed":2}' } },
+				{ "fan mode from Breeze", { fanSpeed = 3, wind = true, windSpeed = 2 },
+					{ fan_on = true, speed = 5, wind = false }, { '{"wind":false}', '{"fanOn":true,"fanSpeed":5}' } },
+				{ "fan mode from stopped with a stored wind (BF83)", { fanOn = false, fanSpeed = 2, wind = true },
+					{ fan_on = true, speed = 2, wind = false }, { '{"wind":false}', '{"fanOn":true,"fanSpeed":2}' } },
+				{ "a stop in Breeze (BF84, BF87)", { fanSpeed = 3, wind = true, windSpeed = 2 },
+					{ fan_on = false, wind = false }, { '{"fanOn":false}', '{"wind":false}' } },
+				{ "a stop with a stored wind", { fanOn = false, fanSpeed = 2, wind = true },
+					{ fan_on = false, wind = false }, { '{"fanOn":false}', '{"wind":false}' } },
+				{ "a speed and a strength", { fanSpeed = 3 }, { fan_on = true, speed = 4, wind_speed = 3 },
+					{ '{"windSpeed":3}', '{"fanOn":true,"fanSpeed":4}' } },
+				{ "a stop and a strength", { fanSpeed = 3 }, { fan_on = false, wind_speed = 3 },
+					{ '{"fanOn":false}', '{"windSpeed":3}' } },
+			}
+			for _, case in ipairs(cases) do
+				local name, base = case[1], case[2]
+				local h = steady(new_harness(), state_json(with({}, base)))
+				assert.is_true(h.m:want(case[3]), name)
+				assert.same({ case[4][1] }, commands(h), name)
+				local after = with({}, base)
+				local want = case[3]
+				local first = {}
+				if want.fan_on == false then first.fanOn = false else
+					if want.wind ~= nil then first.wind = want.wind end
+					if want.wind_speed ~= nil then first.windSpeed = want.wind_speed end
+				end
+				took(h, after, first)
+				h.clock.advance(model.GAP_MS - 1)
+				assert.same({ case[4][1] }, commands(h), name .. ": one request at a time")
+				h.clock.advance(1)
+				assert.same(case[4], commands(h), name)
+				local second = {}
+				if want.fan_on == false then
+					if want.wind ~= nil then second.wind = want.wind end
+					if want.wind_speed ~= nil then second.windSpeed = want.wind_speed end
+				else
+					second.fanOn, second.fanSpeed = true, want.speed
+				end
+				took(h, after, second)
+				assert.is_false(h.m:busy("fan"), name)
+				assert.is_false(h.m:busy("breeze"), name)
+				assert.same({}, events(h, "outside"), name)
+				gap(h)
+				run(h, 30000)
+				assert.equal(2, #commands(h), name .. ": nothing more")
+			end
+		end)
+
+		it("a want that changes only one group sends that group alone, as in 1.2", function()
+			local cases = {
+				{ { fanSpeed = 3 }, { wind = true }, '{"wind":true}' },
+				{ { fanSpeed = 3, wind = true }, { wind = false }, '{"wind":false}' },
+				{ { fanSpeed = 3, wind = true }, { wind_speed = 3 }, '{"windSpeed":3}' },
+				{ { fanSpeed = 3, wind = true }, { fan_on = true, speed = 5 }, '{"fanOn":true,"fanSpeed":5}' },
+				{ { fanSpeed = 3, wind = true }, { fan_on = false }, '{"fanOn":false}' },
+				{ { fanOn = false, wind = true }, { fan_on = true, speed = 2 }, '{"fanOn":true,"fanSpeed":2}' },
+			}
+			for i, case in ipairs(cases) do
+				local h = steady(new_harness(), state_json(case[1]))
+				assert.is_true(h.m:want(case[2]), "case " .. i)
+				assert.same({ case[3] }, commands(h), "case " .. i)
+				answer(h)
+				gap(h)
+				run(h, 30000)
+				assert.same({ case[3] }, commands(h), "case " .. i .. ": the model adds no field of its own (BZ7)")
+			end
+		end)
+
+		it("direction and light keep their places after the fan: Breeze, fan, direction, light", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 2, wind = true, direction = "reverse", light_on = true }))
+			obey(h, { fanOn = false, fanSpeed = 2 }, 5000)
+			assert.same({ '{"wind":true}', '{"fanOn":true,"fanSpeed":2}', '{"fanDirection":"reverse"}', '{"lightOn":true}' },
+				commands(h))
+		end)
+
+		it("a stop keeps 1.2's order: fan, direction, Breeze, light", function()
+			local h = breezing()
+			assert.is_true(h.m:want({ fan_on = false, wind = false, direction = "reverse", light_on = true }))
+			obey(h, { fanSpeed = 3, wind = true, windSpeed = 2 }, 5000)
+			assert.same({ '{"fanOn":false}', '{"fanDirection":"reverse"}', '{"wind":false}', '{"lightOn":true}' },
+				commands(h))
+		end)
+
+		it("the field merge: Breeze On and a fan start wanted apart while a poll is out go as one pair", function()
+			local h = stopped()
+			h.clock.advance(h.clock.next_due())
+			assert.is_true(h.m:want({ fan_on = true, speed = 4 }))
+			assert.is_true(h.m:want({ wind = true }))
+			answer(h)
+			gap(h)
+			assert.same({ '{"wind":true}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":true,"fanSpeed":4}' }, commands(h))
+		end)
+
+		it("the field merge: a newer speed whose fanOn an answer already confirmed still waits for Breeze", function()
+			-- Found by the random runs: the fan's answer clears the wanted fan_on (it equals what was
+			-- sent) and leaves the newer speed; that is still a start, so Breeze goes first.
+			local h = steady(new_harness(), state_json({ fanSpeed = 1 }))
+			assert.is_true(h.m:want({ fan_on = true, speed = 3 }))
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true, wind_speed = 2 }))
+			ok(h, state_json({ fanSpeed = 3 }))
+			gap(h)
+			assert.same({ '{"fanOn":true,"fanSpeed":3}', '{"wind":true,"windSpeed":2}' }, commands(h))
+			ok(h, state_json({ fanSpeed = 3, wind = true, windSpeed = 2 }))
+			gap(h)
+			assert.same({ '{"fanOn":true,"fanSpeed":3}', '{"wind":true,"windSpeed":2}', '{"fanOn":true,"fanSpeed":4}' },
+				commands(h))
+		end)
+	end)
+
+	describe("BF68 the second goes only after the first succeeded", function()
+		it("the first fails: the second is never sent, both groups let go, nothing is retried", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			clear(h)
+			h.clock.advance(5000)
+			fail(h, "timeout")
+			assert.is_true(logged(h, "warn", "Fan not answering: breeze on not sent"))
+			assert.is_true(logged(h, "warn", "Fan not answering: speed 4 not sent"))
+			assert.same({ false, false }, { h.m:shown().fan_on, h.m:shown().wind }, "shown falls back at once (V10)")
+			local idle = {}
+			for _, e in ipairs(events(h, "idle")) do idle[#idle + 1] = e[1] end
+			assert.same({ "fan", "breeze" }, idle)
+			assert.same({}, h.m:debug().busy)
+			gap(h)
+			run(h, 60000)
+			assert.same({ '{"wind":true}' }, commands(h), "the fan never starts in fan mode")
+		end)
+
+		it("Breeze not confirmed by the answer: the fan start is not sent, it would start fan mode", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			clear(h)
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			assert.is_true(logged(h, "warn", "The fan did not take breeze on (reports off)"))
+			assert.is_true(logged(h, "warn", "Breeze on not confirmed: speed 4 not sent"))
+			assert.same({}, events(h, "settled"), "nothing changed")
+			assert.equal(2, #events(h, "idle"))
+			assert.is_false(h.m:busy("fan"))
+			gap(h)
+			run(h, 30000)
+			assert.same({ '{"wind":true}' }, commands(h))
+		end)
+
+		it("leaving Breeze not confirmed: the speed is not sent, a fan in Breeze would ignore it", function()
+			local h = breezing()
+			assert.is_true(h.m:want({ fan_on = true, speed = 5, wind = false }))
+			ok(h, state_json({ fanSpeed = 3, wind = true, windSpeed = 2 }))
+			assert.is_true(logged(h, "warn", "Breeze off not confirmed: speed 5 not sent"))
+			gap(h)
+			run(h, 30000)
+			assert.same({ '{"wind":false}' }, commands(h))
+			assert.equal(3, h.m:shown().speed)
+		end)
+
+		it("the stop not confirmed: {\"wind\":false} is not sent, it would turn the fan to fan mode", function()
+			local h = breezing()
+			assert.is_true(h.m:want({ fan_on = false, wind = false }))
+			ok(h, state_json({ fanSpeed = 3, wind = true, windSpeed = 2 }))
+			assert.is_true(logged(h, "warn", "The fan did not take fan off (reports on)"))
+			assert.is_true(logged(h, "warn", "Fan off not confirmed: breeze off not sent"))
+			gap(h)
+			run(h, 30000)
+			assert.same({ '{"fanOn":false}' }, commands(h))
+			assert.is_true(h.m:shown().wind)
+		end)
+
+		it("the stop fails: {\"wind\":false} is not sent either", function()
+			local h = breezing()
+			assert.is_true(h.m:want({ fan_on = false, wind = false }))
+			h.clock.advance(5000)
+			fail(h, "timeout")
+			assert.is_true(logged(h, "warn", "Fan not answering: breeze off not sent"))
+			gap(h)
+			run(h, 60000)
+			assert.same({ '{"fanOn":false}' }, commands(h))
+		end)
+
+		it("a stop wanted meanwhile is never held back by an unconfirmed Breeze: it starts nothing", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ fan_on = false }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":false}' }, commands(h))
+			h.clock.advance(5000)
+			fail(h, "timeout")
+			assert.is_false(logged(h, "warn", "not confirmed"))
+		end)
+
+		it("a stop wanted meanwhile survives the first's failure and goes after the contact", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ fan_on = false }))
+			h.clock.advance(5000)
+			fail(h, "timeout")
+			assert.is_true(h.m:busy("fan"))
+			gap(h)
+			h.clock.advance(h.clock.next_due())
+			contact(h, state_json({ fanOn = false, fanSpeed = 2 }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":false}' }, commands(h))
+		end)
+
+		it("an answer to the Breeze request that already shows the fan started: the fan's request still goes (V8)",
+			function()
+				local h = stopped()
+				assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true, wind_speed = 3 }))
+				ok(h, state_json({ fanSpeed = 4, wind = true, windSpeed = 3 }))
+				assert.same({}, events(h, "settled"), "the pair is under way (BF70)")
+				gap(h)
+				assert.same({ '{"wind":true,"windSpeed":3}', '{"fanOn":true,"fanSpeed":4}' }, commands(h))
+				ok(h, state_json({ fanSpeed = 4, wind = true, windSpeed = 3 }))
+				assert.same({ fan = "command", breeze = "command" }, why_of(h))
+				assert.equal(1, #settled_of(h, "fan"))
+				assert.equal(1, #settled_of(h, "breeze"))
+				assert.is_false(logged(h, "warn", "did not take"))
+			end)
+	end)
+
+	describe("BF69 a new want while a pair is under way is planned again from the merged target", function()
+		it("Breeze from off, then the main Off before fanOn: the fan never starts and wind is cleared", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ fan_on = false, wind = false }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":false}' }, commands(h), "a stop now: the fan group first")
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":false}', '{"wind":false}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			gap(h)
+			run(h, 30000)
+			assert.equal(3, #commands(h))
+			assert.is_false(has_body(h, '{"fanOn":true,"fanSpeed":4}'))
+			assert.same({}, events(h, "outside"))
+		end)
+
+		it("Breeze from off, then a fan speed before fanOn: wind is cleared again, then the speed (fan mode)", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ fan_on = true, speed = 5, wind = false }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"wind":false}', '{"fanOn":true,"fanSpeed":5}' }, commands(h))
+			ok(h, state_json({ fanSpeed = 5, wind = false }))
+			assert.equal(5, settled_of(h, "fan")[1][2].speed)
+			assert.equal(1, #settled_of(h, "fan"))
+		end)
+
+		it("a later speed that does not name the mode keeps the pair's need: Breeze confirmed, then that speed", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ fan_on = true, speed = 5 }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":true,"fanSpeed":5}' }, commands(h))
+			local u = stopped()
+			assert.is_true(u.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(u.m:want({ fan_on = true, speed = 5 }))
+			ok(u, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			gap(u)
+			run(u, 30000)
+			assert.same({ '{"wind":true}' }, commands(u), "Breeze not confirmed: the speed would start fan mode")
+			assert.is_true(logged(u, "warn", "Breeze on not confirmed: speed 5 not sent"))
+		end)
+
+		it("a new want in the gap between the two is planned again too: the main Off stops, then clears wind", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			h.clock.advance(100)
+			assert.is_true(h.m:want({ fan_on = false, wind = false }))
+			h.clock.advance(model.GAP_MS - 100)
+			assert.same({ '{"wind":true}', '{"fanOn":false}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":false}', '{"wind":false}' }, commands(h))
+		end)
+
+		it("Set Breeze Strength during Breeze from off: the strength joins, the start still waits for Breeze", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			assert.is_true(h.m:want({ wind_speed = 3 }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"windSpeed":3}' }, commands(h))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = false, windSpeed = 3 }))
+			gap(h)
+			run(h, 30000)
+			assert.same({ '{"wind":true}', '{"windSpeed":3}' }, commands(h), "Breeze never confirmed: no start")
+			assert.is_true(logged(h, "warn", "Breeze on not confirmed: speed 4 not sent"))
+		end)
+	end)
+
+	describe("BF70 nothing between the two is anybody's change", function()
+		it("leaving Breeze: the half-way answer (the old speed) is not told; the fan is told the new speed once", function()
+			local h = breezing()
+			assert.equal(3, h.m:debug().told.fan)
+			assert.is_true(h.m:want({ fan_on = true, speed = 5, wind = false }))
+			ok(h, state_json({ fanSpeed = 4, wind = false, windSpeed = 2 })) -- the fan resumes a speed of its own
+			assert.same({}, events(h, "settled"))
+			assert.same({}, events(h, "outside"))
+			assert.equal(3, h.m:debug().told.fan)
+			gap(h)
+			ok(h, state_json({ fanSpeed = 5, wind = false, windSpeed = 2 }))
+			local fan = settled_of(h, "fan")
+			assert.equal(1, #fan, "one speed change, never 4 and then 5")
+			assert.equal(5, fan[1][2].speed)
+			assert.is_false(fan[1][2].wind, "the fan's report carries the end state, Breeze off")
+			assert.same({ fan = "command", breeze = "command" }, why_of(h))
+			assert.equal(2, #events(h, "idle"))
+		end)
+
+		it("a stop from Breeze: Breeze is told once, at the end, with the motor stopped", function()
+			local h = breezing()
+			assert.is_true(h.m:want({ fan_on = false, wind = false }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 3, wind = true, windSpeed = 2 }))
+			assert.same({}, events(h, "settled"))
+			gap(h)
+			ok(h, state_json({ fanOn = false, fanSpeed = 3, wind = false, windSpeed = 2 }))
+			local s = settled_of(h, "breeze")
+			assert.equal(1, #s)
+			assert.same({ false, false }, { s[1][2].fan_on, s[1][2].wind })
+			assert.same({ fan = "command", breeze = "command" }, why_of(h))
+		end)
+
+		it("a poll that falls due while the first is out waits: commands go before polls, nothing reads between", function()
+			local h = stopped()
+			h.clock.advance(h.clock.next_due() - 1)
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			local n = #h.transport.sent
+			h.clock.advance(400) -- the poll falls due while the Breeze request is on the wire
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			assert.equal(n + 1, #h.transport.sent)
+			assert.equal("command", last_sent(h).kind)
+			assert.equal('{"fanOn":true,"fanSpeed":4}', last_sent(h).body)
+		end)
+
+		it("a read between the two (the address typed again) is held: not told, not outside; the start follows", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			assert.is_nil(h.m:set_address("10.0.2.151"))
+			gap(h)
+			contact(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			assert.equal("online", h.m:phase())
+			assert.same({}, settled_of(h, "fan"))
+			assert.same({}, settled_of(h, "breeze"))
+			assert.same({}, events(h, "outside"))
+			gap(h)
+			assert.same({ '{"wind":true}', '{"fanOn":true,"fanSpeed":4}' }, commands(h))
+			ok(h, state_json({ fanSpeed = 4, wind = true }))
+			local why = why_of(h)
+			assert.equal("command", why.fan)
+			assert.not_equal("outside", why.breeze)
+		end)
+
+		it("a read between the two that shows Breeze gone (the remote) drops the start", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			assert.is_nil(h.m:set_address("10.0.2.151"))
+			gap(h)
+			contact(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			assert.is_true(logged(h, "warn", "Breeze on not confirmed: speed 4 not sent"))
+			gap(h)
+			run(h, 30000)
+			assert.same({ '{"wind":true}' }, commands(h))
+		end)
+
+		it("settle and held values work across the pair: a stale read just after it is held, then believed", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			ok(h, state_json({ fanSpeed = 4, wind = true }))
+			gap(h)
+			clear(h)
+			poll(h, state_json({ fanOn = false, fanSpeed = 2, wind = false })) -- a shadow from before the pair
+			assert.is_true(model.FAST_POLL_MS + model.GAP_MS < model.SETTLE_MS, "the fast poll falls inside both windows")
+			assert.same({ true, true }, { h.m:confirmed().fan_on, h.m:confirmed().wind }, "held")
+			assert.same({}, events(h, "settled"))
+			gap(h)
+			poll(h, state_json({ fanOn = false, fanSpeed = 2, wind = false }))
+			assert.same({ false, false }, { h.m:confirmed().fan_on, h.m:confirmed().wind }, "it agrees again: believed")
+			assert.equal("outside", settled_of(h, "fan")[1][3])
+		end)
+
+		it("the gust guard after Breeze from off: a read whose only change is the speed is not told", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 2, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true }))
+			gap(h)
+			ok(h, state_json({ fanSpeed = 2, wind = true }))
+			gap(h)
+			clear(h)
+			poll(h, state_json({ fanSpeed = 6, wind = true }))
+			assert.same({}, events(h, "settled"))
+			assert.same({}, events(h, "outside"))
+			assert.equal(2, h.m:confirmed().speed)
+		end)
+
+		it("a pair that is done ends there: a later fan speed is a change of its own and holds Breeze nothing", function()
+			local h = stopped()
+			assert.is_true(h.m:want({ fan_on = true, speed = 4, wind_speed = 3 }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, windSpeed = 3 }))
+			gap(h)
+			assert.is_true(h.m:want({ fan_on = true, speed = 5 })) -- while the pair's start is on the wire
+			ok(h, state_json({ fanSpeed = 4, windSpeed = 3 }))
+			assert.is_false(h.m:busy("breeze"), "the pair is done: Breeze is not held for the fan's next speed")
+			assert.equal("off/3", h.m:debug().told.breeze)
+			assert.same({ "fan" }, h.m:debug().busy)
+			clear(h)
+			gap(h)
+			assert.equal('{"fanOn":true,"fanSpeed":5}', last_sent(h).body)
+			ok(h, state_json({ fanSpeed = 5, windSpeed = 3 }))
+			assert.same({ fan = "command" }, why_of(h))
+			local idle = {}
+			for _, e in ipairs(events(h, "idle")) do idle[#idle + 1] = e[1] end
+			assert.same({ "fan" }, idle)
+		end)
+
+		it("BZ9 the first's answer turns the fan forward: direction is 'command' at once, the pair at its end", function()
+			local h = stopped({ fanDirection = "reverse" })
+			assert.is_true(h.m:want({ fan_on = true, speed = 2, wind = true }))
+			ok(h, state_json({ fanOn = false, fanSpeed = 2, wind = true, fanDirection = "forward" }))
+			assert.same({ direction = "command" }, why_of(h))
+			gap(h)
+			ok(h, state_json({ fanSpeed = 2, wind = true, fanDirection = "forward" }))
+			assert.same({ direction = "command", fan = "command", breeze = "command" }, why_of(h))
+			assert.same({}, events(h, "outside"))
 		end)
 	end)
 end)

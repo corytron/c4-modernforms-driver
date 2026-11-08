@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Composer icons for the Modern Forms fan driver and its Breeze switch.
+"""Draw the Composer icons for the Modern Forms fan driver and its Breeze fan.
 
 Composer shows a driver's icon at 16 px (the project tree and the Items
 pane) and 32 px (List View), 96 DPI. Both are too small for line art to
@@ -35,8 +35,9 @@ Light  a flush-mount drum ceiling light seen from slightly below:
        black ring at the bottom edge through which the lit diffuser shows.
        The drum glows warm white with a faint warm halo, and a soft grey
        outline and drop shadow keep it visible on a white tree.
-Breeze a stylised gust for the Breeze switch (modernforms_breeze.c4z,
-       docs/breeze-design.md section 4): three curved strokes blowing to
+Breeze a stylised gust for the Breeze fan (modernforms_breeze_fan.c4z,
+       docs/breeze-design.md BF-D7; the 1.2 Breeze switch's art, under
+       the new package's file names): three curved strokes blowing to
        the right, the upper one curling up and back over itself at its
        end, the middle one the longest, the lower one curling down. The
        strokes are rounded tubes in a cool blue, lit from the top-left,
@@ -52,8 +53,8 @@ Writes:
     src/modernforms_fan/www/images/devices_lg/modernforms_fan_32.png
     src/modernforms_fan/www/images/devices_sm/modernforms_light_16.png
     src/modernforms_fan/www/images/devices_lg/modernforms_light_32.png
-    src/modernforms_breeze/www/images/devices_sm/modernforms_breeze_16.png
-    src/modernforms_breeze/www/images/devices_lg/modernforms_breeze_32.png
+    src/modernforms_breeze_fan/www/images/devices_sm/modernforms_breeze_fan_16.png
+    src/modernforms_breeze_fan/www/images/devices_lg/modernforms_breeze_fan_32.png
 
     python3 tools/make_icons.py --out DIR
 
@@ -88,7 +89,7 @@ DPI = (96, 96)
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVER = "modernforms_fan"
 # The package an icon belongs to when it is not the fan driver's.
-ICON_DRIVER = {"modernforms_breeze": "modernforms_breeze"}
+ICON_DRIVER = {"modernforms_breeze_fan": "modernforms_breeze_fan"}
 
 
 def rel_path(name, size):
@@ -639,7 +640,7 @@ def render_light(size):
 
 
 # --------------------------------------------------------------------------
-# The Breeze switch: a gust of three curved strokes blowing to the right.
+# The Breeze fan: a gust of three curved strokes blowing to the right.
 # --------------------------------------------------------------------------
 
 GUST_LIT = (138, 204, 246)  # the gust's top-left, towards the light
@@ -757,8 +758,8 @@ ICONS = [
     ("modernforms_fan", 32, render_fan),
     ("modernforms_light", 16, render_light),
     ("modernforms_light", 32, render_light),
-    ("modernforms_breeze", 16, render_breeze),
-    ("modernforms_breeze", 32, render_breeze),
+    ("modernforms_breeze_fan", 16, render_breeze),
+    ("modernforms_breeze_fan", 32, render_breeze),
 ]
 
 

@@ -69,7 +69,7 @@ jobs:
 
   # The name is a required status check on main, so it names no count: the job
   # builds and checks one package per src/<driver>/driver.xml, however many
-  # (today two, modernforms_fan and modernforms_breeze).
+  # (today two, modernforms_fan and modernforms_breeze_fan).
   build:
     name: Build the .c4z packages
     needs: test

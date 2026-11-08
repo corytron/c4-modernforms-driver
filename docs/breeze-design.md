@@ -30,7 +30,8 @@ silent, ECB section 3 and its BC decisions are the rule.
 
 - **A fourth command group `breeze`** after `fan` and `direction` (`GROUPS =
   { "fan", "direction", "breeze", "light" }` or `"light"` before it, as the
-  model's request order needs; `fan` must go before `breeze`): fields
+  model's request order needs; `fan` must go before `breeze`, superseded since
+  1.3 by BF-D6, section 11): fields
   `wind` (boolean) and `wind_speed` (integer 1 to 3), moved from the
   read-only rows to the fields (`FIELDS`, `GROUP_FIELDS`, `FIELD_NAME`:
   `wind = "breeze"`, `wind_speed = "breeze strength"`).
@@ -209,3 +210,63 @@ touchscreen, and can tap it.
 
 A piece that needs a change in a file it does not own writes the exact change
 into its hand-back.
+
+## 11. 1.3 "Ornithopter": fan mode, Breeze mode and the Breeze fan (#121)
+
+The owner, on build 115 (2026-11-07): the light-type switch lists with the
+lights, far from the fan; he wants "a 3 speed fan device right under the
+existing fan, so that I can choose breeze 1, 2, or 3. and if that breeze fan
+device is off, breeze is off." Then, verified on his fan: "if you go to
+breeze mode the regular fan speeds don't matter. Breeze speeds are breeze
+speeds and unrelated to fan speeds. Either you're in fan mode or you're in
+breeze mode. Never both. So it makes sense to have 2 fan devices if breeze
+is supported and one disable the other. But breeze would never have a light
+associated with it." He asked for a best-guess design without him. The
+corner cases are [`edge-cases-breeze-fan.md`](edge-cases-breeze-fan.md)
+(BF1…). This section supersedes, where they differ, BZ5 (d), BZ7, the 1.2
+meaning of Breeze Off and section 4; everything else in sections 1 to 10
+stands.
+
+| Id | Decision |
+| --- | --- |
+| BF-D1 | **Three states of one motor.** Stopped (`fanOn` false), fan mode (`fanOn` true, `wind` not true), Breeze mode (`fanOn` true, `wind` true; "Breeze blows", BZ1). The fan speed does not matter in Breeze mode. |
+| BF-D2 | **The main fan device shows fan mode only.** Its fan proxy reports `CURRENT_SPEED` = `fanSpeed` in fan mode and 0 when stopped or in Breeze mode. Speed links 301 to 306, Toggle (307) and Cycle (308) light from fan mode only (dark in Breeze mode); the Off link (300) lights only while the motor is stopped (dark in Breeze mode, since Off would stop it); link 311 lights in Breeze mode (unchanged). Status S5: `fan speed 3` in fan mode, `Breeze 2` in Breeze mode (no speed), `fan off` stopped, with ` Breeze set` after it while a stored `wind` is true. A fan without Breeze (`wind` nil) behaves exactly as in 1.2. |
+| BF-D3 | **A fan-mode command ends Breeze** (supersedes BZ7). ON, SET_SPEED 1 to 6, TOGGLE to on, CYCLE_SPEED_UP/DOWN and the speed, Toggle and Cycle links decide "on" from fan mode (in Breeze mode the main device is off: ON and TOGGLE start fan mode at the preset, Cycle up gives speed 1, Cycle down nothing) and, while the shown `wind` is true, want `wind = false` with their fan fields. |
+| BF-D4 | **Off stops the motor.** The main device's OFF, SET_SPEED 0, TOGGLE to off and the Off link always want `fan_on = false`, plus `wind = false` while the shown `wind` is true, so the next start from anywhere is fan mode. The Breeze side's off (the Breeze fan's OFF, SET_SPEED 0 and TOGGLE to off, the command Breeze Off, link 311 toggling off, `MF_BREEZE_SET ON=0`): in Breeze mode `fan_on = false` and `wind = false`; stopped with a stored `wind` only `wind = false`; in fan mode nothing (it never stops a fan in fan mode). A fan that is stopped therefore never shows on either device after an off. |
+| BF-D5 | **Breeze on.** Breeze On, the Breeze fan's ON, link 311 toggling on and `MF_BREEZE_SET ON=1` want `wind = true` (the fan resumes its own last strength); with a strength (`MF_BREEZE_SET STRENGTH=N`, the Breeze fan's SET_SPEED N) also `wind_speed = N`. From stopped they add `fan_on = true` with `speed` = the confirmed fan speed (the preset when unknown), which the fan keeps for fan mode. Set Breeze Strength still sets the strength only (BZ5 (e)). |
+| BF-D6 | **Request order** (`fan/model.lua`). When one want holds fan and breeze fields: with `fan_on = false` the fan request goes first (stop, then clear `wind`); otherwise the breeze request goes first (set or clear the mode, then start or change the speed), so the motor never starts in the wrong mode. 250 ms apart as today; the field merge stays. |
+| BF-D7 | **The Breeze fan is a new package**, `modernforms_breeze_fan.c4z`, driver name `Modern Forms Breeze Fan`: the SDK forbids changing an installed device's proxy type in an update (FUND 14, BF1 to BF7). One `fan` proxy on 5001 ("Modern Forms Breeze", primary): `discrete_levels` 3, `speed_names` `Breeze 1,Breeze 2,Breeze 3`, `can_set_preset` False, `can_reverse` False, no `proxy_fan_speed_connections`, no light. Consumer binding 1, class `MODERNFORMS_BREEZE` (as 1.2); rows Driver Version, Status, Debug Mode; minimum OS 3.3.0; the gust icons under its own file names. `src/modernforms_breeze/` leaves the tree; its package stays on the v1.2 release. |
+| BF-D8 | **The Breeze fan's tile.** `CURRENT_SPEED` = the strength in Breeze mode, 0 when not in Breeze mode, unbound or without Breeze; while the fan device is offline or unavailable it keeps the last value (a fan proxy cannot show offline, BF25, BF26). Only from state messages; after any tap the next state message is reported even when unchanged, so a refused tap puts the tile back. Taps: SET_SPEED 1 to 3 → `MF_BREEZE_SET {ON="1", STRENGTH="N"}`; SET_SPEED 0 and OFF → `MF_BREEZE_SET {ON="0"}`; ON → `MF_BREEZE_SET {ON="1"}`; TOGGLE → `MF_BREEZE_TOGGLE`; CYCLE_SPEED_UP/DOWN → `MF_BREEZE_CYCLE {STEP="1"\|"-1"}`; GET_CURRENT_STATE reports again. Unbound: refused with a log line. Status: `Breeze 2 on Aviator 5` / `Breeze off on Aviator 5` / `Aviator 5 has no Breeze` / `Waiting for Aviator 5` / `Not connected to a Modern Forms Fan`. `MF_BREEZE_HELLO` at late init and on its binding's change. |
+| BF-D9 | **The fan's side of the messages.** `MF_BREEZE_STATE` carries `STRENGTH` (`"1"` to `"3"`, the confirmed `wind_speed`) whenever it is known, left out otherwise (C4:SendToDevice drops empty values, BF52), and goes again when it changes (BF43). After every `MF_BREEZE_*` message, done or refused, the fan sends the state to the companions (BF35). `STRENGTH` outside 1 to 3 is refused with L34. `MF_BREEZE_TOGGLE` is decided from the fan's shown state (BF28). `MF_BREEZE_CYCLE`: up from not-Breeze is Breeze at strength 1 (ending fan mode), up or down in Breeze mode one strength step clamped to 1 to 3, down from not-Breeze nothing. A 1.2 light switch still bound keeps working (it sends no `STRENGTH`). |
+| BF-D10 | **Add Breeze Fan.** The action is renamed **Add Breeze Fan** (sort order 7; an action name is no programming item) and adds `modernforms_breeze_fan.c4z` named "<fan item name> Breeze" in the fan item's room. Refused while any companion is bound to 400; when the bound one is a 1.2 switch (its driver name `Modern Forms Breeze`, as `GetBoundConsumerDevices` reports it) the line is L41 `Delete the old Breeze switch first: Aviator 5 Breeze`. Texts L36 to L40 say "Breeze fan" (L40 names `modernforms_breeze_fan.c4z`). Connection 400 keeps its name and class (connections are never redefined). |
+| BF-D11 | **Programming** items keep their names; Breeze Off and link 311 follow BF-D4. The main fan proxy's own events (Fan Off, speed changed) fire when Breeze starts or ends, because the main device's view changes; Breeze Started and Breeze Stopped are the Breeze events. Program Breeze on the fan item: the Breeze fan's own lines go when it is deleted (BF55, BF58). "All fans on" starts Breeze too (BF33). |
+| BF-D12 | **On the house** (the owner's word in the Windows session): list what programming names the old Breeze switch; install both packages (the fan in place, the Breeze fan into the library; no "Restart Director?" since no fan capability changes); delete the old Breeze switch; click Add Breeze Fan once; read back the new device (its proxy `fan.c4i`, Driver Version, Status, the binding on 400); move "Aviator 5 Breeze" right after the fan in the room's Navigator order where Composer allows it (BF22); File ▸ Refresh Navigators. The owner then checks on the phone: listed by the fan, Breeze 1, 2, 3 and off, the main fan off while Breeze blows, a fan speed ends Breeze. |
+
+| BF-D13 | **Pairs of requests** (BF67 to BF70): the second request of a pair goes only after the first is answered with success (a `fanOn:true` without `wind` confirmed would start fan mode); a new want while a pair is under way is planned again from the new target and the rest of the old pair is dropped; a read between the two is held as Control4's own change (the main tile never shows the old speed, then the new). |
+| BF-D14 | **Direction during Breeze** (BF77): the main fan proxy holds `DIRECTION` while Breeze blows and tells it after, so it fires no direction events for the fan's own Breeze behaviour. |
+| BF-D15 | **What the documents say** (BF73, BF74, BF89, BF90, BF101 to BF104, BF83, BF93): the main fan's Fan Off / speed changed events and Is Off now follow fan mode (add "If Breeze is off" where that matters); Breeze Off and Toggle Breeze keep their names but now stop the fan while Breeze blows (the way back to fan mode is a speed on the main fan); a double tap on link 311 from fan mode stops the fan on its second press; "all fans on" sends both devices contradictory targets (the last wins), "all fans off" is safe; programming that turns one device on when the other turns off ping-pongs; the remote's power-off during Breeze may keep `wind`, so its next power-on resumes Breeze; on the house keypad no button is on link 311, so every fan LED is dark while Breeze blows (lighting one is the owner's choice). |
+
+### 11.1 Interfaces between the pieces
+
+- `fan/mode.lua` (new, piece K): `mode.fan_on(shown)` → true only in fan
+  mode, false when stopped or in Breeze mode, nil when `fan_on` is unknown;
+  `mode.speed(shown)` → the fan-mode speed or 0; `mode.stopped(shown)`;
+  `mode.breeze(shown)` → true in Breeze mode; `mode.exit(fields, shown)` →
+  `fields` with `wind = false` added while `shown.wind == true`. Used by
+  `fanproxy.lua`, `links.lua` and `breeze.lua`.
+- `fan/breeze.lua` (piece G) gains option `old_companion = fn(device_id) ->
+  bool` (true for a 1.2 switch), `b:companion("MF_BREEZE_CYCLE", {STEP})`,
+  and keeps every other method of section 3. `driver.lua` (coordinator)
+  dispatches `MF_BREEZE_CYCLE` and the action `Add_Breeze_Fan`.
+- Texts (piece G): S5 per BF-D2; L36 to L40 with "Breeze fan"; L41.
+
+### 11.2 Pieces and owner files (1.3)
+
+| Piece | Owns (creates or edits only these) |
+| --- | --- |
+| F Breeze fan | `src/modernforms_breeze_fan/` (new, all), `tests/spec/breeze_fan_driver_spec.lua` (new), `tests/helpers/fake_c4.lua`, `tools/make_icons.py`, `tools/tests/test_make_icons.py` |
+| G Breeze face and texts | `src/modernforms_fan/fan/breeze.lua`, `tests/spec/breeze_spec.lua`, `src/modernforms_fan/fan/texts.lua`, `tests/spec/texts_spec.lua` |
+| K fan mode | `src/modernforms_fan/fan/mode.lua` (new), `tests/spec/mode_spec.lua` (new), `src/modernforms_fan/fan/fanproxy.lua`, `tests/spec/fanproxy_spec.lua`, `src/modernforms_fan/fan/links.lua`, `tests/spec/links_spec.lua` |
+| M request order | `src/modernforms_fan/fan/model.lua`, `tests/spec/model_spec.lua` |
+| H documents | `src/modernforms_fan/www/documentation.html`, `docs/composer-checklist.md`, `README.md`, `docs/v1-design.md`, `docs/README.md`, `docs/release-checklist.md`, `.github/release-notes.md`, `CHANGELOG.md` (`## Unreleased` only) |
+| Coordinator | `src/modernforms_fan/driver.lua`, `src/modernforms_fan/driver.xml`, `tests/spec/fan_driver_spec.lua`, removing `src/modernforms_breeze/` and `tests/spec/breeze_driver_spec.lua`, this contract, `docs/status.md`, `CLAUDE.md`, `deploy/house.yaml` |

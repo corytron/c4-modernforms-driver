@@ -849,6 +849,437 @@ describe("fan.fanproxy", function()
 		end)
 	end)
 
+	describe("fan mode and Breeze mode: the commands (#121, breeze-design BF-D3, BF-D4, BF78 to BF84)", function()
+		local BLOWING = { fan_on = true, speed = 2, wind = true, wind_speed = 2, direction = "forward" }
+		local STORED = { fan_on = false, speed = 2, wind = true } -- the remote's power off during Breeze (BF98)
+		local FAN_MODE = { fan_on = true, speed = 2, wind = false }
+		local NO_BREEZE = { fan_on = true, speed = 2 } -- Gen 1/2, Gen 3 without Breeze: no `wind` at all
+
+		local function copy(t)
+			local out = {}
+			for k, v in pairs(t) do
+				out[k] = v
+			end
+			return out
+		end
+
+		it("ON in Breeze mode starts fan mode at the preset and ends Breeze: this device shows off (BF78)", function()
+			local r = rig({ shown = copy(BLOWING), stored = { [PRESET_KEY] = 4 } })
+			r.recv("ON")
+			assert.same({ { fan_on = true, speed = 4, wind = false } }, r.model.wants)
+		end)
+
+		it("ON in fan mode changes nothing, `wind` false or no `wind` at all", function()
+			for _, shown in ipairs({ FAN_MODE, NO_BREEZE }) do
+				local r = rig({ shown = copy(shown) })
+				r.recv("ON")
+				assert.same({}, r.model.wants)
+			end
+		end)
+
+		it("ON with the motor stopped and a stored `wind` clears it, so Control4 never resumes Breeze here (BF83)",
+			function()
+				local r = rig({ shown = copy(STORED) })
+				r.recv("ON")
+				assert.same({ { fan_on = true, speed = 3, wind = false } }, r.model.wants)
+			end)
+
+		it("ON in a state not known yet with a `wind` known still ends Breeze", function()
+			local r = rig({ shown = { wind = true } })
+			r.recv("ON")
+			assert.same({ { fan_on = true, speed = 3, wind = false } }, r.model.wants)
+		end)
+
+		it("OFF stops the motor and clears `wind` while it is true: blowing or stored (BF-D4, BF84)", function()
+			for _, shown in ipairs({ BLOWING, STORED }) do
+				local r = rig({ shown = copy(shown) })
+				r.recv("OFF")
+				assert.same({ { fan_on = false, wind = false } }, r.model.wants)
+				local zero = rig({ shown = copy(shown) })
+				zero.recv("SET_SPEED", { SPEED = "0" })
+				assert.same({ { fan_on = false, wind = false } }, zero.model.wants)
+				r.recv("OFF")
+				assert.same({ fan_on = false }, r.model.wants[2], "a second Off: the shown `wind` is false by then")
+			end
+		end)
+
+		it("OFF with `wind` false, or on a fan without Breeze, is `fan_on = false` alone (BF71, BF72)", function()
+			for _, shown in ipairs({ FAN_MODE, NO_BREEZE, { fan_on = false, speed = 2, wind = false }, { fan_on = false } }) do
+				local r = rig({ shown = copy(shown) })
+				r.recv("OFF")
+				r.recv("SET_SPEED", { SPEED = "0" })
+				assert.same({ { fan_on = false }, { fan_on = false } }, r.model.wants)
+			end
+		end)
+
+		it("TOGGLE in Breeze mode turns fan mode on at the preset: it does not stop the spinning fan (BF79)", function()
+			local r = rig({ shown = copy(BLOWING), stored = { [PRESET_KEY] = 5 } })
+			r.recv("TOGGLE")
+			assert.same({ { fan_on = true, speed = 5, wind = false } }, r.model.wants)
+			r.recv("TOGGLE")
+			assert.same({ fan_on = false }, r.model.wants[2], "the second, from fan mode's target, stops it")
+		end)
+
+		it("TOGGLE from a stopped fan with a stored `wind` starts fan mode and clears it (BF83)", function()
+			local r = rig({ shown = copy(STORED) })
+			r.recv("TOGGLE")
+			assert.same({ { fan_on = true, speed = 3, wind = false } }, r.model.wants)
+		end)
+
+		it("TOGGLE in fan mode stops the fan without a `wind` (there is none to clear)", function()
+			local r = rig({ shown = copy(FAN_MODE) })
+			r.recv("TOGGLE")
+			assert.same({ { fan_on = false } }, r.model.wants)
+		end)
+
+		it("TOGGLE is still refused while fan_on is not known, whatever `wind` says", function()
+			local r = rig({ shown = { wind = true } })
+			local ok, why = r.fp:toggle()
+			assert.is_false(ok)
+			assert.equal("unknown", why)
+			assert.same({}, r.model.wants)
+		end)
+
+		it("SET_SPEED 1 to 6 in Breeze mode wants the speed and `wind` false, the held speed too (BF80)", function()
+			for n = 1, 6 do
+				local r = rig({ shown = copy(BLOWING) })
+				r.recv("SET_SPEED", { SPEED = tostring(n) })
+				assert.same({ { fan_on = true, speed = n, wind = false } }, r.model.wants)
+			end
+		end)
+
+		it("SET_SPEED in fan mode, and on a fan without Breeze, sends no `wind`", function()
+			for _, shown in ipairs({ FAN_MODE, NO_BREEZE, { fan_on = false, speed = 2, wind = false } }) do
+				local r = rig({ shown = copy(shown) })
+				r.recv("SET_SPEED", { SPEED = "4" })
+				assert.same({ { fan_on = true, speed = 4 } }, r.model.wants)
+			end
+		end)
+
+		it("a speed after Breeze On was wanted ends it again: the shown `wind` is the target (R5)", function()
+			local r = rig({ shown = copy(FAN_MODE) })
+			r.model:want({ wind = true }) -- fan/breeze.lua's Breeze On, not answered yet
+			r.model.wants = {}
+			r.recv("SET_SPEED", { SPEED = "3" })
+			assert.same({ { fan_on = true, speed = 3, wind = false } }, r.model.wants)
+		end)
+
+		it("CYCLE in Breeze mode counts from off: up gives speed 1 in fan mode, down nothing (BF81)", function()
+			local r = rig({ shown = copy(BLOWING) })
+			r.recv("CYCLE_SPEED_DOWN")
+			assert.same({}, r.model.wants, "down from what this device shows as off")
+			r.recv("CYCLE_SPEED_UP")
+			assert.same({ { fan_on = true, speed = 1, wind = false } }, r.model.wants)
+			r.recv("CYCLE_SPEED_UP")
+			assert.same({ fan_on = true, speed = 2 }, r.model.wants[2], "then on from 1 in fan mode")
+		end)
+
+		it("CYCLE in Breeze mode goes to 1 whatever speed the fan reports, or none (BF76)", function()
+			for _, speed in ipairs({ 6, 1, false }) do
+				local shown = copy(BLOWING)
+				shown.speed = speed or nil
+				local r = rig({ shown = shown })
+				assert.is_true(r.fp:cycle(1))
+				assert.same({ { fan_on = true, speed = 1, wind = false } }, r.model.wants)
+			end
+		end)
+
+		it("CYCLE from a stopped fan with a stored `wind`: up clears it, down does nothing and clears nothing", function()
+			local r = rig({ shown = copy(STORED) })
+			r.recv("CYCLE_SPEED_DOWN")
+			assert.same({}, r.model.wants)
+			r.recv("CYCLE_SPEED_UP")
+			assert.same({ { fan_on = true, speed = 1, wind = false } }, r.model.wants)
+		end)
+
+		it("CYCLE is still refused while fan_on is not known", function()
+			local r = rig({ shown = { wind = true, speed = 2 } })
+			local ok, why = r.fp:cycle(1)
+			assert.is_false(ok)
+			assert.equal("unknown", why)
+		end)
+
+		it("a fan without Breeze is never sent a `wind`, by any command in any state (BF71)", function()
+			for _, shown in ipairs({ { fan_on = true, speed = 3 }, { fan_on = false, speed = 3 }, { fan_on = false }, {} }) do
+				local r = rig({ shown = copy(shown) })
+				for _, command in ipairs({ "ON", "OFF", "TOGGLE", "CYCLE_SPEED_UP", "CYCLE_SPEED_DOWN" }) do
+					r.recv(command)
+				end
+				r.recv("SET_SPEED", { SPEED = "5" })
+				r.recv("SET_SPEED", { SPEED = "0" })
+				for _, want in ipairs(r.model.wants) do
+					assert.is_nil(want.wind)
+				end
+			end
+		end)
+
+		it("the model's refusal comes back from a fan-mode command in Breeze mode as from any other", function()
+			local r = rig({ shown = copy(BLOWING) })
+			r.model.refuse = "foreign"
+			for _, call in ipairs({
+				function() return r.fp:on() end,
+				function() return r.fp:off() end,
+				function() return r.fp:toggle() end,
+				function() return r.fp:speed(4) end,
+				function() return r.fp:cycle(1) end,
+			}) do
+				local ok, why = call()
+				assert.is_false(ok)
+				assert.equal("foreign", why)
+			end
+		end)
+	end)
+
+	describe("fan mode and Breeze mode: what the proxy hears (#121, BF-D2, BF-D13, BF-D14)", function()
+		local function speeds(r)
+			local out = {}
+			for _, sent in ipairs(r.sent) do
+				if sent[1] == "CURRENT_SPEED" then
+					out[#out + 1] = sent[2].SPEED
+				end
+			end
+			return out
+		end
+
+		local function directions(r)
+			local out = {}
+			for _, sent in ipairs(r.sent) do
+				if sent[1] == "DIRECTION" then
+					out[#out + 1] = sent[2].DIRECTION
+				end
+			end
+			return out
+		end
+
+		-- A rig whose model shows `shown` and confirmed what the proxy was told at start.
+		local function started(shown)
+			local r = rig({ shown = shown })
+			r.fp:settled("fan", shown, "start")
+			r.fp:settled("direction", shown, "start")
+			r.fp:settled("breeze", shown, "start")
+			r.sent = {}
+			return r
+		end
+
+		-- The model's state moved to `st` with nothing wanted or in flight.
+		local function confirm(r, st)
+			r.model.shown_state = {}
+			for k, v in pairs(st) do
+				r.model.shown_state[k] = v
+			end
+			return st
+		end
+
+		it("Breeze starting from fan mode tells CURRENT_SPEED 0 from the Breeze settle (BF73)", function()
+			local r = started({ fan_on = true, speed = 4, wind = false })
+			r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 4, wind = true }), "outside")
+			assert.same({ 0 }, speeds(r))
+		end)
+
+		it("the fan group's settle during Breeze is 0 too, and gusts or a new base speed tell nothing (BF76)", function()
+			local r = started({ fan_on = true, speed = 4, wind = true })
+			for _, speed in ipairs({ 5, 6, 1, 3 }) do
+				r.fp:settled("fan", confirm(r, { fan_on = true, speed = speed, wind = true }), "command")
+			end
+			r.fp:settled("fan", confirm(r, { fan_on = true, wind = true }), "outside")
+			assert.same({}, r.sent)
+		end)
+
+		it("Breeze ending with the motor turning tells the speed the fan reports (BF75)", function()
+			local r = started({ fan_on = true, speed = 4, wind = true })
+			r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 4, wind = false }), "outside")
+			assert.same({ 4 }, speeds(r))
+		end)
+
+		it("Breeze ending with the motor stopped tells nothing: it was 0 and stays 0", function()
+			local r = started({ fan_on = true, speed = 4, wind = true })
+			r.fp:settled("fan", confirm(r, { fan_on = false, speed = 4, wind = true }), "outside")
+			r.fp:settled("breeze", confirm(r, { fan_on = false, speed = 4, wind = false }), "outside")
+			assert.same({}, r.sent)
+		end)
+
+		it("a restart during Breeze tells 0 once (BF106, R6); the Breeze group's start adds nothing", function()
+			local r = rig()
+			local st = { fan_on = true, speed = 4, wind = true }
+			r.fp:settled("fan", st, "start")
+			r.fp:settled("breeze", st, "start")
+			assert.same({ 0 }, speeds(r))
+		end)
+
+		it("a fan without Breeze is told as in 1.2, and a Breeze settle that drops `wind` adds nothing (BC18)", function()
+			local r = started({ fan_on = true, speed = 4 })
+			r.fp:settled("fan", confirm(r, { fan_on = true, speed = 5 }), "outside")
+			r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 5 }), "outside")
+			r.fp:settled("fan", confirm(r, { fan_on = false, speed = 5 }), "command")
+			assert.same({ 5, 0 }, speeds(r))
+		end)
+
+		describe("two requests, one change (BF-D6, BF-D13)", function()
+			it("Breeze to fan mode at another speed: the first answer waits, the proxy hears the new speed once",
+				function()
+					local r = started({ fan_on = true, speed = 3, wind = true })
+					r.recv("SET_SPEED", { SPEED = "5" }) -- the model: wind first, then the speed
+					r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false }, "command")
+					assert.same({}, r.sent, "not the old speed: the speed request is still to go")
+					r.fp:settled("fan", confirm(r, { fan_on = true, speed = 5, wind = false }), "command")
+					r.fp:idle("fan", { fan_on = true, speed = 5, wind = false })
+					assert.same({ 5 }, speeds(r))
+				end)
+
+			it("Breeze to fan mode at the speed the fan held: told at the first answer, which the model will not settle again",
+				function()
+					local r = started({ fan_on = true, speed = 3, wind = true })
+					r.recv("SET_SPEED", { SPEED = "3" })
+					r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false }, "command")
+					assert.same({ 3 }, speeds(r))
+					r.fp:idle("fan", confirm(r, { fan_on = true, speed = 3, wind = false }))
+					assert.same({ 3 }, speeds(r), "nothing more")
+				end)
+
+			it("a second half the fan did not take: idle() tells what the fan shows", function()
+				local r = started({ fan_on = true, speed = 3, wind = true })
+				r.recv("SET_SPEED", { SPEED = "5" })
+				r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false }, "command")
+				assert.same({}, speeds(r))
+				-- the speed request failed and was dropped: nothing wanted or in flight, the fan at 3 in fan mode
+				r.fp:idle("fan", confirm(r, { fan_on = true, speed = 3, wind = false }))
+				assert.same({ 3 }, speeds(r))
+			end)
+
+			it("what waited is told by the next settle of any group once nothing is half way", function()
+				local r = started({ fan_on = true, speed = 3, wind = true })
+				r.recv("SET_SPEED", { SPEED = "5" })
+				r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false }, "command")
+				r.fp:settled("light", { fan_on = true, speed = 3, wind = false, light_on = true }, "outside")
+				assert.same({}, r.sent, "still half way")
+				r.fp:settled("light", confirm(r, { fan_on = true, speed = 3, wind = false, light_on = false }), "outside")
+				assert.same({ 3 }, speeds(r))
+			end)
+
+			it("a start of Breeze whose second half is the motor: the fan settle waits for `wind`", function()
+				-- a model that sends the fan first (1.2's order) still never shows the fan's speed on this tile
+				local r = started({ fan_on = false, speed = 2, wind = false })
+				r.model:want({ fan_on = true, speed = 2, wind = true }) -- fan/breeze.lua's Breeze On from off
+				r.fp:settled("fan", { fan_on = true, speed = 2, wind = false }, "command")
+				assert.same({}, r.sent)
+				r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 2, wind = true }), "command")
+				r.fp:idle("breeze", { fan_on = true, speed = 2, wind = true })
+				assert.same({}, r.sent, "0 all along")
+			end)
+
+			it("Breeze to stopped (fan first, then `wind`) tells nothing: 0 all along", function()
+				local r = started({ fan_on = true, speed = 3, wind = true })
+				r.recv("OFF")
+				r.fp:settled("fan", { fan_on = false, speed = 3, wind = true }, "command")
+				r.fp:settled("breeze", confirm(r, { fan_on = false, speed = 3, wind = false }), "command")
+				r.fp:idle("breeze", { fan_on = false, speed = 3, wind = false })
+				assert.same({}, r.sent)
+			end)
+
+			it("start never waits (R6): the first contact tells what the fan shows", function()
+				local r = rig({ shown = { fan_on = true, speed = 5, wind = false } })
+				r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false }, "start")
+				r.fp:settled("fan", { fan_on = true, speed = 3, wind = false }, "start")
+				assert.same({ 3, 3 }, speeds(r), "the fan group's start tells it even where it matches (R6)")
+			end)
+
+			it("idle() with nothing waiting tells nothing", function()
+				local r = started({ fan_on = true, speed = 3, wind = false })
+				r.fp:idle("fan", { fan_on = true, speed = 4, wind = false })
+				r.fp:idle("breeze", { fan_on = true, speed = 4, wind = false })
+				r.fp:idle("light", nil)
+				assert.same({}, r.sent)
+			end)
+		end)
+
+		describe("the direction during Breeze (BF-D14, BF77)", function()
+			it("is held while Breeze blows and told once it ends, when it differs", function()
+				local r = started({ fan_on = true, speed = 3, wind = false, direction = "reverse" })
+				r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 3, wind = true, direction = "reverse" }), "outside")
+				r.fp:settled("direction", confirm(r, { fan_on = true, speed = 3, wind = true, direction = "forward" }),
+					"outside")
+				assert.same({}, directions(r), "held")
+				r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 3, wind = false, direction = "forward" }),
+					"outside")
+				assert.same({ "FORWARD" }, directions(r), "Breeze ended and the direction stayed forward")
+			end)
+
+			it("fires no direction event when the fan returns to its direction after Breeze", function()
+				local r = started({ fan_on = true, speed = 3, wind = false, direction = "reverse" })
+				-- one answer: Breeze blows and the direction reads forward
+				local blowing = confirm(r, { fan_on = true, speed = 3, wind = true, direction = "forward" })
+				r.fp:settled("direction", blowing, "outside")
+				r.fp:settled("breeze", blowing, "outside")
+				-- one answer: Breeze over and the direction back (groups settle fan, direction, breeze)
+				local back = confirm(r, { fan_on = true, speed = 3, wind = false, direction = "reverse" })
+				r.fp:settled("direction", back, "outside")
+				r.fp:settled("breeze", back, "outside")
+				assert.same({}, directions(r))
+				assert.same({ 0, 3 }, speeds(r))
+			end)
+
+			it("is told when the motor stops with `wind` still set: that is no longer Breeze", function()
+				local r = started({ fan_on = true, speed = 3, wind = false, direction = "reverse" })
+				r.fp:settled("direction", confirm(r, { fan_on = true, speed = 3, wind = true, direction = "forward" }),
+					"outside")
+				r.fp:settled("fan", confirm(r, { fan_on = false, speed = 3, wind = true, direction = "forward" }), "outside")
+				assert.same({ "FORWARD" }, directions(r))
+			end)
+
+			it("a light settle during Breeze keeps it held", function()
+				local r = started({ fan_on = true, speed = 3, wind = false, direction = "reverse" })
+				local blowing = confirm(r, { fan_on = true, speed = 3, wind = true, direction = "forward" })
+				r.fp:settled("direction", blowing, "outside")
+				r.fp:settled("light", blowing, "outside")
+				r.fp:idle("light", blowing)
+				assert.same({}, directions(r))
+			end)
+
+			it("a start during Breeze holds it, then tells it once Breeze ends even when it is the one told before (R6)",
+				function()
+					local r = rig()
+					r.fp:settled("direction", { fan_on = true, speed = 3, wind = false, direction = "forward" }, "start")
+					r.sent = {}
+					local st = { fan_on = true, speed = 3, wind = true, direction = "forward" }
+					r.fp:settled("fan", st, "start")
+					r.fp:settled("direction", st, "start")
+					assert.same({}, directions(r))
+					r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 3, wind = false, direction = "forward" }),
+						"outside")
+					assert.same({ "FORWARD" }, directions(r))
+				end)
+
+			it("GET_CURRENT_STATE during Breeze answers 0 and no DIRECTION, which follows once Breeze ends", function()
+				local r = rig()
+				r.model.confirmed_state = { fan_on = true, speed = 3, wind = true, direction = "reverse" }
+				r.recv("GET_CURRENT_STATE")
+				assert.same({ { "CURRENT_SPEED", { SPEED = 0 } }, { "PRESET_SPEED", { SPEED = 3 } } }, r.sent)
+				r.sent = {}
+				r.fp:settled("breeze", confirm(r, { fan_on = true, speed = 3, wind = false, direction = "reverse" }),
+					"outside")
+				assert.same({ "REVERSE" }, directions(r))
+				assert.same({ 3 }, speeds(r))
+			end)
+
+			it("in fan mode, and on a fan without Breeze, it is told as in 1.2", function()
+				for _, wind in ipairs({ false, "none" }) do
+					local w = wind ~= "none" and wind or nil
+					local r = started({ fan_on = true, speed = 3, wind = w, direction = "forward" })
+					r.fp:settled("direction", confirm(r, { fan_on = true, speed = 3, wind = w, direction = "reverse" }),
+						"command")
+					assert.same({ "REVERSE" }, directions(r))
+				end
+			end)
+
+			it("without can_reverse nothing is held or told, during Breeze or after", function()
+				local r = rig({ can_reverse = false })
+				r.fp:settled("direction", { fan_on = true, speed = 3, wind = true, direction = "forward" }, "start")
+				r.fp:settled("breeze", { fan_on = true, speed = 3, wind = false, direction = "forward" }, "outside")
+				assert.same({}, directions(r))
+			end)
+		end)
+	end)
+
 	describe("a tap from a Navigator (section 9.11)", function()
 		it("speed 3 is wanted, the fan answers, the proxy hears one CURRENT_SPEED, then the remote's change", function()
 			local r = rig({ shown = { fan_on = true, speed = 1, direction = "forward" } })

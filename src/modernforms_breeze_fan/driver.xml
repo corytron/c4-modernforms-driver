@@ -1,0 +1,119 @@
+<devicedata>
+	<copyright>Copyright 2026 Cory Fair. Licensed under the Apache License, Version 2.0 (see LICENSE). Not affiliated with Modern Forms, WAC Lighting or Snap One.</copyright>
+	<creator>Cory Fair</creator>
+	<manufacturer>Modern Forms</manufacturer>
+	<!-- docs/breeze-design.md BF-D7 (#121): a new package and a new driver name,
+	     because an update may not change an installed device's proxy type
+	     [Fundamentals 14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md];
+	     the 1.2 light_v2 switch (modernforms_breeze.c4z, "Modern Forms Breeze")
+	     stays on the v1.2 release. -->
+	<name>Modern Forms Breeze Fan</name>
+	<model>Modern Forms Breeze Fan (Breeze of a Modern Forms Fan)</model>
+	<created>11/08/2026 12:00 PM</created>
+	<modified>11/08/2026 12:00 PM</modified>
+	<version>1</version>
+	<!-- Its own icons, 16 px (tree, Items) and 32 px (List View): the gust
+	     tools/make_icons.py draws, under this package's file names. A device
+	     keeps the icons of the build that created it (V24). -->
+	<small image_source="c4z">images/devices_sm/modernforms_breeze_fan_16.png</small>
+	<large image_source="c4z">images/devices_lg/modernforms_breeze_fan_32.png</large>
+	<control>lua_gen</control>
+	<controlmethod>IP</controlmethod>
+	<driver>DriverWorks</driver>
+	<!-- The fan driver's minimum (docs/v1-design.md section 2.1: 3.3.0); the
+	     Breeze fan is added by the fan item's action Add Breeze Fan and needs
+	     nothing the fan driver does not (no proxy_fan_speed_connections, which
+	     is 3.4.2, BF24). -->
+	<minimum_os_version>3.3.0</minimum_os_version>
+	<config>
+		<script jit="1" file="driver.lua"/>
+		<documentation file="www/documentation.html"/>
+		<!-- BF-D7: these three rows, never reordered. -->
+		<properties>
+			<property>
+				<name>Driver Version</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Status</name>
+				<default></default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
+			<property>
+				<name>Debug Mode</name>
+				<type>LIST</type>
+				<items>
+					<item>Off</item>
+					<item>On</item>
+				</items>
+				<default>Off</default>
+				<readonly>false</readonly>
+			</property>
+		</properties>
+		<!-- No actions, commands or events of its own: Breeze is programmed on
+		     the fan item (BF-D11), whose lines survive a re-created Breeze fan
+		     (BF55); this device is used from its tile. -->
+	</config>
+	<!-- One fan proxy, primary [XML 15_common_xml/_32-proxy.md], named as the
+	     1.2 switch was so a new item reads "Modern Forms Breeze" until the fan
+	     item names it; the gust icons on the proxy item too. -->
+	<proxies>
+		<proxy proxybindingid="5001" name="Modern Forms Breeze" primary="True" image_source="c4z" small_image="images/devices_sm/modernforms_breeze_fan_16.png" large_image="images/devices_lg/modernforms_breeze_fan_32.png">fan</proxy>
+	</proxies>
+	<!-- BF-D7 and BF23: three speeds named Breeze 1 to 3 (Composer then says
+	     "Set speed Breeze 2", BF59), no direction, no preset that means
+	     anything [FAN 43_fan_capabilities/_1-canreverse.md, _2-cansetpreset.md,
+	     _3-discretelevels.md, _5-speednames.md]. preset_speed is declared
+	     anyway, as the documented default (the highest speed, 3,
+	     _4-presetspeed.md), so the proxy's preset is the same whatever it
+	     would assume; ON resumes the fan's own last strength and never reads
+	     it (BF27, BF31). No proxy_fan_speed_connections (BF24). All static: a
+	     change on an installed device costs the owner a controller reboot. -->
+	<capabilities>
+		<discrete_levels>3</discrete_levels>
+		<speed_names>Breeze 1,Breeze 2,Breeze 3</speed_names>
+		<preset_speed>3</preset_speed>
+		<can_set_preset>False</can_set_preset>
+		<can_reverse>False</can_reverse>
+	</capabilities>
+	<events/>
+	<connections>
+		<connection>
+			<id>5001</id>
+			<facing>6</facing>
+			<connectionname>FAN</connectionname>
+			<type>2</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>FAN</classname>
+				</class>
+			</classes>
+		</connection>
+		<!-- BZ2, BF-D7: bound to the fan device's provider binding 400 ("Breeze
+		     Switch", class MODERNFORMS_BREEZE, unchanged since 1.2) by the fan
+		     item's Add Breeze Fan, or by hand in Connections. -->
+		<connection>
+			<id>1</id>
+			<facing>6</facing>
+			<connectionname>Modern Forms Fan</connectionname>
+			<type>1</type>
+			<consumer>True</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>MODERNFORMS_BREEZE</classname>
+				</class>
+			</classes>
+			<hidden>False</hidden>
+		</connection>
+	</connections>
+</devicedata>

@@ -14,6 +14,23 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- The Breeze fan for the Navigators, a new package, `modernforms_breeze_fan.c4z` (driver "Modern Forms Breeze Fan"): a fan with three speeds, Breeze 1, Breeze 2 and Breeze 3, listed with the room's fans. A speed starts Breeze at that strength (a stopped fan starts straight in Breeze), On resumes the fan's last strength, and Off ends Breeze. Its tile shows only what the fan has confirmed and keeps its last value while the fan is offline. The fan's action Add Breeze Fan adds it to the fan's room, named after the fan (for example "Aviator 5 Breeze"); put it after the fan in the room's order and refresh the Navigators (#121).
+
+### Changed
+
+- The fan runs either in fan mode or in Breeze mode, never both, and the fan device now shows fan mode only: while Breeze blows its tile shows off, its speed, Toggle and Cycle keypad LEDs are dark, and the Fan Off LED lights only while the fan is stopped. Status reads `Breeze 2` instead of a speed in Breeze mode. A fan without Breeze works as before (#121).
+- The fan device's own events and variables (turned off, speed changed, Is Off) follow fan mode, so they now also fire when Breeze starts or ends: add the condition "Breeze is on" with False to programming that should not react to Breeze. The fan device's direction is held while Breeze blows (#121).
+- A speed, On, Toggle or Cycle on the fan device ends Breeze, and Off on the fan device stops the fan and clears a stored Breeze, so the next start is fan mode (#121).
+- **Breeze Off and Toggle Breeze keep their names but now stop the fan while Breeze blows**; in 1.2 they left it turning. To go from Breeze back to fan mode, set a speed on the fan device. On a stopped fan they only clear a stored Breeze, and they never stop a fan in fan mode. A double tap on a button bound to Fan Breeze, from fan mode, now stops the fan on its second press (#121).
+- Breeze On and the Fan Breeze link start a stopped fan straight in Breeze at its last strength (Breeze first, then the fan on) instead of starting it at the preset speed first (#121).
+- The action Add Breeze Switch is now Add Breeze Fan, and the Breeze switch of 1.2 (`modernforms_breeze.c4z`, a light) is no longer part of the release. An owner who added one deletes it, then clicks Add Breeze Fan; until then Add Breeze Fan answers `Delete the old Breeze switch first: Aviator 5 Breeze`. Programming that named the old switch goes with it: rebuild it on the fan device's Breeze commands and events. The update needs no controller reboot (#121).
+
+### Known limits
+
+- "All fans on", or a scene that turns every fan on, gives the fan device and the Breeze fan contradictory targets, and the last to arrive wins: keep the Breeze fan out of such groups. "All fans off" is safe. Programming that turns one of the two devices on when the other turns off switches the fan back and forth between the modes. The remote's power button during Breeze may keep Breeze stored on the fan, so its next power-on resumes Breeze (#121).
+
 ## 1.2 "Thumper", build 115 (2026-11-07)
 
 ### Added
