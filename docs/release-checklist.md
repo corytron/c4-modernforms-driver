@@ -149,7 +149,12 @@ it), and the release waits.
 A release is a version X.Y, tagged `vX.Y`, with its own codename (owner,
 2026-10-27): a name from Denis Villeneuve's Dune films (2021, 2024), kept by
 every build and beta of that X.Y; an X.0 gets a widely recognised character,
-place or object, a point release a decidedly less important one. Before the
+place or object, a point release a lesser-known character, place or thing
+tied specifically to its X.0's name (owner, 2026-11-07, #103: for 1.0
+"Arrakis", Fremen names, the ornithopter, the spice, Shai-Hulud and the
+like; 1.1 "Jamis", a Fremen of Arrakis, fits; approved 2026-11-07, #105,
+in this order: 1.2 "Thumper", then "Ornithopter", "Sietch Tabr", "Shadout
+Mapes", "Crysknife", "Stillsuit"). Before the
 first build of a new X.Y the coordinator proposes one and the owner approves
 it; it goes into [`.github/codenames.json`](../.github/codenames.json) (an
 object such as `{"1.0": "<name>"}`), which
