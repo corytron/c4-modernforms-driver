@@ -43,6 +43,12 @@ specification, and `status.md` says what of them is live.
   pinned fan to a new address by itself (#39): when it looks (multicast DNS
   for the pinned MAC, on a backing-off schedule), what it reads before it
   moves, the owner's typed address winning, and the switch.
+- [`auto-discovery-design.md`](auto-discovery-design.md): finding fans by
+  itself (#102): the multicast DNS question asked at every load and, while
+  the device has no fan, on a backing-off schedule; `Found Fans` kept
+  current with a summary as its first item; a pick that takes the fan at
+  once (another fan on a device that has its fan waits for Use Selected
+  Fan); the Find Fans action removed; the checks on the house.
 - [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
   throwaway Composer package built outside `src/` so no release carries it,
   and the Windows session's brief for each check K4–K10 and K14 of
@@ -94,6 +100,13 @@ Read-only research written before a feature's contract, in the same style.
 - [`edge-cases-address.md`](edge-cases-address.md): the fan's and
   Control4's cases around a fan whose address changes, the evidence from the
   house, and the recommendation the contract of #39 rests on.
+- [`edge-cases-discovery.md`](edge-cases-discovery.md): the lifecycle cases
+  of a driver that looks for fans by itself, on the fan's and Control4's
+  side, and what is automatic, offered or forbidden without a click (#102).
+- [`auto-discovery-research.md`](auto-discovery-research.md): what the Hue
+  driver's bridge detection did and learned on this house, what exists here,
+  and the proposed mechanism: the schedule, sharing the network binding with
+  the follower, the list, the pick and removing Find Fans (#102).
 
 ## Start here
 

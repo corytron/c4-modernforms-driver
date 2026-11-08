@@ -155,6 +155,7 @@ end
 --   leds = { [300] = bool, ... }        the links' lit state, nil: never sent
 --   has_light                           false: no light kit, the light's fields read "-"
 --   follow                              the address follower's state (#39): off, idle, armed:N, pending
+--   search                              the fan search's state (#102): off, stopped, standby, quiet, due:N, open
 function devcmds.format_state(s)
 	local shown = type(s.shown) == "table" and s.shown or {}
 	local kit = s.has_light ~= false
@@ -187,6 +188,7 @@ function devcmds.format_state(s)
 		"changing=" .. flag(s.changing),
 		"leds=" .. table.concat(leds, ","),
 		"follow=" .. ((type(s.follow) == "string" and s.follow:find("^[%w:]+$")) and s.follow or "?"),
+		"search=" .. ((type(s.search) == "string" and s.search:find("^[%w:]+$")) and s.search or "?"),
 		"ms=" .. (number(s.ms) or "?"),
 	}, " ")
 end
@@ -246,6 +248,9 @@ local function gather(o)
 	s.phase = ask(o, m, "phase")
 	if o.follow ~= nil then
 		s.follow = ask(o, o.follow, "state")
+	end
+	if o.search ~= nil then
+		s.search = ask(o, o.search, "state")
 	end
 	local d = debug_of(o, m)
 	s.seq, s.ms = d.seq, d.ms or d.last_ms
@@ -515,13 +520,14 @@ end
 -- The commands -----------------------------------------------------------------------------------
 
 -- Returns the table for devloop.set_signed_commands (Dev_Fan_State, Dev_Names_Plan,
--- Dev_Press, Dev_Proxy, Dev_Request: section 12 and fan-name-design 2.4) and a stop()
+-- Dev_Press, Dev_Proxy, Dev_Request, Dev_Search: section 12, fan-name-design 2.4 and
+-- auto-discovery-design 6.5) and a stop()
 -- that cancels the presses still waiting for their timers (OnDriverDestroyed: a reload
 -- must not leave them to fire into the new code).
 function devcmds.new(opts)
 	opts = type(opts) == "table" and opts or {}
 	local o = { model = opts.model, fan = opts.fan, links = opts.links, light = opts.light, names = opts.names,
-		follow = opts.follow,
+		follow = opts.follow, search = opts.search,
 		log = opts.log or require("common.log") }
 	local log = o.log
 	local pending = {} -- timers armed and not yet fired
@@ -723,12 +729,29 @@ function devcmds.new(opts)
 		log.always("Dev Names Plan: %s; nothing was renamed", line)
 	end
 
+	-- Dev Search (auto-discovery-design 6.5): one search window as soon as the 30 s
+	-- floor allows, for the house checks; the list and its log line follow by
+	-- themselves, and nothing goes to Last Action.
+	local function dev_search()
+		local search = o.search
+		if type(search) ~= "table" or type(search.poke) ~= "function" then
+			return refuse("Dev Search", "the search is missing")
+		end
+		local ok, err = pcall(search.poke, search, "dev")
+		if not ok then
+			return refuse("Dev Search", "the search could not be asked (" .. plain(err, 80) .. ")")
+		end
+		local state = ask(o, search, "state")
+		log.always("Dev Search: a window is asked for (search=%s)", plain(state, 20))
+	end
+
 	return {
 		Dev_Fan_State = dev_fan_state,
 		Dev_Names_Plan = dev_names_plan,
 		Dev_Press = dev_press,
 		Dev_Proxy = dev_proxy,
 		Dev_Request = dev_request,
+		Dev_Search = dev_search,
 	}, stop
 end
 

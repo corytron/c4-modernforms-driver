@@ -645,6 +645,7 @@ the dev key signed, and the key never crosses the wire.
   | `Dev Proxy` | `BINDING` 5001 or 5002; `COMMAND`; any other parameters | `ReceivedFromProxy(BINDING, COMMAND, params)` as the proxy would call it, the other parameters as the strings they came as (`SPEED=3`; `LIGHT_BRIGHTNESS_TARGET=70 RATE=0`) |
   | `Dev Names Plan` | `MODE` `guarded` (default) or `forced` | logs what Use Selected Fan (guarded) or Name Items After Fan (forced) would do to the two items' names (`would=`, the fan type, the ids, the live and target names, whether each is the driver's), and renames nothing ([`fan-name-design.md`](fan-name-design.md) 2.4, #37) |
   | `Dev Request` | `BODY` | one request through the model's `request`, which the driver wires in and which sends only while the fan is online and nothing else is due (otherwise: `not sent (busy)`): one of the two queries, or a body `wire.body` builds from the fields the driver writes (any key order or spacing; the bytes sent are `wire.body`'s). The answer is logged normalized, `Dev Request #41 command: 200 in 0.31 s: fan on/4 forward, light off/100`, with the client id as `...5301` and nothing else of the answer |
+  | `Dev Search` | none | asks for one search window as soon as the 30 s floor allows, for the house checks of [`auto-discovery-design.md`](auto-discovery-design.md#9-checks-on-the-house-each-under-a-minute) (#102): logs `Dev Search: a window is asked for (search=due:N)`; the list and its `Found Fans:` log line follow by themselves, and nothing goes to Last Action |
 
   A parameter outside what a command takes (a link that is none of the
   twelve, a count of 0 or 101, a body with a key the driver never writes,
@@ -675,7 +676,9 @@ the dev key signed, and the key never crosses the wire.
   shown.light=on/40 busy=- told.fan=3 told.dir=forward told.light=40
   notify.fan=12 notify.dir=1 notify.light=8 changing=0
   leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1
-  follow=idle ms=310` (one line; broken here for reading).
+  follow=idle search=quiet ms=310` (one line; broken here for reading;
+  `search=` is the fan search's state since #102: `off`, `stopped`,
+  `standby`, `quiet`, `due:N` seconds or `open`).
 - **A forwarded device's `DEV_LOG`** (dormant) must stay reachable through
   `ExecuteCommand`, since the devices send it with `C4:SendToDevice`: the
   polling driver's handler only prints one line under the sender's name,

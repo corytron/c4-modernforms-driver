@@ -14,6 +14,15 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- The driver finds Modern Forms fans on the network by itself: a few seconds after it starts or is updated, and, while the device has no fan yet, again after 30 seconds, 1, 2, 5 and 10 minutes and then every 15 minutes. Found Fans fills by itself, its first line says what was found, and this device's fan is listed first. The search is one multicast DNS question on the controller's own network segment: it never takes a fan by itself and never writes Last Action (#102).
+
+### Changed
+
+- Picking a fan in Found Fans and clicking Set takes that fan at once, with the same result as Use Selected Fan: Fan Address is filled in and the items are named after the fan as before. A different fan picked on a device that already has its fan waits for Use Selected Fan (#102).
+- The Find Fans action is gone: five actions remain, Use Selected Fan first. Status on a device without a fan reads `Not set up: pick a fan in Found Fans, or enter Fan Address`. Programming and connections are unchanged, and the update needs no controller reboot (#102).
+
 ## 1.1 "Jamis", build 97 (2026-11-05)
 
 ### Fixed

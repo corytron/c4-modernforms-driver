@@ -204,11 +204,11 @@ end
 -- The contract's example line (section 12).
 local EXAMPLE = "phase=online seq=231 fan=on/3 dir=forward light=on/40 shown.fan=on/3 shown.light=on/40 busy=- "
 	.. "told.fan=3 told.dir=forward told.light=40 notify.fan=12 notify.dir=1 notify.light=8 changing=0 "
-	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1 follow=idle ms=310"
+	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1 follow=idle search=quiet ms=310"
 
 -- The keys of Dev State, in the order section 12 gives them.
 local KEYS = { "phase", "seq", "fan", "dir", "light", "shown.fan", "shown.light", "busy", "told.fan", "told.dir",
-	"told.light", "notify.fan", "notify.dir", "notify.light", "changing", "leds", "follow", "ms" }
+	"told.light", "notify.fan", "notify.dir", "notify.light", "changing", "leds", "follow", "search", "ms" }
 
 local PIN = { client_id = "MF_00005E005301", mac = "00005E005301", generation = "3", address = "10.0.2.151" }
 
@@ -221,6 +221,10 @@ local function new_commands(over)
 	env.commands, env.stop = devcmds.new({
 		model = env.model, fan = env.fan, links = env.links, light = env.light, names = env.names, log = env.log,
 		follow = env.follow or { state = function() return "idle" end },
+		search = env.search or {
+			state = function() return env.search_state or "quiet" end,
+			poke = function(_, why) env.poked = why end,
+		},
 		prop = env.prop or function(name, value) env.rows[name] = value end,
 		inject = env.inject or function(binding, command, params)
 			env.injected[#env.injected + 1] = { binding, command, params }
@@ -252,8 +256,8 @@ end
 
 describe("fan.devcmds", function()
 	describe("the table for devloop.set_signed_commands", function()
-		it("holds the five commands of section 12 and fan-name-design 2.4 under the names common/dispatch.lua gives "
-			.. "them, and nothing else", function()
+		it("holds the six commands of section 12, fan-name-design 2.4 and auto-discovery-design 6.5 under the names "
+			.. "common/dispatch.lua gives them, and nothing else", function()
 				local env = new_commands()
 				local names = {}
 				for name, fn in pairs(env.commands) do
@@ -261,7 +265,8 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Fan_State", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request" }, names)
+				assert.same({ "Dev_Fan_State", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request", "Dev_Search" },
+					names)
 				assert.is_function(env.stop)
 			end)
 
@@ -274,9 +279,25 @@ describe("fan.devcmds", function()
 				commands.Dev_Press({ LINK = "303", ACTION = "tap" })
 				commands.Dev_Proxy({ BINDING = "5001", COMMAND = "ON" })
 				commands.Dev_Request({ BODY = '{"queryDynamicShadowData":1}' })
+				commands.Dev_Search()
 				commands.Dev_Press(nil)
 			end)
-			assert.is_true(#log.texts("warn") >= 5)
+			assert.is_true(#log.texts("warn") >= 6)
+		end)
+
+		it("Dev Search pokes the search with \"dev\" and logs its state; nothing else", function()
+			local env = new_commands({ search_state = "due:12" })
+			env.commands.Dev_Search()
+			assert.equal("dev", env.poked)
+			assert.same({ "Dev Search: a window is asked for (search=due:12)" }, env.log.texts("always"))
+			assert.same({}, warned(env))
+		end)
+
+		it("Dev Search refuses when the search raises", function()
+			local env = new_commands({ search = { poke = function() error("boom") end } })
+			env.commands.Dev_Search()
+			assert.equal(1, #warned(env))
+			assert.truthy(warned(env)[1]:find("Dev Search refused", 1, true))
 		end)
 
 		it("falls back to common.log when no logger is given", function()

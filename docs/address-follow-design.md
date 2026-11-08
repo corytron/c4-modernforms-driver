@@ -8,18 +8,25 @@ evidence E1 to E16, the cases FA1 to FA17 and CA1 to CA19, the recommendation
 in section 3). Where this file and ECA differ, this file wins; where it is
 silent, ECA section 3 is the rule.
 
+**Changed by #102 (2026-11-07):** the Find Fans action is gone and the
+driver keeps `Found Fans` current by itself
+([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions)). The
+follower's windows now feed that list as every window does, and while the
+follower is armed the driver opens no windows of its own (AD4, AD6); the
+follower still never acts on the list or the pick (F8 as AD10 has it).
+
 ## 1. Decisions
 
 | # | Decision | Basis |
 | --- | --- | --- |
-| F1 | **The device is pinned to a fan, not an address.** When the pinned fan is not at `Fan Address`, the driver asks the network for the pinned MAC by multicast DNS (the Find Fans query), reads the announced address once, read-only, and changes nothing before that read shows the pinned fan. | ECA 3.1; K10 (a Gen 3 fan's TXT record carries its MAC, verified on the house) |
+| F1 | **The device is pinned to a fan, not an address.** When the pinned fan is not at `Fan Address`, the driver asks the network for the pinned MAC by multicast DNS (the Find Fans query; since #102 the one question the driver asks by itself, V30), reads the announced address once, read-only, and changes nothing before that read shows the pinned fan. | ECA 3.1; K10 (a Gen 3 fan's TXT record carries its MAC, verified on the house) |
 | F2 | **Trigger:** the model's phase becomes offline (three failed polls, about 45 s), foreign, gen4 or notfan, while `Follow Address Changes` is On, `Fan Address` is not empty, the pin has a MAC (none is derived from the client id; review of #48), the typed address is not pending (F5), no Use Selected Fan read runs and the model is not stopped or rebooting. Not on the first failed poll. | ECA 3.2; owner question 2 (default: offline phase) |
-| F3 | **Schedule:** windows as Find Fans runs them (query twice 1 s apart, 3 s of answers, closed between windows): the first 2 s after arming plus a slot of 3.5 s per device (device id mod 8) plus 0..0.5 s, then 30 s, 1, 2, 5, 10 min, then every 15 min, each ±20 %, never closer than 30 s; each follower draws from a generator of its own, seeded from the device id and the clock at its first arm (the id is read then, never at load), so two devices never step alike (review of #48); a candidate heard but not verified is read again at +10, +30, +90 s. Disarmed on online, waiting, unset, rebooting, a `Fan Address` edit, Off or stop. Memory only. | ECA 3.3 |
+| F3 | **Schedule:** windows as Find Fans ran them until #102 (query twice 1 s apart, 3 s of answers, closed between windows): the first 2 s after arming plus a slot of 3.5 s per device (device id mod 8) plus 0..0.5 s, then 30 s, 1, 2, 5, 10 min, then every 15 min, each ±20 %, never closer than 30 s; each follower draws from a generator of its own, seeded from the device id and the clock at its first arm (the id is read then, never at load), so two devices never step alike (review of #48); a candidate heard but not verified is read again at +10, +30, +90 s. Disarmed on online, waiting, unset, rebooting, a `Fan Address` edit, Off or stop. Memory only. | ECA 3.3 |
 | F4 | **Match:** a heard entry whose TXT MAC equals the pin's, SRV port 80, a private (RFC 1918) or link-local address other than the current one, at most 3 a window; then one `queryStaticShadowData`, accepted only with HTTP 200 whose `clientId` and `mac` equal the pin's and the TXT MAC; checked again before each read (phase, switch, no owner edit or Use Selected Fan click since the window opened, guard). The read is the accept: a switch to Off during a read (at most 5 s) lets it finish. The model refuses a non-private address itself too. | ECA 3.4 |
 | F5 | **The owner's typed address wins** until the pinned fan has answered there: after a `Fan Address` edit the follower is pending and stays off until a contact at that address succeeds. Two values are no such edit: emptying `Fan Address` (the stop switch below), and typing the address the pinned fan was last seen at (the pin's address), which ends a pending typed address as a contact there would, so typing the old address back resumes (v1-design 3.5; ECA CA3). An empty `Fan Address` is the stop switch: never filled, never searched. | ECA CA3, CA4; owner question 4 (default: stay off) |
 | F6 | **What changes on a follow:** the model switches the transport address with a new epoch, the stored pin and firmware record, phase waiting (persisted first); then the driver writes the `Fan Address` row and Last Action L30. No new Status text, event, variable or command: programming sees one Fan Offline / Fan Online pair. A flap guard refuses a fourth follow in an hour (L31, once). | ECA 3.5, 3.6; owner question 5 (default: no event) |
 | F7 | **A switch:** the property `Follow Address Changes`, LIST `On` / `Off`, default On, after `Found Fans`. | owner question 1 (default: the switch, On) |
-| F8 | **Never:** a subnet scan, a read of an address nobody announced, a cloud lookup, adopting or learning another fan, matching by name, model, instance or address, acting on an announcement without the read, a public address, a standing listener, a window while online, rebooting, unset or before late init, touching `Found Fans` or the pick. | ECA 3.7 |
+| F8 | **Never:** a subnet scan, a read of an address nobody announced, a cloud lookup, adopting or learning another fan, matching by name, model, instance or address, acting on an announcement without the read, a public address, a standing listener, a window while online, rebooting, unset or before late init, acting on `Found Fans` or the pick. **Changed by #102** (AD10 of [`auto-discovery-design.md`](auto-discovery-design.md#1-decisions)): until then the follower never touched `Found Fans`; now the list shows what every window heard, the follower's included, and the follower still never acts on the list, the pick or another fan. | ECA 3.7; #102 AD10 |
 | F9 | **SECURITY.md** changes from "the fan the owner configured and nowhere else" to: the fan the owner configured, wherever its own multicast DNS answer puts it, after one fixed read-only request, private addresses only. The read checks identity; it does not authenticate (the client id and MAC are announced in the clear), the same exposure as a spoofed fixed address. | owner question 3 (default: yes) |
 
 ## 2. Modules (section 9 style of [`v1-design.md`](v1-design.md))
@@ -32,7 +39,10 @@ silent, ECA section 3 is the rule.
 - `find`'s callback gets a third value, `heard`: every distinct
   (instance, address) pair of the window, up to 64 (MAX_FOUND; `candidates` still reads at most 3), each `{ instance, address,
   mac, port }`, beside the unchanged first-answer-wins list (Find Fans and its
-  spec stay as they are).
+  spec stay as they are). Since #102 every closed window, whoever opened it,
+  is also handed to `on_window`, which feeds `Found Fans`
+  ([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions), AD6;
+  its section 6.3).
 
 ### 2.2 `fan/model.lua` (changed)
 
@@ -85,7 +95,10 @@ discovery; the model's `phase` listener and the contact feeding it; the
 `Fan_Address` handler calls `f:address_edited()`; `on_followed` writes
 `prop("Fan Address", address)` and `result("followed", …)`; `OnDriverDestroyed`
 calls `f:stop()`; Dev State gains `follow=`. Find Fans clicked during a window
-waits for it or shares it (one binding, one window).
+waits for it or shares it (one binding, one window). Since #102 there is no
+Find Fans: a window of the driver's own scheduler joins an open follower
+window the same way, and while the follower is armed the scheduler opens
+none (auto-discovery-design section 2).
 
 ## 3. Documents
 

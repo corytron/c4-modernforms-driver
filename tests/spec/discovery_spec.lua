@@ -1,6 +1,7 @@
--- fan.discovery: the DNS question, the answer parser and the Find Fans window (docs/v1-design.md section 9.10,
--- V5a; K10 in section 11.1). Pure: no Director and no fake runtime. The network binding and the timer are hand-made
--- fakes; the datagrams come from tests/fixtures/mdns.lua, whose encoder builds the variants below.
+-- fan.discovery: the DNS question, the answer parser, usable and candidates, and the search window with its
+-- listener and clock (docs/auto-discovery-design.md section 6.3; docs/v1-design.md section 9.10; K10 in section
+-- 11.1). Pure: no Director and no fake runtime. The network binding, the timer and the clock are hand-made fakes;
+-- the datagrams come from tests/fixtures/mdns.lua, whose encoder builds the variants below.
 
 local fx = require("fixtures.mdns")
 local discovery = require("fan.discovery")
@@ -102,7 +103,8 @@ local function new_log()
 end
 
 -- The finder on fakes: a binding that counts its opens, sends and closes, and a clock that runs the timers the
--- finder arms. opts.open, opts.send and opts.timer replace what the fakes do; opts.no_log leaves the log out.
+-- finder arms. opts.open, opts.send, opts.timer and opts.now replace what the fakes do (now: the clock's
+-- world.now; false: none); opts.on_window is the finder's listener; opts.no_log leaves the log out.
 local function new_world(opts)
 	opts = opts or {}
 	local world = { opened = 0, closed = 0, sent = {}, sent_at = {}, now = 0, timers = {}, log = new_log() }
@@ -165,8 +167,12 @@ local function new_world(opts)
 		return count
 	end
 
-	world.finder = discovery.new({ open = open, send = send, close = close, timer = timer,
-		log = (not opts.no_log) and world.log or nil })
+	local now = function() return world.now end
+	if opts.now ~= nil then
+		now = opts.now or nil -- false: no clock at all
+	end
+	world.finder = discovery.new({ open = open, send = send, close = close, timer = timer, now = now,
+		on_window = opts.on_window, log = (not opts.no_log) and world.log or nil })
 	return world
 end
 
@@ -185,6 +191,20 @@ local function hearing()
 	got.callback = function(...)
 		local list, err, heard = ...
 		got.calls[#got.calls + 1] = { list = list, err = err, heard = heard, count = select("#", ...) }
+	end
+	return got
+end
+
+-- An on_window listener that keeps all it was told, and writes "window" into `journal` (when given) each time,
+-- so a spec sees where the listener's turn came among the callbacks'.
+local function listening(journal)
+	local got = { calls = {} }
+	got.callback = function(...)
+		local list, err, heard = ...
+		got.calls[#got.calls + 1] = { list = list, err = err, heard = heard, count = select("#", ...) }
+		if journal then
+			journal[#journal + 1] = "window"
+		end
 	end
 	return got
 end
@@ -901,6 +921,77 @@ describe("fan.discovery", function()
 		end)
 	end)
 
+	describe("usable (auto-discovery-design 3, 6.3: the list's filter and candidates')", function()
+		-- One heard entry: FAN_ONE's instance and MAC, at this address, SRV port 80 unless given.
+		local function entry(address, port)
+			return { instance = "MF_Fan_005301", address = address, mac = PIN, port = port or 80 }
+		end
+
+		it("takes SRV port 80 and a private (RFC 1918) address, to the edges of each block", function()
+			for _, address in ipairs({ CURRENT, MOVED, ip(10, 0, 0, 1), ip(10, 255, 255, 254), ip(172, 16, 0, 1),
+				ip(172, 31, 255, 254), "192.168.0.1", "192.168.255.254" }) do
+				assert.is_true(discovery.usable(entry(address)), address)
+			end
+		end)
+
+		it("takes a link-local address (169.254/16, RFC 3927), to the edges of the block", function()
+			assert.is_true(discovery.usable(entry(ip(169, 254, 0, 1))))
+			assert.is_true(discovery.usable(entry(ip(169, 254, 255, 254))))
+		end)
+
+		it("refuses a public address and every block outside those, with false", function()
+			for _, address in ipairs({ "203.0.113.9", "198.51.100.7", ip(9, 255, 255, 255), ip(11, 0, 0, 0),
+				ip(172, 15, 255, 255), ip(172, 32, 0, 0), ip(192, 167, 255, 255), ip(192, 169, 0, 0),
+				ip(169, 253, 255, 255), ip(169, 255, 0, 0), ip(100, 64, 0, 1), "127.0.0.1", "0.0.0.0", "224.0.0.251",
+				"255.255.255.255" }) do
+				assert.is_false(discovery.usable(entry(address)), address)
+			end
+		end)
+
+		it("refuses any port but the number 80: another port, 80 as text, none", function()
+			for _, port in ipairs({ 8080, 443, 81, 79, 0, "80", true }) do
+				assert.is_false(discovery.usable(entry(CURRENT, port)), tostring(port))
+			end
+			assert.is_false(discovery.usable({ instance = "MF_Fan_005301", address = CURRENT, mac = PIN }), "no port")
+		end)
+
+		it("refuses what is malformed, with false and without raising", function()
+			for _, address in ipairs({ "010.0.2.151", "10.00.2.151", ip(10, 0, 2, 256), "10.0.2", "10.0.2.151.1",
+				" 10.0.2.151", "10.0.2.151 ", "10.0.2.151:80", "fan.local", "", 167772567, true, {} }) do
+				assert.is_false(discovery.usable(entry(address)), tostring(address))
+			end
+			assert.is_false(discovery.usable({ port = 80 }), "no address")
+			for _, value in ipairs({ "10.0.2.151", 80, true, function() end }) do
+				local result
+				assert.has_no.errors(function() result = discovery.usable(value) end)
+				assert.is_false(result)
+			end
+			assert.is_false(discovery.usable(nil))
+			assert.is_false(discovery.usable())
+		end)
+
+		it("takes what parse and find hand out for a fan, and nothing on another port", function()
+			assert.is_true(discovery.usable(fx.FAN_ONE))
+			assert.is_true(discovery.usable(pair_of(fx.FAN_TWO)))
+			assert.is_true(discovery.usable(parse(fx.GEN12_ANNOUNCEMENT)[1]))
+			assert.is_false(discovery.usable(parse(fx.fan_message({ port = 8080 }))[1]))
+			assert.is_false(discovery.usable(parse(fx.fan_message({ address = "203.0.113.9" }))[1]))
+		end)
+
+		it("is the filter candidates applies: an entry of the pinned MAC is a candidate exactly when it is usable",
+			function()
+				local entries = {
+					entry(MOVED), entry(ip(169, 254, 0, 1)), entry("203.0.113.9"), entry(MOVED, 8080), entry(MOVED, "80"),
+					entry("010.0.2.152"), entry(ip(172, 32, 0, 0)), entry("192.168.0.1"),
+					{ instance = "MF_Fan_005301", address = MOVED, mac = PIN },
+				}
+				for index, each in ipairs(entries) do
+					local listed = #discovery.candidates({ each }, PIN, CURRENT) == 1
+					assert.equal(discovery.usable(each), listed, "entry " .. index)
+				end
+			end)
+	end)
+
 	describe("find", function()
 		it("opens the binding, sends the query at once and again 1 s later, listens for 3 s, closes it once", function()
 			local world = new_world()
@@ -1017,7 +1108,7 @@ describe("fan.discovery", function()
 				world.advance(3000)
 				assert.same({}, got.calls[1].list)
 				assert.is_nil(got.calls[1].err)
-				assert.is_true(world.log.has("Find Fans: window over: sent=2 answers=0 other=2 queries=2 unparsed=6 fans=0"))
+				assert.is_true(world.log.has("Search: window over: sent=2 answers=0 other=2 queries=2 unparsed=6 fans=0"))
 			end)
 
 		it("lets a second find join the window: one binding, two queries, every callback told at the same time", function()
@@ -1083,7 +1174,7 @@ describe("fan.discovery", function()
 			world.finder:find(after.callback)
 			world.advance(3000)
 			assert.equal(1, #after.calls)
-			assert.is_true(world.log.has("ERROR Find Fans: the callback failed:"))
+			assert.is_true(world.log.has("ERROR Search: the callback failed:"))
 			assert.is_true(world.log.has("boom"))
 			local next_one = collector()
 			world.finder:find(next_one.callback)
@@ -1106,7 +1197,7 @@ describe("fan.discovery", function()
 			world.finder:find(function() end)
 			world.finder:received(6001, 5353, fx.K10_FIRST)
 			world.advance(3000)
-			assert.is_true(world.log.has("DEBUG Find Fans: ...5301 at 10.0.2.151"))
+			assert.is_true(world.log.has("DEBUG Search: ...5301 at 10.0.2.151"))
 			for _, line in ipairs(world.log.lines) do
 				assert.is_nil(line:find("00005E005301", 1, true), line)
 				assert.is_nil(line:find("00:00:5E", 1, true), line)
@@ -1120,7 +1211,7 @@ describe("fan.discovery", function()
 			world.finder:received(6001, 5353, fx.TWO_FANS)
 			world.finder:received(6001, 5353, fx.K10_FIRST)
 			world.advance(3000)
-			assert.is_true(world.log.has("DEBUG Find Fans: window over: sent=2 answers=2 other=0 queries=0 unparsed=0 fans=2"))
+			assert.is_true(world.log.has("DEBUG Search: window over: sent=2 answers=2 other=0 queries=0 unparsed=0 fans=2"))
 			local failing = new_world({ send = function() return false end })
 			failing.finder:find(function() end)
 			failing.advance(3000)
@@ -1192,7 +1283,7 @@ describe("fan.discovery", function()
 			assert.equal(0, #world.sent)
 			assert.equal(0, world.pending())
 			assert.is_false(world.finder:busy())
-			assert.is_true(world.log.has("WARN Find Fans: the network binding did not open (refused)"))
+			assert.is_true(world.log.has("DEBUG Search: the network binding did not open (refused)"))
 		end)
 
 		it("does the same when open raises", function()
@@ -1240,7 +1331,7 @@ describe("fan.discovery", function()
 			assert.equal("send", got.calls[1].err)
 			assert.equal(2, #world.sent, "both queries were tried")
 			assert.equal(1, world.closed)
-			assert.is_true(world.log.has("WARN Find Fans: the query was not sent (refused)"))
+			assert.is_true(world.log.has("DEBUG Search: the query was not sent (refused)"))
 		end)
 
 		it("does the same when send raises", function()
@@ -1338,7 +1429,7 @@ describe("fan.discovery", function()
 				assert.equal("answer", world.finder:received(6001, 5353, fx.K10_MOVED))
 				world.advance(1660)
 				local call = got.calls[1]
-				assert.same({ fx.FAN_ONE }, call.list, "Find Fans shows the first answer, as before")
+				assert.same({ fx.FAN_ONE }, call.list, "the list keeps the first answer, as before")
 				assert.same({ pair_of(fx.FAN_ONE), pair_of(fx.FAN_ONE_MOVED) }, call.heard)
 				assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
 				assert.same({ 0, 1000 }, world.sent_at, "the window as it was: two queries 1 s apart")
@@ -1492,7 +1583,7 @@ describe("fan.discovery", function()
 			assert.same({}, second.calls[1].heard)
 		end)
 
-		it("tells a callback of (list, err), as Find Fans has, what it was told before", function()
+		it("tells a callback of (list, err), as the first callers had, what it was told before", function()
 			local world = new_world()
 			local seen = {}
 			world.finder:find(function(list, err)
@@ -1513,9 +1604,9 @@ describe("fan.discovery", function()
 				world.finder:received(6001, 5353, fx.K10_MOVED)
 				world.finder:received(6001, 5353, fx.GEN12_ANNOUNCEMENT)
 				world.advance(3000)
-				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 at 10.0.2.151"))
-				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 also at 10.0.2.152"))
-				assert.is_true(world.log.has("DEBUG Find Fans: ...5301 at 10.0.2.152"), "the Gen 1/2 instance is new")
+				assert.is_true(world.log.has("DEBUG Search: ...5301 at 10.0.2.151"))
+				assert.is_true(world.log.has("DEBUG Search: ...5301 also at 10.0.2.152"))
+				assert.is_true(world.log.has("DEBUG Search: ...5301 at 10.0.2.152"), "the Gen 1/2 instance is new")
 				assert.is_true(world.log.has("window over: sent=2 answers=3 other=0 queries=0 unparsed=0 fans=2"))
 				for _, line in ipairs(world.log.lines) do
 					for _, secret in ipairs({ "00005E005301", "00:00:5E", "MF_Fan", "Windermier" }) do
@@ -1565,6 +1656,374 @@ describe("fan.discovery", function()
 			world.advance(3000)
 			world.finder:stop()
 			assert.equal(1, world.closed)
+		end)
+	end)
+
+	describe("on_window: every closed window, whoever opened it (auto-discovery-design 3, 6.3)", function()
+		it("is told once after the window, with its list, err and heard, the tables the callback got, after it",
+			function()
+				local journal = {}
+				local told = listening(journal)
+				local world = new_world({ on_window = told.callback })
+				local got = hearing()
+				world.finder:find(function(...)
+					journal[#journal + 1] = "callback"
+					got.callback(...)
+				end)
+				world.finder:received(6001, 5353, fx.K10_FIRST)
+				world.finder:received(6001, 5353, fx.K10_MOVED)
+				world.advance(2999)
+				assert.equal(0, #told.calls, "not before the window is over")
+				world.advance(1)
+				assert.equal(1, #told.calls)
+				local call = told.calls[1]
+				assert.equal(3, call.count)
+				assert.same({ fx.FAN_ONE }, call.list)
+				assert.is_nil(call.err)
+				assert.same({ pair_of(fx.FAN_ONE), pair_of(fx.FAN_ONE_MOVED) }, call.heard)
+				assert.equal(got.calls[1].list, call.list)
+				assert.equal(got.calls[1].heard, call.heard)
+				assert.same({ "callback", "window" }, journal)
+				world.advance(60000)
+				assert.equal(1, #told.calls)
+			end)
+
+		it("is told once for a window one caller opened and the other joined, after both callbacks, either way round",
+			function()
+				local journal = {}
+				local told = listening(journal)
+				local world = new_world({ on_window = told.callback })
+				local function caller(name)
+					return function()
+						journal[#journal + 1] = name
+					end
+				end
+				-- The follower opens, the scheduler joins.
+				world.finder:find(caller("follower"))
+				world.advance(500)
+				world.finder:find(caller("search"))
+				world.finder:received(6001, 5353, fx.K10_FIRST)
+				world.advance(2500)
+				assert.same({ "follower", "search", "window" }, journal)
+				-- The scheduler opens, the follower joins.
+				world.advance(30000)
+				world.finder:find(caller("search"))
+				world.finder:find(caller("follower"))
+				world.advance(3000)
+				assert.same({ "follower", "search", "window", "search", "follower", "window" }, journal)
+				assert.equal(2, #told.calls)
+				assert.same({ fx.FAN_ONE }, told.calls[1].list)
+				assert.same({}, told.calls[2].list, "each window its own list")
+				assert.equal(2, world.opened)
+			end)
+
+		it("is told of a window that ended with err (open at once, timer at once, send at the end), lists empty",
+			function()
+				for _, case in ipairs({
+					{ err = "open", wait = 0, opts = { open = function() return false end } },
+					{ err = "open", wait = 0, opts = { open = function() error("no such binding") end } },
+					{ err = "timer", wait = 0, opts = { timer = function() error("no timers") end } },
+					{ err = "send", wait = 3000, opts = { send = function() return false end } },
+					{ err = "send", wait = 3000, opts = { send = function() error("not connected") end } },
+				}) do
+					local told = listening()
+					case.opts.on_window = told.callback
+					local world = new_world(case.opts)
+					local got = collector()
+					world.finder:find(got.callback)
+					assert.equal(case.wait == 0 and 1 or 0, #told.calls, case.err .. " before the wait")
+					world.advance(case.wait)
+					assert.equal(1, #told.calls, case.err)
+					assert.same({ list = {}, err = case.err, heard = {}, count = 3 }, told.calls[1], case.err)
+					assert.equal(1, #got.calls)
+				end
+			end)
+
+		it("is never told after stop(): of a window stop() ended, nor of one whose callback calls stop()", function()
+			local told = listening()
+			local world = new_world({ on_window = told.callback })
+			world.finder:find(function() end)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.advance(500)
+			world.finder:stop()
+			world.advance(10000)
+			assert.equal(0, #told.calls)
+
+			local late = listening()
+			local closing
+			local callbacks = 0
+			closing = new_world({ on_window = late.callback })
+			closing.finder:find(function()
+				callbacks = callbacks + 1
+				closing.finder:stop() -- OnDriverDestroyed reached from inside a callback
+			end)
+			closing.finder:find(function()
+				callbacks = callbacks + 1
+			end)
+			closing.advance(3000)
+			assert.equal(2, callbacks, "the callbacks are told as before")
+			assert.equal(0, #late.calls)
+
+			-- A find after stop() is heard as usual.
+			world.finder:find(function() end)
+			world.advance(3000)
+			assert.equal(1, #told.calls)
+			closing.finder:find(function() end)
+			closing.advance(3000)
+			assert.equal(1, #late.calls)
+		end)
+
+		it("drops the windows queued behind the one being told when the listener calls stop()", function()
+			local opens, seen = 0, {}
+			local world
+			world = new_world({
+				open = function()
+					opens = opens + 1
+					return opens == 1
+				end,
+				on_window = function(_, err)
+					seen[#seen + 1] = err or "heard"
+					world.finder:stop()
+				end,
+			})
+			world.finder:find(function()
+				world.finder:find(function() end) -- this window cannot open: it ends at once, queued behind
+			end)
+			world.advance(3000)
+			assert.same({ "heard" }, seen)
+		end)
+
+		it("tells the windows in the order they closed when a callback opens one that ends at once", function()
+			local opens, journal = 0, {}
+			local world
+			world = new_world({
+				open = function()
+					opens = opens + 1
+					return opens ~= 2
+				end,
+				on_window = function(list, err)
+					journal[#journal + 1] = "window " .. (err or tostring(#list))
+				end,
+			})
+			world.finder:find(function()
+				journal[#journal + 1] = "first callback"
+				world.finder:find(function()
+					journal[#journal + 1] = "second callback"
+				end)
+			end)
+			world.finder:received(6001, 5353, fx.K10_FIRST)
+			world.advance(3000)
+			assert.same({ "first callback", "second callback", "window 1", "window open" }, journal)
+		end)
+
+		it("is never told inside itself: a window the listener opens and that ends at once is told after it returns",
+			function()
+				local opens, depth, deepest, seen = 0, 0, 0, {}
+				local world
+				world = new_world({
+					open = function()
+						opens = opens + 1
+						return opens == 1
+					end,
+					on_window = function(_, err)
+						depth = depth + 1
+						deepest = math.max(deepest, depth)
+						seen[#seen + 1] = err or "heard"
+						if #seen == 1 then
+							world.finder:find(function() end)
+						end
+						depth = depth - 1
+					end,
+				})
+				world.finder:find(function() end)
+				world.advance(3000)
+				assert.same({ "heard", "open" }, seen)
+				assert.equal(1, deepest)
+			end)
+
+		it("goes on when the listener or a callback raises: both logged, the listener still told, then next time",
+			function()
+				local calls = 0
+				local world = new_world({ on_window = function()
+					calls = calls + 1
+					error("list broke")
+				end })
+				local got = collector()
+				assert.has_no.errors(function()
+					world.finder:find(function() error("boom") end)
+					world.finder:find(got.callback)
+					world.advance(3000)
+				end)
+				assert.equal(1, calls, "told after a callback that raised")
+				assert.equal(1, #got.calls)
+				assert.is_true(world.log.has("ERROR Search: the callback failed:"))
+				assert.is_true(world.log.has("ERROR Search: the window listener failed:"))
+				assert.is_true(world.log.has("list broke"))
+				world.finder:find(function() end)
+				world.advance(3000)
+				assert.equal(2, calls)
+			end)
+
+		it("works without a listener, and logs one that cannot be called", function()
+			local bare = new_world()
+			local got = collector()
+			assert.has_no.errors(function()
+				bare.finder:find(got.callback)
+				bare.advance(3000)
+			end)
+			assert.equal(1, #got.calls)
+			local odd = new_world({ on_window = 42 })
+			local other = collector()
+			assert.has_no.errors(function()
+				odd.finder:find(other.callback)
+				odd.advance(3000)
+			end)
+			assert.equal(1, #other.calls)
+			assert.is_true(odd.log.has("ERROR Search: the window listener failed:"))
+		end)
+	end)
+
+	describe("last_closed (auto-discovery-design 2, 6.3: the scheduler's floor)", function()
+		it("is nil before any window has ended, also while the first one is open", function()
+			local world = new_world()
+			assert.is_nil(world.finder:last_closed())
+			world.advance(5000)
+			world.finder:find(function() end)
+			world.advance(2999)
+			assert.is_nil(world.finder:last_closed())
+			world.advance(1)
+			assert.equal(8000, world.finder:last_closed())
+		end)
+
+		it("is the now() at which the last window ended, whoever opened or joined it, a failed one too", function()
+			local world = new_world()
+			world.finder:find(function() end)
+			world.advance(3000)
+			assert.equal(3000, world.finder:last_closed())
+			world.advance(40000)
+			world.finder:find(function() end)
+			world.advance(1000)
+			world.finder:find(function() end)
+			world.advance(1000)
+			assert.equal(3000, world.finder:last_closed(), "unchanged while a window is open")
+			world.advance(1000)
+			assert.equal(46000, world.finder:last_closed())
+
+			local refused = new_world({ open = function() return false end })
+			refused.advance(1234)
+			refused.finder:find(function() end)
+			assert.equal(1234, refused.finder:last_closed(), "a window that cannot open ends at once")
+		end)
+
+		it("is set before the callbacks and the listener are told", function()
+			local seen = {}
+			local world
+			world = new_world({ on_window = function()
+				seen.listener = world.finder:last_closed()
+			end })
+			world.advance(700)
+			world.finder:find(function()
+				seen.callback = world.finder:last_closed()
+			end)
+			world.advance(3000)
+			assert.same({ callback = 3700, listener = 3700 }, seen)
+		end)
+
+		it("is the time of stop() when stop() ended a window, and stays as it was when none was open", function()
+			local world = new_world()
+			world.finder:find(function() end)
+			world.advance(500)
+			world.finder:stop()
+			assert.equal(500, world.finder:last_closed())
+			world.advance(1000)
+			world.finder:stop()
+			assert.equal(500, world.finder:last_closed())
+		end)
+
+		it("is nil without a clock, or when the clock raises or gives no number, and nothing raises", function()
+			local clockless = new_world({ now = false })
+			clockless.finder:find(function() end)
+			clockless.advance(3000)
+			assert.is_nil(clockless.finder:last_closed())
+			for index, now in ipairs({ function() error("no clock") end, function() return "soon" end,
+				function() end }) do
+				local world = new_world({ now = now })
+				local got = collector()
+				assert.has_no.errors(function()
+					world.finder:find(got.callback)
+					world.advance(3000)
+				end)
+				assert.equal(1, #got.calls, "clock " .. index)
+				assert.is_nil(world.finder:last_closed(), "clock " .. index)
+			end
+			local ticks = 0
+			local flaky = new_world({ now = function()
+				ticks = ticks + 1
+				if ticks > 1 then
+					error("gone")
+				end
+				return 3000
+			end })
+			flaky.finder:find(function() end)
+			flaky.advance(3000)
+			assert.equal(3000, flaky.finder:last_closed())
+			flaky.finder:find(function() end)
+			flaky.advance(3000)
+			assert.is_nil(flaky.finder:last_closed(), "unknown, rather than the older time")
+		end)
+	end)
+
+	describe("the log prefix Search: (auto-discovery-design 6.3)", function()
+		-- Every kind of line the finder writes: fans, another address, the tally, a failed open, timer and send, a
+		-- callback and a listener that raise.
+		local function every_line()
+			local lines = {}
+			local function keep(world)
+				for _, line in ipairs(world.log.lines) do
+					lines[#lines + 1] = line
+				end
+			end
+			local busy = new_world({ on_window = function() error("listener") end })
+			busy.finder:find(function() error("callback") end)
+			busy.finder:received(6001, 5353, fx.K10_FIRST)
+			busy.finder:received(6001, 5353, fx.K10_MOVED)
+			busy.advance(3000)
+			keep(busy)
+			for _, opts in ipairs({ { open = function() return false end }, { open = function() error("x") end },
+				{ timer = function() error("no timers") end }, { send = function() return false end },
+				{ send = function() error("not connected") end } }) do
+				local world = new_world(opts)
+				world.finder:find(function() end)
+				world.advance(3000)
+				keep(world)
+			end
+			return lines
+		end
+
+		it("starts every line the finder writes, whatever the level", function()
+			local lines = every_line()
+			for _, text in ipairs({ "DEBUG Search: ...5301 at 10.0.2.151", "DEBUG Search: ...5301 also at 10.0.2.152",
+				"DEBUG Search: window over: sent=2 answers=2", "ERROR Search: the callback failed: ",
+				"ERROR Search: the window listener failed: ", "DEBUG Search: the network binding did not open (refused)",
+				"DEBUG Search: the network binding did not open (", "DEBUG Search: no timer for the window (",
+				"DEBUG Search: the query was not sent (refused)", "DEBUG Search: the query was not sent (",
+				"failed=open", "failed=timer", "failed=send" }) do
+				local present = false
+				for _, line in ipairs(lines) do
+					present = present or line:find(text, 1, true) ~= nil
+				end
+				assert.is_true(present, text)
+			end
+			for _, line in ipairs(lines) do
+				assert.is_truthy(line:find("^%u+ Search: "), line)
+				assert.is_nil(line:find("Find Fans", 1, true), line)
+			end
+		end)
+
+		it("logs a window that could not open or send at debug only: the list warns once per streak", function()
+			for _, line in ipairs(every_line()) do
+				assert.is_nil(line:find("^WARN"), line)
+			end
 		end)
 	end)
 
