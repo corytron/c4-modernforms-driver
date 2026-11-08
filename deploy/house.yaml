@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.1               # 1.1 "Jamis": Fan Cycle stops at Level 6 (#77), the driver's own icons (#78)
-build: 97
-drivers: modernforms_fan
+release: v1.2               # 1.2 "Thumper": Found Fans fills by itself (#102), Breeze in Control4 (#111)
+build: 115
+drivers: modernforms_fan modernforms_breeze
 debug_mode: Off
