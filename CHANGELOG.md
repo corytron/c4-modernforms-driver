@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.3 "Ornithopter", build 124 (2026-11-08)
+
 ### Added
 
 - The Breeze fan for the Navigators, a new package, `modernforms_breeze_fan.c4z` (driver "Modern Forms Breeze Fan"): a fan with three speeds, Breeze 1, Breeze 2 and Breeze 3, listed with the room's fans. A speed starts Breeze at that strength (a stopped fan starts straight in Breeze), On resumes the fan's last strength, and Off ends Breeze. Its tile shows only what the fan has confirmed and keeps its last value while the fan is offline. The fan's action Add Breeze Fan adds it to the fan's room, named after the fan (for example "Aviator 5 Breeze"); put it after the fan in the room's order and refresh the Navigators (#121).
