@@ -68,12 +68,10 @@ Rules the checker enforces:
 
 ### Codenames: `.github/codenames.json`
 
-Every X.Y has its own codename from Dune, Denis Villeneuve's films (2021,
-2024): an X.0 gets a widely recognised character, place or object, a point
-release (X.Y with Y of 1 or more) a lesser-known character, place or thing
-tied specifically to its X.0's name (#103: for 1.0 "Arrakis", Fremen names,
-the ornithopter, the spice, Shai-Hulud), and every
-build and prerelease of X.Y keeps it. One file,
+Every X.Y has its own codename, and every build and prerelease of X.Y keeps
+it. How names are chosen is kept out of the repository and out of every
+public text (owner, 2026-11-08, #128, #130): titles carry the name, nothing
+more. One file,
 [`.github/codenames.json`](../.github/codenames.json), names them, and the
 tool takes every codename from it. It started empty, `{}`; since
 2026-10-27 (#6) 1.0 is "Arrakis". Filled in, it reads like this (the names here only show the form):
@@ -89,7 +87,7 @@ tool takes every codename from it. It started empty, `{}`; since
   prerelease X.Y-beta.N has no key of its own: every build of X.Y, its
   betas included, takes the name of X.Y.
 - Each name is plain, ASCII letters and digits joined by single spaces or
-  hyphens (`Gurney Halleck`, `Shai-Hulud`), and no two versions share one,
+  hyphens (`Two Words`, `Hyphen-Name`), and no two versions share one,
   whatever the letter case.
 - `check` reports what breaks these rules, each as
   `.github/codenames.json: message`, and every released entry whose X.Y
@@ -102,8 +100,8 @@ tool takes every codename from it. It started empty, `{}`; since
   in its first step, before anything is built. With the file empty, nothing
   can be released before the owner has approved the name of 1.0.
 - Before the first build of a new X.Y, its first prerelease included, the
-  coordinator proposes its codename by the rule above and waits for the
-  owner's approval; a pull request then adds it. Renaming an X.Y that has
+  coordinator proposes its codename and waits for the owner's approval;
+  a pull request then adds it. Renaming an X.Y that has
   published builds also means correcting those releases' titles and notes
   and their Discussions announcements.
 
