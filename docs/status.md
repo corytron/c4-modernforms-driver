@@ -4,10 +4,21 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.2 "Thumper" is the latest release and runs on the house; the stock
-driver is gone.** Build 115 of v1.2 was released and installed in place on
+**1.3 "Ornithopter" is the latest release and runs on the house; the stock
+driver is gone.** Build 124 of v1.3 was released and installed on
+2026-11-08 (deploy issue #126, the round in Discussion #132, the
+announcement in Discussion #127): fan mode and Breeze mode exclude each
+other (the owner's finding on his fan), so the fan shows fan mode only, a
+fan speed ends Breeze and an off stops the fan; Breeze is a second fan
+device, the Breeze fan (`modernforms_breeze_fan.c4z`, Breeze 1 to 3, #121,
+[`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)).
+The 1.2 Breeze switch was deleted (nothing named it) and Add Breeze Fan
+added the Breeze fan, which the room's Navigator list already shows right
+after the fan. The owner's look on the phone is still to come.
+
+Before it, build 115 of v1.2 "Thumper" was released and installed in place on
 2026-11-07 (deploy issue #117, the round in Discussion #119, the
-announcement in Discussion #118), with two packages from now on:
+announcement in Discussion #118), with two packages:
 `modernforms_fan.c4z` and the Breeze switch, `modernforms_breeze.c4z`.
 Found Fans fills by itself and the Find Fans action is gone (#102,
 [`auto-discovery-design.md`](auto-discovery-design.md)); Breeze in Control4
@@ -15,8 +26,7 @@ Found Fans fills by itself and the Find Fans action is gone (#102,
 variable, the events, the condition, keypad link 311, and the Breeze switch
 for the Navigators, which Add Breeze Switch added to the fan's room and
 bound to the fan. The fan's Breeze behaviour was not measured on the house:
-the owner chose to assume the results (BZ5). The owner's look at the switch
-on the phone and a touch screen is still to come.
+the owner chose to assume the results (BZ5).
 
 Before it, build 97 of v1.1 "Jamis" was released on 2026-11-05 and
 installed in place on 2026-11-07 (deploy issue #98, the round in Discussion
@@ -45,26 +55,18 @@ but never installed. The owner tested beta.3 on 2026-11-05 and every test
 passed, the follow to a new address included (#58).
 
 
-**Built on `main`, not released yet (for 1.3 "Ornithopter"):** the Breeze
-fan and the two fan modes (#121, PR #122,
-[`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)):
-the owner found that the fan is in fan mode or in Breeze mode, never both,
-so the main fan shows fan mode only, a fan speed ends Breeze and an off
-stops the fan; the Breeze device becomes a three-speed fan in a new package,
-`modernforms_breeze_fan.c4z`, which replaces the 1.2 light-type switch (the
-house's switch is deleted and the fan's action Add Breeze Fan clicked
-again).
-
 ## What runs on the house
 
-- **v1.2, build 115**, two devices, the fan and its Breeze switch:
+- **v1.3, build 124**, two devices, the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
-  success, 2026-11-07; Keypad Links reads `7 of 13 links bound` with all
-  seven rows; Found Fans `This device's fan answered; no other fan found`).
-  The Breeze switch, "Aviator 5 Breeze", was added by Add Breeze Switch in
-  the fan's room and is bound to the fan's Breeze Switch output; its Status
-  read `Breeze off on Aviator 5`, and the Navigators were refreshed. Debug
-  Mode Off on both; on the fan `Follow
+  success, 2026-11-08; Keypad Links reads `7 of 13 links bound` with all
+  seven rows; Found Fans `This device's fan answered; no other fan found`;
+  six actions, Add Breeze Fan last). The Breeze fan, "Aviator 5 Breeze"
+  (proxy `fan.c4i`, speeds Breeze 1 to 3), was added by Add Breeze Fan in
+  the fan's room after the 1.2 light-type switch was deleted, is bound to
+  the fan's Breeze Switch output, read `Breeze off on Aviator 5`, and sits
+  right after the fan in the room's Navigator list; the Navigators were
+  refreshed. Debug Mode Off on both; on the fan `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
   light kit F4IN-120V-R1-30, Breeze`, and the update did not rewrite it
   (Breeze stored since build 73, #69). The device was re-created from 1.1
