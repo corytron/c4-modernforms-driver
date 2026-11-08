@@ -152,7 +152,7 @@ Read-only research written before a feature's contract, in the same style.
 - [`release-checklist.md`](release-checklist.md): what a build must pass on
   the development machine, on the dev loop, in Composer and with the owner's
   phone, keypads and fan before it is called good (the hardware passes are a
-  skeleton until the v1 contract); how a release is named (one Dune codename
+  skeleton until the v1 contract); how a release is named (one codename
   per X.Y), cut (the Release workflow) and brought to the house
   (`tools/deploy.py`).
 

@@ -21,7 +21,7 @@ reproduce) is decided per feature; the mechanics below do not depend on it.
 | Prerelease | `X.Y-beta.N`, N = 1, 2, ... | `vX.Y-beta.N` | **never**: each beta gets a new tag | a prerelease, never "Latest" |
 
 - One pattern everywhere: `^[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$` for versions, and the same with a leading `v` for tags. This covers the workflow, `tools/deploy.py`, `tools/changelog.py`, `deploy/house.yaml` and the drift issue's title.
-- A prerelease takes the codename of its X.Y from [`.github/codenames.json`](../.github/codenames.json) (one codename per X.Y, from Denis Villeneuve's Dune films). The file starts empty: the Release workflow refuses a release or prerelease whose X.Y it does not name, before building anything.
+- A prerelease takes the codename of its X.Y from [`.github/codenames.json`](../.github/codenames.json) (one codename per X.Y). The file starts empty: the Release workflow refuses a release or prerelease whose X.Y it does not name, before building anything.
 - Prereleases are built from `main`, by the same two-job Release workflow ([`.github/workflows/release.yml`](../.github/workflows/release.yml)), with the same checks, attestations and assets as a stable release. `main` is the only source.
 - GitHub's `releases/latest` and the README's download links skip prereleases, so they keep serving the stable release (before 1.0 they have none to serve).
 - A dispatch whose prerelease tag already exists fails before building anything.

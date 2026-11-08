@@ -40,7 +40,7 @@ stamp   turns "## Unreleased" into the release's heading below a new, empty "## 
         writes the file only when the result passes check. Refuses an empty Unreleased entry, a
         build that has an entry already and a prerelease.
 
-Codenames: each version X.Y has its own codename from Dune, Denis Villeneuve's films, named in one
+Codenames: each version X.Y has its own codename, named in one
 place, .github/codenames.json: a JSON object of the form {"1.0": "Name"}, its keys X.Y without
 leading zeros, its names ASCII letters and digits joined by single spaces or hyphens, no name twice
 whatever the letter case. It starts empty, {}. Every release heading carries the name the file
@@ -103,8 +103,7 @@ VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)(?:-beta\.([1-9][0-9]*))?")
 # leading zeros, each name ASCII letters and digits joined by single spaces or hyphens.
 CODENAMES_KEY_RE = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 CODENAME_RE = re.compile(r"[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*")
-CODENAME_SHAPE = 'letters, digits, single spaces and hyphens, such as "Jamis", "Gurney Halleck" or "Shai-Hulud"'
-THEME = "Dune (Denis Villeneuve's films)"
+CODENAME_SHAPE = 'letters, digits, single spaces and hyphens, such as "Name", "Two Words" or "Hyphen-Name"'
 
 # The sentence under the Documentation tab's "Changelog" heading.
 INTRO = (
@@ -322,8 +321,8 @@ def read_codenames(path):
 def missing_codename(codenames, version):
     """Why a version (major, minor) that the codenames file does not name is refused."""
     return (
-        "%d.%d has no codename in %s: each X.Y gets its own there before its first build, a name from %s that "
-        "the owner approves (docs/changelog-design.md)" % (*version, display_path(codenames.path), THEME)
+        "%d.%d has no codename in %s: each X.Y gets its own there before its first build, one "
+        "the owner approves (docs/changelog-design.md)" % (*version, display_path(codenames.path))
     )
 
 

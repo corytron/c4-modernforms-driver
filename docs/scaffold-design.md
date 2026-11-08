@@ -19,7 +19,7 @@ stays unless this contract says otherwise.
 | Driver directory | `src/modernforms_fan/` → package `build/modernforms_fan.c4z` |
 | Driver name in Composer | "Modern Forms Fan" (fan and its light in one driver unless the v1 research decides otherwise; a second driver would be another `src/<name>/driver.xml` and every tool must already handle N packages, as the Hue tools do) |
 | Shared Lua modules | `src/common/` (`log.lua`, `dispatch.lua`, `device.lua`, `devloop.lua`), staged into each package as `common/` |
-| Codenames | Dune, Denis Villeneuve's films (2021, 2024): an X.0 gets a widely recognised character, place or object, a point release a decidedly less important one; every build and beta of X.Y keeps it. `.github/codenames.json` starts as `{}`: the 1.0 name is proposed to the owner before the first build, and the release tooling must refuse a release whose X.Y has no name |
+| Codenames | One per X.Y; every build and beta of X.Y keeps it. `.github/codenames.json` starts as `{}`: the 1.0 name is proposed to the owner before the first build, and the release tooling must refuse a release whose X.Y has no name |
 | Dev key | `~/.config/c4-modernforms-driver/devkey`, env override `C4_MF_DEVKEY_FILE` |
 | Ports (so both projects' servers can run at once) | dev server 8081 (Hue uses 8080); release file server 8091 (Hue uses 8090); collect server 8092 |
 | GitHub environment | `house` (exists) |

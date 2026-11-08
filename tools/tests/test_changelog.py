@@ -66,8 +66,8 @@ EMPTY_UNRELEASED = SAMPLE.replace(UNRELEASED_BODY, "")
 CODENAME_OF = {"0.9": "Jamis", "1.0": "Arrakis", "1.1": "Shishakli"}
 CODENAMES = json.dumps(CODENAME_OF, indent=2) + "\n"
 MISSING = (
-    "has no codename in %s: each X.Y gets its own there before its first build, a name from Dune (Denis "
-    "Villeneuve's films) that the owner approves (docs/changelog-design.md)"
+    "has no codename in %s: each X.Y gets its own there before its first build, one "
+    "the owner approves (docs/changelog-design.md)"
 )
 
 TEMPLATE = (

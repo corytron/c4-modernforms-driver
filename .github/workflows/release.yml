@@ -11,7 +11,7 @@
 #   docs/release-checklist.md); a prerelease tag never moves: each beta gets a
 #   new number, and a run for a prerelease tag that exists already fails before
 #   building anything.
-# Every X.Y has its own codename (Dune, Denis Villeneuve's films), named in
+# Every X.Y has its own codename, named in
 # .github/codenames.json before its first build: a run for a version whose X.Y
 # the file does not name fails in its first step, before anything is built.
 # The file starts empty ({}), so nothing can be released before the owner has
