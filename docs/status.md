@@ -1,11 +1,15 @@
-# Status of the Modern Forms fan driver (2026-11-05)
+# Status of the Modern Forms fan driver (2026-11-07)
 
 The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
 **1.1 "Jamis" is the latest release and runs on the house; the stock
-driver is gone.** v1.1 (build 87) was released and installed in place on
+driver is gone.** Build 97 of v1.1 was released on 2026-11-05 and
+installed in place on 2026-11-07 (deploy issue #98, the round in Discussion
+#100, the announcement in Discussion #99): Keypad Links keeps a keypad on a
+link while another of its buttons is still bound there (#92). Before it,
+v1.1 (build 87) was released and installed in place on
 2026-11-05 (deploy issue #84, the round in Discussion #86, the announcement
 in Discussion #85): the Fan Cycle link stops at Level 6 (#77) and the
 driver's own icons (#78), the owner's answers to the last v1 questions
@@ -29,8 +33,9 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.1, build 87**, one device: `deploy/house.yaml` and the environment
-  `house` agree (deployment success, 2026-11-05). Debug Mode Off; `Follow
+- **v1.1, build 97**, one device: `deploy/house.yaml` and the environment
+  `house` agree (deployment success, 2026-11-07; Keypad Links reads `7 of 12
+  links bound` with all seven rows). Debug Mode Off; `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
   light kit F4IN-120V-R1-30, Breeze`, and the update did not rewrite it
   (Breeze stored since build 73, #69). The device was re-created from 1.1
@@ -96,8 +101,9 @@ passed, the follow to a new address included (#58).
 
 ## Open
 
-Every open item is an issue (`gh issue list --state open`); this list says
-where each stands on 2026-10-27.
+Every open item is an issue (`gh issue list --state open`). On 2026-11-07
+none is open. The list below is what was open on 2026-10-27 and how each
+ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,
   K12, K13 and K15 ran on 2026-10-27 (`tools/mf_probe.py`,
