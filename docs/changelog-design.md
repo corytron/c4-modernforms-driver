@@ -70,7 +70,9 @@ Rules the checker enforces:
 
 Every X.Y has its own codename from Dune, Denis Villeneuve's films (2021,
 2024): an X.0 gets a widely recognised character, place or object, a point
-release (X.Y with Y of 1 or more) a decidedly less important one, and every
+release (X.Y with Y of 1 or more) a lesser-known character, place or thing
+tied specifically to its X.0's name (#103: for 1.0 "Arrakis", Fremen names,
+the ornithopter, the spice, Shai-Hulud), and every
 build and prerelease of X.Y keeps it. One file,
 [`.github/codenames.json`](../.github/codenames.json), names them, and the
 tool takes every codename from it. It started empty, `{}`; since

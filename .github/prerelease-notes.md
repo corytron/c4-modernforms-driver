@@ -7,7 +7,7 @@ GitHub marks it Pre-release and never Latest, so the project's download links ke
 <!-- if no stable -->
 GitHub marks it Pre-release and never Latest; the project has no stable release yet.
 <!-- end if -->
-Codename **{codename}**: each X.Y release of this project has its own codename from Denis Villeneuve's Dune films (a widely recognised name for an X.0, a lesser character, place or object for a point release), and every build of {release}, prereleases included, keeps it.
+Codename **{codename}**: each X.Y release of this project has its own codename from Denis Villeneuve's Dune films (a widely recognised name for an X.0, a lesser-known character, place or object from that X.0's own world for a point release), and every build of {release}, prereleases included, keeps it.
 
 <!-- if stable -->
 It follows the stable release [{stable}](https://github.com/corytron/c4-modernforms-driver/releases/tag/v{stable_version}). The changes below are everything since then: they are what to try.
