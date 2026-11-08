@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the Composer icons for the Modern Forms fan driver.
+"""Draw the Composer icons for the Modern Forms fan driver and its Breeze switch.
 
 Composer shows a driver's icon at 16 px (the project tree and the Items
 pane) and 32 px (List View), 96 DPI. Both are too small for line art to
@@ -35,6 +35,13 @@ Light  a flush-mount drum ceiling light seen from slightly below:
        black ring at the bottom edge through which the lit diffuser shows.
        The drum glows warm white with a faint warm halo, and a soft grey
        outline and drop shadow keep it visible on a white tree.
+Breeze a stylised gust for the Breeze switch (modernforms_breeze.c4z,
+       docs/breeze-design.md section 4): three curved strokes blowing to
+       the right, the upper one curling up and back over itself at its
+       end, the middle one the longest, the lower one curling down. The
+       strokes are rounded tubes in a cool blue, lit from the top-left,
+       with a darker edge and a soft drop shadow so they read on a white
+       tree.
 
 Run from the repo root with no arguments:
 
@@ -45,10 +52,12 @@ Writes:
     src/modernforms_fan/www/images/devices_lg/modernforms_fan_32.png
     src/modernforms_fan/www/images/devices_sm/modernforms_light_16.png
     src/modernforms_fan/www/images/devices_lg/modernforms_light_32.png
+    src/modernforms_breeze/www/images/devices_sm/modernforms_breeze_16.png
+    src/modernforms_breeze/www/images/devices_lg/modernforms_breeze_32.png
 
     python3 tools/make_icons.py --out DIR
 
-writes the same four files under DIR (at the same relative paths) instead
+writes the same six files under DIR (at the same relative paths) instead
 of the repository, which is how tools/tests/test_make_icons.py checks that
 the committed icons are exactly what this script draws.
 
@@ -78,11 +87,14 @@ DPI = (96, 96)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVER = "modernforms_fan"
+# The package an icon belongs to when it is not the fan driver's.
+ICON_DRIVER = {"modernforms_breeze": "modernforms_breeze"}
 
 
 def rel_path(name, size):
     sub = "devices_sm" if size == 16 else "devices_lg"
-    return os.path.join("src", DRIVER, "www", "images", sub, "%s_%d.png" % (name, size))
+    driver = ICON_DRIVER.get(name, DRIVER)
+    return os.path.join("src", driver, "www", "images", sub, "%s_%d.png" % (name, size))
 
 
 # --------------------------------------------------------------------------
@@ -627,6 +639,110 @@ def render_light(size):
 
 
 # --------------------------------------------------------------------------
+# The Breeze switch: a gust of three curved strokes blowing to the right.
+# --------------------------------------------------------------------------
+
+GUST_LIT = (138, 204, 246)  # the gust's top-left, towards the light
+GUST_DEEP = (24, 98, 174)  # its bottom-right
+GUST_EDGE = (14, 62, 118)  # the darker edge that keeps it visible on white
+
+
+def _wave(x0, x1, y, amp, n=48):
+    """Points from x0 to x1 about row y, bowing by amp (negative: upwards) in
+    the middle and level at both ends, so a curl can follow on smoothly."""
+    return [(x0 + (x1 - x0) * i / n, y + amp * math.sin(math.pi * i / n) ** 2) for i in range(n + 1)]
+
+
+def _arc(cx, cy, r, a0, a1, n=64):
+    """Points of an arc round (cx, cy) from angle a0 to a1 (radians, y down:
+    pi/2 is straight below the centre)."""
+    return [
+        (cx + r * math.cos(a0 + (a1 - a0) * i / n), cy + r * math.sin(a0 + (a1 - a0) * i / n)) for i in range(n + 1)
+    ]
+
+
+def gust_strokes(g):
+    """The three strokes as point lists in target pixels: the upper one
+    curls up and back over itself (anticlockwise on screen), the middle
+    one runs on, the lower one curls down (clockwise)."""
+    (tx0, tx1, ty), (mx0, mx1, my), (bx0, bx1, by) = g["top"], g["mid"], g["bottom"]
+    r, turn, amp = g["curl"], g["turn"], g["amp"]
+    top = _wave(tx0, tx1, ty, amp) + _arc(tx1, ty - r, r, math.pi / 2, math.pi / 2 - turn)[1:]
+    mid = _wave(mx0, mx1, my, amp)
+    bottom = _wave(bx0, bx1, by, -amp) + _arc(bx1, by + r, r, -math.pi / 2, -math.pi / 2 + turn)[1:]
+    return [top, mid, bottom]
+
+
+def stroke_mask(S, pts, w):
+    """L mask of a stroke of width w along pts, with round caps; target pixels."""
+    m = empty()
+    d = ImageDraw.Draw(m)
+    sp = [(x * S, y * S) for x, y in pts]
+    d.line(sp, fill=255, width=round(w * S), joint="curve")
+    r = w * S / 2.0
+    for x, y in (sp[0], sp[-1]):
+        d.ellipse((x - r, y - r, x + r, y + r), fill=255)
+    return m
+
+
+def gust_geometry(size):
+    """Layout per size in target pixels: (x start, x end, row) of each
+    stroke, the curls' radius and turn, the stroke width. The rows centre
+    each stroke on the pixel grid for its width."""
+    if size == 32:
+        return dict(
+            top=(4.0, 15.5, 8.5),
+            mid=(2.5, 27.5, 15.5),
+            bottom=(6.5, 20.5, 22.5),
+            w=3.0,
+            curl=3.0,
+            turn=1.3 * math.pi,  # how far round each curl goes
+            amp=-0.6,
+            shadow=(0.6, 0.85, 0.85, 0.38),
+            edge=0.55,
+            edge_alpha=0.6,
+        )
+    return dict(
+        top=(2.0, 7.5, 5.0),
+        mid=(1.5, 13.75, 8.0),
+        bottom=(3.5, 10.0, 11.0),
+        w=2.0,
+        curl=1.6,
+        turn=1.1 * math.pi,
+        amp=0.0,
+        shadow=(0.45, 0.6, 0.55, 0.4),
+        edge=0.45,
+        edge_alpha=0.75,
+    )
+
+
+def render_breeze(size):
+    S = MASTER // size
+    g = gust_geometry(size)
+    strokes = [stroke_mask(S, pts, g["w"]) for pts in gust_strokes(g)]
+    gust_m = soften(union(*strokes), 0.12, S)
+
+    # ---- height map: each stroke a rounded tube ----
+    H = empty()
+    for m in strokes:
+        H = ImageChops.lighter(H, scale(blur(m, g["w"] * 0.35, S), 0.7))
+    H = mul(H, gust_m)
+
+    img = solid((0, 0, 0, 0))
+    sdx, sdy, sr, sa = g["shadow"]
+    img = over(img, drop_shadow(gust_m, S, sdx, sdy, sr, sa))
+    img = over(img, grad_fill(gust_m, GUST_LIT, GUST_DEEP, S, (2, 2), (size - 2, size - 2)))
+
+    # ---- lighting: the tubes lit from the top-left, a soft gloss ----
+    img = shade(img, H, S, d_px=0.25, gain_hi=1.1, gain_lo=1.4, mask=gust_m)
+    img = specular(img, H, S, d_px=0.3, strength=0.5, gloss_mask=gust_m, power=2.0, soften_px=0.08)
+
+    # ---- outline: a darker edge so the pale top reads on a white tree ----
+    img = over(img, layer(edge_ring(gust_m, S, g["edge"]), GUST_EDGE, g["edge_alpha"]))
+    return img
+
+
+# --------------------------------------------------------------------------
 # Output.
 # --------------------------------------------------------------------------
 
@@ -641,6 +757,8 @@ ICONS = [
     ("modernforms_fan", 32, render_fan),
     ("modernforms_light", 16, render_light),
     ("modernforms_light", 32, render_light),
+    ("modernforms_breeze", 16, render_breeze),
+    ("modernforms_breeze", 32, render_breeze),
 ]
 
 

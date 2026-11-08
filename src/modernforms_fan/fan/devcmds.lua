@@ -46,7 +46,7 @@ devcmds.PRIVATE_KEYS = { "owner", "federatedIdentity", "deviceName", "SSID", "BS
 	"schedule", "FrCodes" }
 
 -- Section 12: the leds field of Dev State lists the fan's links, then the light's.
-devcmds.FAN_LINKS = { 300, 301, 302, 303, 304, 305, 306, 307, 308 }
+devcmds.FAN_LINKS = { 300, 301, 302, 303, 304, 305, 306, 307, 308, 311 }
 devcmds.LIGHT_LINKS = { 200, 201, 202 }
 devcmds.BINDINGS = { 5001, 5002 }
 -- The groups model:busy takes, in the order section 4.3 sends them.
@@ -341,7 +341,7 @@ local function set_of(list)
 	return set
 end
 
-local PRESS_LINKS = set_of({ 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308 })
+local PRESS_LINKS = set_of({ 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308, 311 })
 local PROXY_BINDINGS = set_of(devcmds.BINDINGS)
 local ACTION_COMMANDS = { push = "DO_PUSH", click = "DO_CLICK", release = "DO_RELEASE" }
 
@@ -350,6 +350,8 @@ local REQUEST_FIELDS = {
 	fanOn = "fan_on", fanSpeed = "speed", fanDirection = "direction",
 	lightBrightness = "level", lightOn = "light_on",
 	awayModeEnabled = "away", adaptiveLearning = "learning",
+	-- breeze-design 2: the breeze group (wire.body takes the four Breeze bodies).
+	wind = "wind", windSpeed = "wind_speed",
 }
 
 -- A parameter or its default as a whole number within lo..hi, or nil and why.
@@ -597,7 +599,7 @@ function devcmds.new(opts)
 		log.always("Dev State: %s", line)
 	end
 
-	-- LINK 200..202 / 300..308, ACTION tap|push|click|release, COUNT, EVERY ms:
+	-- LINK 200..202 / 300..308 / 311, ACTION tap|push|click|release, COUNT, EVERY ms:
 	-- ReceivedFromProxy(LINK, "DO_PUSH"/"DO_CLICK"/"DO_RELEASE") as a keypad
 	-- sends them, the first at once and the rest on the controller's own timers,
 	-- so the spacing is not the dev loop's 3 s poll.
@@ -605,7 +607,7 @@ function devcmds.new(opts)
 		params = type(params) == "table" and params or {}
 		local link = whole(params.LINK)
 		if not (link and PRESS_LINKS[link]) then
-			return refuse("Dev Press", string.format("LINK %s is not a Button Link (200 to 202, 300 to 308)",
+			return refuse("Dev Press", string.format("LINK %s is not a Button Link (200 to 202, 300 to 308, 311)",
 				plain(params.LINK, 30)))
 		end
 		local action = type(params.ACTION) == "string" and params.ACTION:lower():match("^%s*(%a+)%s*$") or nil

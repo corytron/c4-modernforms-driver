@@ -94,6 +94,14 @@ describe("fan.wire", function()
 				{ { light_on = false }, '{"lightOn":false}' },
 				{ { away = false }, '{"awayModeEnabled":false}' },
 				{ { learning = false }, '{"adaptiveLearning":false}' },
+				-- Breeze (#111, docs/breeze-design.md section 2): exactly these four shapes.
+				{ { wind = true }, '{"wind":true}' },
+				{ { wind = false }, '{"wind":false}' },
+				{ { wind_speed = 1 }, '{"windSpeed":1}' },
+				{ { wind_speed = 2 }, '{"windSpeed":2}' },
+				{ { wind_speed = 3 }, '{"windSpeed":3}' },
+				{ { wind = true, wind_speed = 1 }, '{"wind":true,"windSpeed":1}' },
+				{ { wind = true, wind_speed = 3 }, '{"wind":true,"windSpeed":3}' },
 			}
 			for _, case in ipairs(cases) do
 				local body, why = wire.body(case[1])
@@ -114,6 +122,25 @@ describe("fan.wire", function()
 		it("takes a number that is a whole number, written as an integer (%d)", function()
 			assert.equal('{"fanOn":true,"fanSpeed":3}', wire.body({ fan_on = true, speed = 3.0 }))
 			assert.equal('{"lightBrightness":40}', wire.body({ level = 40.0 }))
+			assert.equal('{"windSpeed":2}', wire.body({ wind_speed = 2.0 }))
+		end)
+
+		it("writes Breeze as a boolean and its strength as a number, never a string (BRR 1, 4)", function()
+			local on = decoded(wire.body({ wind = true, wind_speed = 2 }))
+			assert.equal(true, on.wind)
+			assert.equal(2, on.windSpeed)
+			assert.equal("number", type(on.windSpeed))
+			assert.same({ "wind", "windSpeed" }, keys_of(on))
+			assert.equal(false, decoded(wire.body({ wind = false })).wind)
+			assert.same({ "windSpeed" }, keys_of(decoded(wire.body({ wind_speed = 3 }))))
+			local breeze = { { wind = true }, { wind = false }, { wind_speed = 1 }, { wind = true, wind_speed = 3 } }
+			for _, fields in ipairs(breeze) do
+				local body = assert(wire.body(fields))
+				assert.is_nil(body:find('"windSpeed":"', 1, true), body)
+				for _, name in ipairs({ "fanOn", "fanSpeed", "fanDirection", "light", "away", "adaptive" }) do
+					assert.is_nil(body:find(name, 1, true), body .. " names " .. name)
+				end
+			end
 		end)
 
 		local function refuses(name, fields, why)
@@ -132,9 +159,9 @@ describe("fan.wire", function()
 		-- A key outside the allow-list: the fan's own names, the keys MFR 2.3 says are
 		-- never written, and a received shadow's fields (a shadow is never sent back).
 		refuses("the fan's own key names", { fanOn = true }, "unknown")
+		refuses("the fan's own Breeze key names", { windSpeed = 2 }, "unknown")
 		refuses("factory reset", { factory_reset = true }, "unknown")
 		refuses("a reboot (only wire.REBOOT carries it)", { reboot = true }, "unknown")
-		refuses("a wind field", { wind = true }, "unknown")
 		refuses("a schedule", { schedule = "AAAA" }, "unknown")
 		refuses("a timer", { fan_timer = 10 }, "unknown")
 		refuses("a numeric key", { [1] = true }, "unknown")
@@ -148,6 +175,11 @@ describe("fan.wire", function()
 		refuses("a direction with a speed", { direction = "forward", speed = 2 }, "mix")
 		refuses("a direction with a level", { direction = "forward", level = 3 }, "mix")
 		refuses("both automations at once", { away = false, learning = false }, "mix")
+		refuses("Breeze with the fan's fields (one group per body)", { fan_on = true, speed = 3, wind = true }, "mix")
+		refuses("Breeze with fan off", { fan_on = false, wind = false }, "mix")
+		refuses("Breeze with a direction", { direction = "forward", wind = true }, "mix")
+		refuses("a strength with a light level", { level = 30, wind_speed = 2 }, "mix")
+		refuses("Breeze off with a strength (off carries none)", { wind = false, wind_speed = 2 }, "mix")
 		refuses("a speed alone (no body of section 3.1)", { speed = 3 }, "mix")
 		refuses("fan on without its speed", { fan_on = true }, "mix")
 		refuses("fan off with a speed", { fan_on = false, speed = 3 }, "mix")
@@ -177,6 +209,17 @@ describe("fan.wire", function()
 		refuses("away mode switched on (only off is ever sent, V22)", { away = true }, "range")
 		refuses("adaptive learning switched on", { learning = true }, "range")
 		refuses("away as text", { away = "false" }, "range")
+		refuses("Breeze as text", { wind = "true" }, "range")
+		refuses("Breeze as 1", { wind = 1 }, "range")
+		refuses("Breeze strength 0", { wind_speed = 0 }, "range")
+		refuses("Breeze strength 4", { wind_speed = 4 }, "range")
+		refuses("a negative Breeze strength", { wind_speed = -1 }, "range")
+		refuses("a fractional Breeze strength", { wind_speed = 1.5 }, "range")
+		refuses("a Breeze strength as text (the vendor app's form, never ours)", { wind_speed = "2" }, "range")
+		refuses("a boolean Breeze strength", { wind_speed = true }, "range")
+		refuses("a NaN Breeze strength", { wind_speed = 0 / 0 }, "range")
+		refuses("an infinite Breeze strength", { wind_speed = math.huge }, "range")
+		refuses("Breeze on at strength 4", { wind = true, wind_speed = 4 }, "range")
 
 		it("refuses a received shadow, and the fields wire.state made of one (a shadow is never sent back)", function()
 			local shadow = decoded(mf.STATE)
@@ -193,6 +236,16 @@ describe("fan.wire", function()
 				local body = assert(wire.body(fields))
 				for _, name in ipairs(forbidden) do
 					assert.is_nil(body:find(name, 1, true), body .. " names " .. name)
+				end
+			end
+			-- Breeze's bodies (#111) name wind and windSpeed, and nothing else the fan keeps.
+			local breeze = { { wind = true }, { wind = false }, { wind_speed = 3 }, { wind = true, wind_speed = 1 } }
+			for _, fields in ipairs(breeze) do
+				local body = assert(wire.body(fields))
+				for _, name in ipairs(forbidden) do
+					if name ~= "wind" then
+						assert.is_nil(body:find(name, 1, true), body .. " names " .. name)
+					end
 				end
 			end
 		end)
@@ -322,6 +375,8 @@ describe("fan.wire", function()
 			local st = state_of({ wind = true, windSpeed = 3 })
 			assert.equal(true, st.wind)
 			assert.equal(3, st.wind_speed)
+			assert.equal(1, state_of({ windSpeed = 1 }).wind_speed)
+			assert.same({}, st.adjusted)
 		end)
 
 		it("reads the fan's own automations: away, learning, a schedule (set or empty), timers, who changed it", function()
@@ -456,9 +511,30 @@ describe("fan.wire", function()
 				assert.same({ "lightBrightness -3" }, low.adjusted)
 			end)
 
+			it("clamps a Breeze strength above 3 to 3 and below 1 to 1, rounds a fraction, and says so", function()
+				local high = state_of({ wind = true, windSpeed = 5 })
+				assert.equal(3, high.wind_speed)
+				assert.same({ "windSpeed 5" }, high.adjusted)
+				local low = state_of({ wind = true, windSpeed = -1 })
+				assert.equal(1, low.wind_speed)
+				assert.same({ "windSpeed -1" }, low.adjusted)
+				assert.equal(1, state_of({ wind = true, windSpeed = 0 }).wind_speed, "0 while Breeze is on is clamped")
+				assert.equal(2, state_of({ windSpeed = 2.4 }).wind_speed)
+				assert.same({}, state_of({ windSpeed = 2.4 }).adjusted)
+			end)
+
+			it("reads strength 0 with Breeze off, or unknown Breeze, by the speed's rule: unknown only when off", function()
+				local off = state_of({ wind = false, windSpeed = 0 })
+				assert.is_nil(off.wind_speed)
+				assert.same({}, off.adjusted)
+				local unknown = state_of({ wind = mf.OMIT, windSpeed = 0 })
+				assert.equal(1, unknown.wind_speed)
+				assert.same({ "windSpeed 0" }, unknown.adjusted)
+			end)
+
 			it("lists every adjustment of one answer, and none for values in range", function()
-				local st = state_of({ fanSpeed = 7, lightOn = true, lightBrightness = 0 })
-				assert.same({ "fanSpeed 7", "lightBrightness 0" }, st.adjusted)
+				local st = state_of({ fanSpeed = 7, lightOn = true, lightBrightness = 0, windSpeed = 9 })
+				assert.same({ "fanSpeed 7", "lightBrightness 0", "windSpeed 9" }, st.adjusted)
 				assert.same({}, state_of({ fanSpeed = 6, lightOn = true, lightBrightness = 1 }).adjusted)
 			end)
 		end)

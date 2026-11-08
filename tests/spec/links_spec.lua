@@ -1,12 +1,13 @@
--- fan.links on fakes: the nine fan Button Links (300 to 308) as a keypad
--- drives them, the LED rules and Speed N Link Also Lit At, the colours of
--- V27, and the Keypad Links bookkeeping of all twelve links (sections 5.1,
--- 5.3 and 9.8). The event orders are the ones measured on the house keypad
--- (K6 and K7, section 11.1): a tap is push then click 0.15 to 0.25 s later, a
--- hold is push then release, a double tap is two push and click pairs, and a
--- bind is followed 3 ms later by REQUEST_BUTTON_COLORS. The model, the texts
--- and the clock are hand-made; the proxy is the real fan.fanproxy only where a
--- test says so, to show what the links and the proxy do with the same press.
+-- fan.links on fakes: the nine fan Button Links (300 to 308) and Fan Breeze
+-- (311, breeze-design BZ4 and section 6) as a keypad drives them, the LED
+-- rules and Speed N Link Also Lit At, the colours of V27, and the Keypad Links
+-- bookkeeping of all thirteen links (sections 5.1, 5.3 and 9.8). The event
+-- orders are the ones measured on the house keypad (K6 and K7, section 11.1):
+-- a tap is push then click 0.15 to 0.25 s later, a hold is push then release,
+-- a double tap is two push and click pairs, and a bind is followed 3 ms later
+-- by REQUEST_BUTTON_COLORS. The model, the texts and the clock are hand-made;
+-- the proxy is the real fan.fanproxy only where a test says so, to show what
+-- the links and the proxy do with the same press.
 
 local links = require("fan.links")
 local fanproxy = require("fan.fanproxy")
@@ -14,8 +15,10 @@ local log = require("common.log")
 
 local REAL_SINK = log.sink
 
+local BREEZE = 311
 local FAN_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308 }
-local ALL_IDS = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308 }
+local LINK_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
+local ALL_IDS = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
 
 local function quiet()
 	log.sink = function() end
@@ -79,13 +82,14 @@ local function fake_fan()
 	return f
 end
 
--- texts.keypad_links as section 7.3 shows it: "5 of 12 links bound", then a
+-- texts.keypad_links as section 7.3 shows it: "5 of 13 links bound", then a
 -- row per bound keypad; a keypad without a name is worded by device id, as
--- fan/texts.lua does.
+-- fan/texts.lua does. The total is the one links hands over ("?" for none).
 local function fake_texts()
-	local t = { calls = {} }
-	function t.keypad_links(rows)
+	local t = { calls = {}, totals = {} }
+	function t.keypad_links(rows, total)
 		t.calls[#t.calls + 1] = rows
+		t.totals[#t.totals + 1] = total
 		local seen, bound_links, items = {}, 0, {}
 		for _, row in ipairs(rows) do
 			if not seen[row.link_name] then
@@ -93,7 +97,7 @@ local function fake_texts()
 				bound_links = bound_links + 1
 			end
 		end
-		items[1] = string.format("%d of 12 links bound", bound_links)
+		items[1] = string.format("%d of %s links bound", bound_links, tostring(total or "?"))
 		for _, row in ipairs(rows) do
 			if row.keypad_name == "" then
 				items[#items + 1] = string.format("%s: device %d", row.link_name, row.device_id)
@@ -109,13 +113,16 @@ end
 -- Links on fakes. opts: shown (the model's shown state), real_fan (use
 -- fan.fanproxy over the same model), project ([link] = what
 -- GetBoundConsumerDevices answers, or a function), names ([device_id] = name),
--- no_timer, no_list.
+-- no_timer, no_list, no_breeze (no breeze_toggle and no breeze_blows, as
+-- when fan/breeze.lua is not wired). Breeze: r.blows is what breeze_blows
+-- answers (false by default), r.toggles counts breeze_toggle's calls and
+-- r.blows_asked breeze_blows'.
 local function rig(opts)
 	opts = opts or {}
 	local r = {
 		clock = { t = 100000 }, timers = {}, sent = {}, handlers = {}, registered = {}, listed = {}, reads = {},
 		proxy_sent = {}, project = opts.project or {}, names = opts.names or {}, texts = fake_texts(),
-		model = fake_model(opts.shown),
+		model = fake_model(opts.shown), blows = false, toggles = 0, blows_asked = 0,
 	}
 	local function on(binding, command, handler)
 		r.registered[#r.registered + 1] = binding .. " " .. command
@@ -153,6 +160,11 @@ local function rig(opts)
 		display = function(id) return r.names[id] end,
 		list = not opts.no_list and function(items) r.listed[#r.listed + 1] = items end or nil,
 		texts = r.texts,
+		breeze_toggle = not opts.no_breeze and function() r.toggles = r.toggles + 1 end or nil,
+		breeze_blows = not opts.no_breeze and function()
+			r.blows_asked = r.blows_asked + 1
+			return r.blows
+		end or nil,
 		log = log,
 	})
 
@@ -223,11 +235,11 @@ describe("fan.links", function()
 	end)
 
 	describe("registration", function()
-		it("registers the five link commands on 300 to 308 only", function()
+		it("registers the five link commands on 300 to 308 and 311 only", function()
 			local r = rig()
 			local expected = {}
 			local commands = { "DO_PUSH", "DO_CLICK", "DO_RELEASE", "REQUEST_BUTTON_COLORS", "SET_BUTTON_COLOR" }
-			for _, link in ipairs(FAN_IDS) do
+			for _, link in ipairs(LINK_IDS) do
 				for _, command in ipairs(commands) do
 					expected[#expected + 1] = link .. " " .. command
 				end
@@ -235,12 +247,13 @@ describe("fan.links", function()
 			assert.same(expected, r.registered, "the light's 200 to 202 are common/device.lua's")
 		end)
 
-		it("names the links as section 9.8 does", function()
+		it("names the links as section 9.8 and breeze-design section 6 do", function()
 			assert.same({
 				[300] = "Fan Off", [301] = "Fan Speed 1", [302] = "Fan Speed 2", [303] = "Fan Speed 3",
 				[304] = "Fan Speed 4", [305] = "Fan Speed 5", [306] = "Fan Speed 6", [307] = "Fan Toggle",
-				[308] = "Fan Cycle",
+				[308] = "Fan Cycle", [311] = "Fan Breeze",
 			}, links.LINKS)
+			assert.equal(311, links.BREEZE)
 			assert.same({ [200] = "Light Top", [201] = "Light Bottom", [202] = "Light Toggle" }, links.LIGHT_LINKS)
 		end)
 
@@ -481,12 +494,12 @@ describe("fan.links", function()
 	end)
 
 	describe("the LED rule (section 5.1)", function()
-		it("the first shown state goes to all nine links, as a COMMAND with a boolean STATE", function()
+		it("the first shown state goes to all ten links, as a COMMAND with a boolean STATE", function()
 			local r = rig()
 			r.lk:shown({ fan_on = true, speed = 3 })
 			assert.same({
 				"300:false", "301:false", "302:false", "303:true", "304:false", "305:false", "306:false", "307:true",
-				"308:true",
+				"308:true", "311:false",
 			}, r.leds())
 			for _, s in ipairs(r.sent) do
 				assert.equal("COMMAND", s.kind)
@@ -536,7 +549,7 @@ describe("fan.links", function()
 			assert.same({}, r.leds(), "same lit state for 300, 307 and 308; the speed links are unknown")
 			local r2 = rig()
 			r2.lk:shown({ fan_on = true })
-			assert.same({ "300:false", "307:true", "308:true" }, r2.leds())
+			assert.same({ "300:false", "307:true", "308:true", "311:false" }, r2.leds())
 		end)
 
 		it("an off fan darkens every speed link even where its speed is unknown", function()
@@ -544,18 +557,18 @@ describe("fan.links", function()
 			r.lk:shown({ fan_on = false })
 			assert.same({
 				"300:true", "301:false", "302:false", "303:false", "304:false", "305:false", "306:false", "307:false",
-				"308:false",
+				"308:false", "311:false",
 			}, r.leds())
 		end)
 
-		it("refresh sends all nine whether they changed or not, from the model's shown state", function()
+		it("refresh sends all ten whether they changed or not, from the model's shown state", function()
 			local r = rig({ shown = { fan_on = true, speed = 5 } })
 			r.lk:shown(r.model:shown())
 			r.clear()
 			r.lk:refresh()
 			assert.same({
 				"300:false", "301:false", "302:false", "303:false", "304:false", "305:true", "306:false", "307:true",
-				"308:true",
+				"308:true", "311:false",
 			}, r.leds())
 		end)
 
@@ -568,7 +581,7 @@ describe("fan.links", function()
 		it("debug() lists what each link was last sent, nil for a link never sent", function()
 			local r = rig()
 			r.lk:shown({ fan_on = true })
-			assert.same({ [300] = false, [307] = true, [308] = true }, r.lk:debug().leds)
+			assert.same({ [300] = false, [307] = true, [308] = true, [311] = false }, r.lk:debug().leds)
 			r.lk:shown({ fan_on = true, speed = 4 })
 			local leds = r.lk:debug().leds
 			assert.is_true(leds[304])
@@ -613,7 +626,7 @@ describe("fan.links", function()
 			r.lk:shown({ fan_on = true, speed = 1 })
 			assert.same({
 				"300:false", "301:true", "302:true", "303:false", "304:false", "305:false", "306:false", "307:true",
-				"308:true",
+				"308:true", "311:false",
 			}, r.leds())
 			r.clear()
 			r.lk:shown({ fan_on = true, speed = 2 })
@@ -809,7 +822,7 @@ describe("fan.links", function()
 			assert.same({}, r.sent)
 		end)
 
-		it("a binding that is none of the twelve is ignored, and said so in the debug log", function()
+		it("a binding that is none of the thirteen is ignored, and said so in the debug log", function()
 			local r = rig({ shown = { fan_on = true, speed = 3 } })
 			local lines = capture_log()
 			log.set_debug(true)
@@ -818,7 +831,7 @@ describe("fan.links", function()
 			r.lk:binding_changed(nil, true, 456, 3)
 			assert.same({}, r.sent)
 			assert.same({}, r.listed)
-			assert.is_true(contains(lines, "OnBindingChanged on binding 5001: not one of the twelve links"))
+			assert.is_true(contains(lines, "OnBindingChanged on binding 5001: not one of the thirteen links"))
 		end)
 	end)
 
@@ -870,8 +883,8 @@ describe("fan.links", function()
 				"300 MATCH_LED_STATE", "301 MATCH_LED_STATE", "302 MATCH_LED_STATE",
 				"303 BUTTON_COLORS", "303 MATCH_LED_STATE",
 				"304 MATCH_LED_STATE", "305 MATCH_LED_STATE", "306 MATCH_LED_STATE",
-				"307 MATCH_LED_STATE", "308 MATCH_LED_STATE",
-			}, r.trace(), "dark links and the Off, Toggle and Cycle links get none")
+				"307 MATCH_LED_STATE", "308 MATCH_LED_STATE", "311 MATCH_LED_STATE",
+			}, r.trace(), "dark links and the Off, Toggle, Cycle and Breeze links get none")
 			local colors
 			for _, s in ipairs(r.sent) do
 				if s.command == "BUTTON_COLORS" then
@@ -1023,7 +1036,7 @@ describe("fan.links", function()
 			assert.same(ALL_IDS, r.reads)
 			assert.equal(1, #r.listed)
 			assert.same({
-				"3 of 12 links bound",
+				"3 of 13 links bound",
 				"Light Top: Second Keypad (457)",
 				"Fan Off: Example Keypad (456)",
 				"Fan Off: Second Keypad (457)",
@@ -1047,7 +1060,7 @@ describe("fan.links", function()
 		it("nothing bound anywhere: every link answers nil, the list says 0 of 12, a second look comes 5 s later", function()
 			local r = rig()
 			r.lk:late_init()
-			assert.same({ { "0 of 12 links bound" } }, r.listed)
+			assert.same({ { "0 of 13 links bound" } }, r.listed)
 			assert.equal(1, r.pending_timers())
 			assert.equal(5000, r.timers[1].ms)
 			r.reads = {}
@@ -1069,7 +1082,7 @@ describe("fan.links", function()
 				},
 			})
 			r.lk:late_init()
-			assert.same({ "1 of 12 links bound", "Fan Speed 1: Example Keypad (456)" }, r.listed[1])
+			assert.same({ "1 of 13 links bound", "Fan Speed 1: Example Keypad (456)" }, r.listed[1])
 			second = true
 			r.reads = {}
 			r.advance(5000)
@@ -1082,7 +1095,7 @@ describe("fan.links", function()
 			assert.same(again, r.reads, "301 answered a table the first time and is not read again")
 			assert.equal(2, #r.listed)
 			assert.same({
-				"2 of 12 links bound", "Fan Speed 1: Example Keypad (456)", "Fan Speed 4: Example Keypad (456)",
+				"2 of 13 links bound", "Fan Speed 1: Example Keypad (456)", "Fan Speed 4: Example Keypad (456)",
 			}, r.listed[2])
 		end)
 
@@ -1093,7 +1106,7 @@ describe("fan.links", function()
 			r.advance(60000)
 			assert.equal(1, #r.timers, "the second look arms no third")
 			assert.equal(0, r.pending_timers())
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("a link an event has told about since is not overwritten by the second look", function()
@@ -1102,7 +1115,7 @@ describe("fan.links", function()
 			r.lk:binding_changed(303, true, 456, 3)
 			r.project[303] = nil -- Director's table lags behind the event
 			r.advance(5000)
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
 		end)
 
 		it("stop() cancels the second look", function()
@@ -1137,7 +1150,7 @@ describe("fan.links", function()
 			local r = rig({ project = project })
 			r.lk:late_init()
 			assert.equal(0, r.pending_timers())
-			assert.same({ { "0 of 12 links bound" } }, r.listed)
+			assert.same({ { "0 of 13 links bound" } }, r.listed)
 		end)
 
 		it("an unreadable link counts as unknown: warned, read again, never a failure", function()
@@ -1155,7 +1168,7 @@ describe("fan.links", function()
 			})
 			r.lk:late_init()
 			assert.same({
-				"1 of 12 links bound",
+				"1 of 13 links bound",
 				"Fan Speed 1: Example Keypad (456)",
 				"Fan Speed 1: Table Name (457)",
 				"Fan Speed 1: device 458",
@@ -1172,18 +1185,18 @@ describe("fan.links", function()
 				list = function(items) r.listed[#r.listed + 1] = items end, texts = r.texts, log = log,
 			})
 			assert.has_no.errors(function() lk:late_init() end)
-			assert.same({ "1 of 12 links bound", "Fan Speed 1: Table Name (456)" }, r.listed[1])
+			assert.same({ "1 of 13 links bound", "Fan Speed 1: Table Name (456)" }, r.listed[1])
 		end)
 
 		it("a bind adds the keypad to the list, a second keypad on the same link adds a row (ECC C6)", function()
 			local r = rig({ names = { [456] = "Example Keypad", [457] = "Second Keypad" } })
 			r.lk:late_init()
 			r.lk:binding_changed(303, true, 456, 3)
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
 			r.project[303] = { [456] = "x" }
 			r.lk:binding_changed(303, true, 457, 5)
 			assert.same({
-				"1 of 12 links bound", "Fan Speed 3: Example Keypad (456)", "Fan Speed 3: Second Keypad (457)",
+				"1 of 13 links bound", "Fan Speed 3: Example Keypad (456)", "Fan Speed 3: Second Keypad (457)",
 			}, r.listed[#r.listed])
 			assert.equal(1, r.lk:debug().bound, "one link, two keypads")
 		end)
@@ -1197,10 +1210,10 @@ describe("fan.links", function()
 			local timers = r.pending_timers()
 			r.project[303] = { [456] = "x", [457] = "x" }
 			r.lk:binding_changed(303, false, 456, 3)
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
 			r.project[303] = nil
 			r.lk:binding_changed(303, false, 457, 3)
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 			assert.equal(0, r.lk:debug().bound)
 			assert.equal(timers, r.pending_timers(), "no second read: the events told every button")
 		end)
@@ -1217,7 +1230,7 @@ describe("fan.links", function()
 			assert.equal(timers + 1, r.pending_timers())
 			r.project[303] = { [457] = "x" } -- Director has caught up
 			r.advance(links.REREAD_MS)
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
 		end)
 
 		it("#92 two buttons of one keypad on one link: unbinding one keeps the keypad, unbinding both removes it", function()
@@ -1226,23 +1239,23 @@ describe("fan.links", function()
 			r.lk:binding_changed(304, true, 456, 3)
 			r.project[304] = { [456] = "x" }
 			r.lk:binding_changed(304, true, 456, 4)
-			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
 			r.lk:binding_changed(304, false, 456, 4)
-			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
 			r.project[304] = nil
 			r.lk:binding_changed(304, false, 456, 3)
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("#92 as on the house: a button bound at start, a second one bound and unbound again, the link stays", function()
 			local r = rig({ names = { [456] = "Example Keypad" }, project = { [304] = { [456] = "x" } } })
 			r.lk:late_init()
-			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
 			r.lk:binding_changed(304, true, 456, 5)
 			r.lk:binding_changed(304, false, 456, 5)
-			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed])
 			r.advance(links.REREAD_MS)
-			assert.same({ "1 of 12 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed],
+			assert.same({ "1 of 13 links bound", "Fan Speed 4: Example Keypad (456)" }, r.listed[#r.listed],
 				"the table still lists the keypad: its first button is bound")
 		end)
 
@@ -1252,7 +1265,7 @@ describe("fan.links", function()
 			r.lk:binding_changed(304, true, 456, 3)
 			r.lk:binding_changed(304, true, 456, 4)
 			r.lk:binding_changed(304, false, 456, nil)
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("#92 the second read drops a keypad the table no longer lists, keeps one an event bound", function()
@@ -1265,14 +1278,14 @@ describe("fan.links", function()
 			r.lk:binding_changed(303, true, 457, 3) -- the table lags: it does not list 457 yet
 			r.project[303] = {}
 			r.advance(links.REREAD_MS)
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Second Keypad (457)" }, r.listed[#r.listed])
 		end)
 
 		it("#92 without a timer for the second read, the unbind is believed at once", function()
 			local r = rig({ no_timer = true, names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
 			r.lk:late_init()
 			r.lk:binding_changed(303, false, 456, 3)
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("#92 stop() cancels a pending second read", function()
@@ -1293,16 +1306,16 @@ describe("fan.links", function()
 			r.lk:late_init()
 			r.project[303] = nil
 			r.lk:binding_changed(303, false, 0, 0)
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("takes the link and the keypad as text too, and a boolean bound that is nil as unbound", function()
 			local r = rig({ names = { [456] = "Example Keypad" } })
 			r.lk:late_init()
 			r.lk:binding_changed("303", true, "456", "3")
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
 			r.lk:binding_changed("303", nil, "456", "3")
-			assert.same({ "0 of 12 links bound" }, r.listed[#r.listed])
+			assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 		end)
 
 		it("the light's links are in the list under their names, in link order before the fan's", function()
@@ -1312,7 +1325,7 @@ describe("fan.links", function()
 			r.lk:binding_changed(201, true, 456, 2)
 			r.lk:binding_changed(202, true, 456, 3)
 			assert.same({
-				"3 of 12 links bound",
+				"3 of 13 links bound",
 				"Light Bottom: Example Keypad (456)",
 				"Light Toggle: Example Keypad (456)",
 				"Fan Cycle: Example Keypad (456)",
@@ -1347,7 +1360,7 @@ describe("fan.links", function()
 			assert.is_true(contains(lines, "[ERROR] Keypad Links could not be written"))
 			fail = false
 			lk:binding_changed(201, false, 0, 0)
-			assert.same({ { "0 of 12 links bound" } }, r.listed)
+			assert.same({ { "0 of 13 links bound" } }, r.listed)
 		end)
 
 		it("a texts module that fails leaves the list alone and warns", function()
@@ -1405,7 +1418,363 @@ describe("fan.links", function()
 			r.clear()
 			r.lk:binding_changed(303, true, 456, 3)
 			assert.same({ "303:true" }, r.leds())
-			assert.same({ "1 of 12 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+			assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+		end)
+	end)
+
+	-- breeze-design BZ4 and section 6 (ECB BC11, BC13, BC15, BC22, BC27): Fan
+	-- Breeze is handled as Fan Toggle; its LED is breeze_blows().
+	describe("Fan Breeze, link 311 (breeze-design BZ4)", function()
+		-- The 311 sends since the last clear, as "311:true".
+		local function breeze_leds(r)
+			local out = {}
+			for _, led in ipairs(r.leds()) do
+				if led:find("^311:") then
+					out[#out + 1] = led
+				end
+			end
+			return out
+		end
+
+		describe("presses", function()
+			it("a push toggles Breeze once and touches nothing of the fan's", function()
+				local r = rig({ shown = { fan_on = true, speed = 3 } })
+				r.recv(BREEZE, "DO_PUSH")
+				assert.equal(1, r.toggles)
+				assert.same({}, r.fan.calls, "breeze_toggle is the whole intent")
+				assert.same({}, r.sent, "the LED follows the model's shown state, not the press")
+			end)
+
+			it("a tap is push then click 0.25 s later (K6): one toggle, at the push", function()
+				local r = rig()
+				r.recv(BREEZE, "DO_PUSH")
+				assert.equal(1, r.toggles)
+				r.advance(250)
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(1, r.toggles, "the click that follows the push does not toggle again")
+			end)
+
+			it("a hold is push then release: one toggle, the release does nothing, nor does a release alone", function()
+				local r = rig()
+				r.recv(BREEZE, "DO_PUSH")
+				r.advance(3000)
+				r.recv(BREEZE, "DO_RELEASE")
+				r.advance(60000)
+				r.recv(BREEZE, "DO_RELEASE")
+				assert.equal(1, r.toggles)
+				local alone = rig()
+				alone.recv(BREEZE, "DO_RELEASE")
+				assert.equal(0, alone.toggles)
+			end)
+
+			it("a click acts only without a push on 311 in the last 10 s", function()
+				local r = rig()
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(1, r.toggles, "a keypad that sends clicks alone")
+				r.recv(BREEZE, "DO_PUSH")
+				assert.equal(2, r.toggles)
+				r.advance(9999)
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(2, r.toggles, "9.999 s after the push: the same tap")
+				r.advance(1)
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(3, r.toggles, "10 s after the push: the window is over")
+			end)
+
+			it("a double tap toggles twice, so Breeze ends where it started (BC13, as on Fan Toggle)", function()
+				local r = rig()
+				r.recv(BREEZE, "DO_PUSH")
+				r.advance(100)
+				r.recv(BREEZE, "DO_CLICK")
+				r.advance(220)
+				r.recv(BREEZE, "DO_PUSH")
+				r.advance(100)
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(2, r.toggles)
+			end)
+
+			it("keeps the click rule per link: a push on 307 does not swallow a click on 311, nor 311 one on 307", function()
+				local r = rig()
+				r.recv(307, "DO_PUSH")
+				r.advance(100)
+				r.recv(BREEZE, "DO_CLICK")
+				assert.equal(1, r.toggles)
+				assert.same({ { "toggle" } }, r.fan.calls)
+				local other = rig()
+				other.recv(BREEZE, "DO_PUSH")
+				other.advance(100)
+				other.recv(307, "DO_CLICK")
+				assert.same({ { "toggle" } }, other.fan.calls)
+				assert.equal(1, other.toggles)
+			end)
+
+			it("without breeze_toggle a press does nothing: no throw, no send, a debug line only", function()
+				local r = rig({ no_breeze = true, shown = { fan_on = true, speed = 3 } })
+				local lines = capture_log()
+				assert.has_no.errors(function()
+					r.recv(BREEZE, "DO_PUSH")
+					r.recv(BREEZE, "DO_CLICK")
+					r.advance(20000)
+					r.recv(BREEZE, "DO_CLICK")
+				end)
+				assert.same({}, r.sent)
+				assert.same({}, r.fan.calls)
+				assert.same({}, lines, "nothing at the default log level")
+				log.set_debug(true)
+				r.recv(BREEZE, "DO_PUSH")
+				assert.is_true(contains(lines, "link 311 (Fan Breeze): push; nothing to do without Breeze"))
+			end)
+
+			it("a breeze_toggle that raises is logged as an error and fails nothing", function()
+				local r = rig()
+				local lk = links.new({
+					model = r.model, fan = r.fan, on = function(binding, command, handler)
+						r.handlers[binding .. ":" .. command] = handler
+					end,
+					send = function() end, now = function() return 0 end, log = log,
+					breeze_toggle = function() error("breeze not ready") end,
+				})
+				assert.is_table(lk)
+				local lines = capture_log()
+				assert.has_no.errors(function() r.recv(BREEZE, "DO_PUSH") end)
+				assert.is_true(contains(lines, "[ERROR] link 311 (Fan Breeze): push failed: "))
+			end)
+
+			it("a refusal breeze_toggle hands back is logged for Debug Mode alone", function()
+				local r = rig()
+				local lk = links.new({
+					model = r.model, fan = r.fan, on = function(binding, command, handler)
+						r.handlers[binding .. ":" .. command] = handler
+					end,
+					send = function() end, now = function() return 0 end, log = log,
+					breeze_toggle = function() return false, "no_breeze" end,
+				})
+				assert.is_table(lk)
+				local lines = capture_log()
+				r.recv(BREEZE, "DO_PUSH")
+				assert.same({}, lines)
+				log.set_debug(true)
+				r.recv(BREEZE, "DO_PUSH")
+				assert.is_true(contains(lines, "link 311 (Fan Breeze): push refused: no_breeze"))
+			end)
+		end)
+
+		describe("the LED (BZ1: breeze_blows)", function()
+			it("follows breeze_blows, read again on every shown state, sent only when it changes", function()
+				local r = rig()
+				r.lk:shown({ fan_on = true, speed = 3 })
+				assert.same({ "311:false" }, breeze_leds(r), "the first contact tells it dark")
+				local asked = r.blows_asked
+				r.clear()
+				r.blows = true
+				r.lk:shown({ fan_on = true, speed = 3, wind = true })
+				assert.equal(asked + 1, r.blows_asked, "read again at this shown state")
+				assert.same({ "311:true" }, r.leds(), "only 311 changed")
+				r.clear()
+				r.lk:shown({ fan_on = true, speed = 3, wind = true })
+				r.lk:shown({ fan_on = true, speed = 3, wind = true, light_on = true })
+				assert.same({}, r.leds(), "the same lit state twice sends nothing")
+				r.lk:shown({ fan_on = true, speed = 4, wind = true })
+				assert.same({ "303:false", "304:true" }, r.leds(), "a speed change leaves 311 alone while it blows")
+				r.clear()
+				r.blows = false
+				r.lk:shown({ fan_on = false, speed = 4, wind = true })
+				assert.same({ "300:true", "304:false", "307:false", "308:false", "311:false" }, r.leds())
+			end)
+
+			it("shows a press's target at once: the model's shown state changes and breeze_blows says so", function()
+				local r = rig({ shown = { fan_on = true, speed = 2 } })
+				r.lk:refresh()
+				r.clear()
+				r.recv(BREEZE, "DO_PUSH")
+				r.blows = true -- fan/breeze.lua wanted { wind = true }; the model shows it
+				r.lk:shown({ fan_on = true, speed = 2, wind = true })
+				assert.same({ "311:true" }, r.leds())
+				r.clear()
+				r.blows = false -- the request failed; the shown state fell back
+				r.lk:shown({ fan_on = true, speed = 2 })
+				assert.same({ "311:false" }, r.leds())
+			end)
+
+			it("waits for the first contact like the other links (BC22): nothing while the fan's state is unknown", function()
+				local r = rig()
+				r.blows = true
+				r.lk:shown({})
+				r.lk:shown(nil)
+				r.lk:shown({ wind = true, light_on = true })
+				r.lk:refresh()
+				assert.same({}, r.sent)
+				assert.is_nil(r.lk:debug().leds[BREEZE])
+			end)
+
+			it("refresh sends it whether it changed or not", function()
+				local r = rig({ shown = { fan_on = true, speed = 1, wind = true } })
+				r.blows = true
+				r.lk:shown(r.model:shown())
+				r.clear()
+				r.lk:refresh()
+				r.lk:refresh()
+				assert.same({ "311:true", "311:true" }, breeze_leds(r))
+			end)
+
+			it("answers REQUEST_BUTTON_COLORS at once, each time, and dark while the state is unknown", function()
+				local r = rig({ shown = { fan_on = true, speed = 3, wind = true } })
+				r.blows = true
+				r.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				r.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				assert.same({ "311:true", "311:true" }, r.leds(), "that link alone, again each time")
+				local unknown = rig({ shown = {} })
+				unknown.blows = true
+				unknown.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				assert.same({ "311:false" }, unknown.leds(), "ECC C14")
+			end)
+
+			it("a keypad bound to 311 gets its LED at once; an unbind sends nothing (BC27)", function()
+				local r = rig({ shown = { fan_on = true, speed = 3, wind = true }, names = { [456] = "Example Keypad" } })
+				r.blows = true
+				r.lk:binding_changed(BREEZE, true, 456, 7)
+				assert.same({ "311:true" }, r.leds())
+				r.clear()
+				r.lk:binding_changed(BREEZE, false, 456, 7)
+				assert.same({}, r.sent)
+				local early = rig({ shown = {} })
+				early.lk:binding_changed(BREEZE, true, 456, 7)
+				assert.same({ "311:false" }, early.leds(), "a bind before the first contact is told dark")
+			end)
+
+			it("never gets BUTTON_COLORS, whatever Speed LED Colors says: the keypad's own colours (BC27)", function()
+				local r = rig({ shown = { fan_on = true, speed = 3, wind = true } })
+				r.blows = true
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.lk:shown(r.model:shown())
+				r.lk:refresh()
+				r.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				r.lk:binding_changed(BREEZE, true, 456, 7)
+				r.blows = false
+				r.lk:shown({ fan_on = true, speed = 3 })
+				local commands = {}
+				for _, s in ipairs(r.sent) do
+					if s.link == BREEZE then
+						commands[#commands + 1] = s.command .. " " .. tostring(s.params.STATE)
+						assert.equal("COMMAND", s.kind)
+					end
+				end
+				assert.same({
+					"MATCH_LED_STATE true", "MATCH_LED_STATE true", "MATCH_LED_STATE true", "MATCH_LED_STATE true",
+					"MATCH_LED_STATE false",
+				}, commands)
+				assert.is_true(contains(r.trace(), "303 BUTTON_COLORS"), "the speed link still gets its colour")
+			end)
+
+			it("SET_BUTTON_COLOR on 311 is ignored", function()
+				local r = rig({ shown = { fan_on = true, speed = 3 } })
+				r.recv(BREEZE, "SET_BUTTON_COLOR", { BUTTON_ID = "0", ON_COLOR = "ff0000" })
+				assert.same({}, r.sent)
+			end)
+
+			it("stays dark without breeze_blows (a fan device built without fan/breeze.lua)", function()
+				local r = rig({ no_breeze = true })
+				r.lk:shown({ fan_on = true, speed = 3, wind = true })
+				assert.same({ "311:false" }, breeze_leds(r))
+				r.clear()
+				r.lk:shown({ fan_on = false, wind = true })
+				assert.same({}, breeze_leds(r), "dark already: nothing more")
+				r.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				assert.same({ "311:false" }, breeze_leds(r))
+			end)
+
+			it("lights only for true: anything else breeze_blows answers is dark", function()
+				for _, odd in ipairs({ 1, "1", "true", {}, false }) do
+					local r = rig()
+					r.blows = odd
+					r.lk:shown({ fan_on = true, speed = 3 })
+					assert.same({ "311:false" }, breeze_leds(r), tostring(odd))
+				end
+			end)
+
+			it("a breeze_blows that raises is warned about: nothing sent on a change, dark on a request", function()
+				local r = rig()
+				local sent = {}
+				local lk = links.new({
+					model = fake_model({ fan_on = true, speed = 3 }), fan = r.fan, on = function(binding, command, handler)
+						r.handlers[binding .. ":" .. command] = handler
+					end,
+					send = function(link, _, params) sent[#sent + 1] = link .. ":" .. tostring(params.STATE) end,
+					now = function() return 0 end, log = log,
+					breeze_blows = function() error("not ready") end,
+				})
+				local lines = capture_log()
+				assert.has_no.errors(function() lk:shown({ fan_on = true, speed = 3 }) end)
+				assert.is_true(contains(lines, "[WARN] link 311: whether Breeze blows could not be read: "))
+				assert.is_false(contains(sent, "311:"), "nothing for 311 while it cannot be read")
+				assert.equal(9, #sent, "the other nine links went")
+				r.recv(BREEZE, "REQUEST_BUTTON_COLORS")
+				assert.equal("311:false", sent[#sent])
+			end)
+
+			it("debug() lists what 311 was last sent", function()
+				local r = rig()
+				r.blows = true
+				r.lk:shown({ fan_on = true, speed = 3, wind = true })
+				assert.is_true(r.lk:debug().leds[BREEZE])
+			end)
+		end)
+
+		describe("Keypad Links (BC27)", function()
+			it("a bind lists the keypad as Fan Breeze, counted out of 13 links, after the fan's other links", function()
+				local r = rig({ names = { [456] = "Example Keypad", [457] = "Second Keypad" } })
+				r.lk:late_init()
+				r.lk:binding_changed(BREEZE, true, 456, 7)
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Example Keypad (456)" }, r.listed[#r.listed])
+				r.lk:binding_changed(308, true, 457, 1)
+				r.lk:binding_changed(200, true, 457, 2)
+				assert.same({
+					"3 of 13 links bound",
+					"Light Top: Second Keypad (457)",
+					"Fan Cycle: Second Keypad (457)",
+					"Fan Breeze: Example Keypad (456)",
+				}, r.listed[#r.listed])
+				assert.equal(3, r.lk:debug().bound)
+				for _, total in ipairs(r.texts.totals) do
+					assert.equal(13, total, "links hands texts the number of links it keeps")
+				end
+			end)
+
+			it("late init reads 311 and lists what Director's table says is bound there", function()
+				local r = rig({ names = { [456] = "Example Keypad" }, project = { [BREEZE] = { [456] = "x" } } })
+				r.lk:late_init()
+				assert.equal(BREEZE, r.reads[#r.reads], "311 is read last, in link order")
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Example Keypad (456)" }, r.listed[1])
+			end)
+
+			it("#92 two buttons of one keypad on 311: unbinding one keeps the keypad, unbinding both removes it", function()
+				local r = rig({ names = { [456] = "Example Keypad" } })
+				r.lk:late_init()
+				r.lk:binding_changed(BREEZE, true, 456, 3)
+				r.project[BREEZE] = { [456] = "x" }
+				r.lk:binding_changed(BREEZE, true, 456, 4)
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Example Keypad (456)" }, r.listed[#r.listed])
+				r.lk:binding_changed(BREEZE, false, 456, 4)
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Example Keypad (456)" }, r.listed[#r.listed])
+				r.project[BREEZE] = nil
+				r.lk:binding_changed(BREEZE, false, 456, 3)
+				assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
+			end)
+
+			it("#92 an unbind on 311 of a keypad known only from Director's table: kept, read again 3 s later", function()
+				local r = rig({
+					names = { [456] = "Example Keypad", [457] = "Second Keypad" },
+					project = { [BREEZE] = { [456] = "x", [457] = "x" } },
+				})
+				r.lk:late_init()
+				local timers = r.pending_timers()
+				r.lk:binding_changed(BREEZE, false, 456, 3)
+				assert.equal(3, #r.listed[#r.listed], "another button of that keypad may still be bound")
+				assert.equal(timers + 1, r.pending_timers())
+				r.project[BREEZE] = { [457] = "x" }
+				r.advance(links.REREAD_MS)
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Second Keypad (457)" }, r.listed[#r.listed])
+			end)
 		end)
 	end)
 end)

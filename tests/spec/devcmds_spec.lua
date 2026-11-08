@@ -102,7 +102,7 @@ end
 
 local function fake_links(leds)
 	leds = leds or { [300] = false, [301] = false, [302] = false, [303] = true, [304] = false, [305] = false,
-		[306] = false, [307] = true, [308] = true }
+		[306] = false, [307] = true, [308] = true, [311] = false }
 	return { debug = function() return { leds = leds, bound = 5 } end }
 end
 
@@ -165,7 +165,7 @@ local function fake_wire()
 		return obj
 	end
 	local GROUP = { fan_on = "fan", speed = "fan", direction = "direction", level = "light", light_on = "light",
-		away = "away", learning = "learning" }
+		away = "away", learning = "learning", wind = "breeze", wind_speed = "breeze" }
 	function wire.body(fields)
 		local group
 		for key in pairs(fields) do
@@ -186,6 +186,15 @@ local function fake_wire()
 				return string.format('{"lightBrightness":%d}', fields.level)
 			end
 			return string.format('{"lightOn":%s}', tostring(fields.light_on))
+		elseif group == "breeze" then
+			-- The four Breeze bodies (breeze-design 2), as the real wire.body builds them.
+			local w, n = fields.wind, fields.wind_speed
+			if w ~= nil and type(w) ~= "boolean" then return nil, "range" end
+			if n ~= nil and (type(n) ~= "number" or n % 1 ~= 0 or n < 1 or n > 3) then return nil, "range" end
+			if w == false and n ~= nil then return nil, "mix" end
+			if w ~= nil and n ~= nil then return string.format('{"wind":true,"windSpeed":%d}', n) end
+			if w ~= nil then return string.format('{"wind":%s}', tostring(w)) end
+			return string.format('{"windSpeed":%d}', n)
 		end
 		return nil, "range"
 	end
@@ -204,7 +213,7 @@ end
 -- The contract's example line (section 12).
 local EXAMPLE = "phase=online seq=231 fan=on/3 dir=forward light=on/40 shown.fan=on/3 shown.light=on/40 busy=- "
 	.. "told.fan=3 told.dir=forward told.light=40 notify.fan=12 notify.dir=1 notify.light=8 changing=0 "
-	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,200:1,201:0,202:1 follow=idle search=quiet ms=310"
+	.. "leds=300:0,301:0,302:0,303:1,304:0,305:0,306:0,307:1,308:1,311:0,200:1,201:0,202:1 follow=idle search=quiet ms=310"
 
 -- The keys of Dev State, in the order section 12 gives them.
 local KEYS = { "phase", "seq", "fan", "dir", "light", "shown.fan", "shown.light", "busy", "told.fan", "told.dir",
@@ -402,7 +411,7 @@ describe("fan.devcmds", function()
 				"told.fan", "told.dir", "told.light", "notify.fan", "notify.dir", "notify.light", "changing", "ms" }) do
 				assert.equal("?", f[key], key)
 			end
-			assert.equal("300:?,301:?,302:?,303:?,304:?,305:?,306:?,307:?,308:?,200:?,201:?,202:?", f.leds)
+			assert.equal("300:?,301:?,302:?,303:?,304:?,305:?,306:?,307:?,308:?,311:?,200:?,201:?,202:?", f.leds)
 		end)
 
 		it("lists the busy groups by name, in the order fan, direction, light", function()
@@ -593,8 +602,8 @@ describe("fan.devcmds", function()
 			assert.same({}, warned(env))
 		end)
 
-		it("accepts every Button Link: 200 to 202 and 300 to 308", function()
-			local ids = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308 }
+		it("accepts every Button Link: 200 to 202, 300 to 308 and 311 Fan Breeze", function()
+			local ids = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308, 311 }
 			for _, id in ipairs(ids) do
 				local env = new_commands()
 				env.commands.Dev_Press({ LINK = tostring(id), ACTION = "push" })
@@ -612,7 +621,7 @@ describe("fan.devcmds", function()
 			assert.same({ "305 DO_RELEASE" }, injected(env2))
 		end)
 
-		it("refuses a LINK that is not one of the twelve, sending nothing and saying so", function()
+		it("refuses a LINK that is not one of the thirteen, sending nothing and saying so", function()
 			for _, bad in ipairs({ "199", "203", "209", "299", "309", "319", "5001", "0", "abc", "", "30x", "-1",
 				"303.5", "0x12F", "1e2", "1000000000000" }) do
 				local env = new_commands()
@@ -886,11 +895,20 @@ describe("fan.devcmds", function()
 			env.commands.Dev_Request({ BODY = '{"fanSpeed":4,"fanOn":true}' }) -- another key order
 			env.commands.Dev_Request({ BODY = ' { "lightBrightness" : 30 } ' }) -- other spacing
 			env.commands.Dev_Request({ BODY = '{"fanOn":false}' })
+			-- The four Breeze bodies (breeze-design 2).
+			env.commands.Dev_Request({ BODY = '{"wind":true}' })
+			env.commands.Dev_Request({ BODY = '{"wind":false}' })
+			env.commands.Dev_Request({ BODY = '{"windSpeed":2}' })
+			env.commands.Dev_Request({ BODY = '{"windSpeed":3,"wind":true}' })
 			assert.same({
 				{ kind = "command", path = "/mf", body = '{"fanOn":true,"fanSpeed":4}' },
 				{ kind = "command", path = "/mf", body = '{"fanOn":true,"fanSpeed":4}' },
 				{ kind = "command", path = "/mf", body = '{"lightBrightness":30}' },
 				{ kind = "command", path = "/mf", body = '{"fanOn":false}' },
+				{ kind = "command", path = "/mf", body = '{"wind":true}' },
+				{ kind = "command", path = "/mf", body = '{"wind":false}' },
+				{ kind = "command", path = "/mf", body = '{"windSpeed":2}' },
+				{ kind = "command", path = "/mf", body = '{"wind":true,"windSpeed":3}' },
 			}, seen.reqs)
 		end)
 
@@ -903,7 +921,9 @@ describe("fan.devcmds", function()
 				['{"reboot":true}'] = "not one the driver writes",
 				['{"factoryReset":true}'] = "not one the driver writes",
 				['{"schedule":"x"}'] = "not one the driver writes",
-				['{"wind":true}'] = "not one the driver writes",
+				['{"wind":true,"fanOn":true}'] = "mix",
+				['{"windSpeed":4}'] = "range",
+				['{"wind":"yes"}'] = "range",
 				['{"firmwareUrl":"x"}'] = "not one the driver writes",
 				['{}'] = "holds no field",
 				['[1,2]'] = "not a JSON object",

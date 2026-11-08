@@ -94,7 +94,9 @@ local function sent(c4, binding, command, key)
 	local out = {}
 	for _, message in ipairs(c4.proxy_messages(binding)) do
 		if message[1] == command then
-			out[#out + 1] = key and message[2][key] or message[2]
+			local value = message[2]
+			if key then value = value[key] end
+			out[#out + 1] = value
 		end
 	end
 	return out
@@ -167,15 +169,24 @@ describe("Modern Forms Fan driver", function()
 			assert.truthy(proxies[2].attrs:find('proxybindingid="5002"', 1, true))
 		end)
 
-		it("declares the two proxy bindings and the Button Links of section 2.4, none with a proxybindingid", function()
+		it("declares the two proxy bindings, the Button Links of section 2.4 with 311 (#111) and the Breeze switch's 400",
+			function()
 			local ids = {}
 			for body in bare:gmatch("<connection>(.-)</connection>") do
 				ids[#ids + 1] = field(body, "id") .. ":" .. field(body, "classname")
 			end
 			assert.same({ "5001:FAN", "5002:LIGHT_V2", "200:BUTTON_LINK", "201:BUTTON_LINK", "202:BUTTON_LINK",
 				"300:BUTTON_LINK", "301:BUTTON_LINK", "302:BUTTON_LINK", "303:BUTTON_LINK", "304:BUTTON_LINK",
-				"305:BUTTON_LINK", "306:BUTTON_LINK", "307:BUTTON_LINK", "308:BUTTON_LINK" }, ids)
+				"305:BUTTON_LINK", "306:BUTTON_LINK", "307:BUTTON_LINK", "308:BUTTON_LINK", "311:BUTTON_LINK",
+				"400:MODERNFORMS_BREEZE" }, ids)
 			assert.is_nil(bare:find("<connection proxybindingid", 1, true), "no link carries proxybindingid (K4)")
+			for body in bare:gmatch("<connection>(.-)</connection>") do
+				if field(body, "id") == "400" then
+					assert.equal("Breeze Switch", field(body, "connectionname"))
+					assert.equal("1", field(body, "type"))
+					assert.equal("False", field(body, "consumer"))
+				end
+			end
 		end)
 
 		it("declares the capabilities of section 2.3, one flat block, and not the fan's own speed links", function()
@@ -205,28 +216,50 @@ describe("Modern Forms Fan driver", function()
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
 			end)
 
-		it("declares the five actions with sort_order (Find Fans went with #102), the two events and the one condition",
+		it("declares the six actions with sort_order (Find Fans went with #102), the four events and the two conditions",
 			function()
 			local actions = {}
 			for body in bare:gmatch("<action>(.-)</action>") do
 				actions[#actions + 1] = field(body, "sort_order") .. ":" .. field(body, "command")
 			end
 			assert.same({ "2:Use Selected Fan", "3:Name Items After Fan", "4:Reboot Fan",
-				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning" }, actions)
+				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning", "7:Add Breeze Switch" }, actions)
 			local events = {}
 			for body in bare:gmatch("<event>(.-)</event>") do
 				events[#events + 1] = field(body, "id") .. ":" .. field(body, "name")
 			end
-			assert.same({ "1:Fan Offline", "2:Fan Online" }, events)
-			assert.equal("BOOL_ONLINE", field(field(bare, "conditionals"), "name"))
+			assert.same({ "1:Fan Offline", "2:Fan Online", "4:Breeze Started", "5:Breeze Stopped" }, events)
+			local conditions = {}
+			for body in bare:gmatch("<conditional>(.-)</conditional>") do
+				conditions[#conditions + 1] = field(body, "id") .. ":" .. field(body, "name")
+			end
+			assert.same({ "0:BOOL_ONLINE", "1:BOOL_BREEZE" }, conditions)
+		end)
+
+		it("declares the four Breeze commands for programming, STRENGTH a list of 1, 2 and 3 (#111, BZ3)", function()
+			local commands = field(bare, "commands")
+			assert.truthy(commands, "a <commands> block")
+			local names = {}
+			for body in commands:gmatch("<command>(.-)</command>") do
+				names[#names + 1] = field(body, "sort_order") .. ":" .. field(body, "name")
+			end
+			assert.same({ "0:Breeze On", "1:Breeze Off", "2:Toggle Breeze", "3:Set Breeze Strength" }, names)
+			local param = field(commands, "param")
+			assert.equal("STRENGTH", field(param, "name"))
+			assert.equal("LIST", field(param, "type"))
+			local items = {}
+			for item in param:gmatch("<item>(.-)</item>") do items[#items + 1] = item end
+			assert.same({ "1", "2", "3" }, items)
+			assert.truthy(field(bare, "config"):find("<commands>", 1, true), "inside <config>, after the actions")
 		end)
 	end)
 
 	describe("startup", function()
-		it("adds the Online variable at init and touches nothing else before late init", function()
+		it("adds the Online and Breeze variables at init and touches nothing else before late init", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
 			env.OnDriverInit("DIT_ADDING")
-			assert.same({ { "Online", "0", "BOOL", true } }, c4.calls_to("AddVariable"))
+			assert.same({ { "Online", "0", "BOOL", true }, { "Breeze", "0", "BOOL", true } },
+				c4.calls_to("AddVariable"))
 			assert.same({}, c4.calls_to("UpdateProperty"))
 			assert.same({}, c4.active_timers())
 			assert.same({}, c4.transfers)
@@ -641,6 +674,267 @@ describe("Modern Forms Fan driver", function()
 			env.OnDriverLateInit("DIT_STARTUP")
 			env.ExecuteCommand("LUA_ACTION", { ACTION = "Reboot Fan" })
 			assert.truthy(env.Properties["Last Action"]:find("^Reboot not sent"), env.Properties["Last Action"])
+		end)
+	end)
+
+	describe("Breeze (breeze-design, #111)", function()
+		local READ = '{"queryDynamicShadowData":1}'
+
+		-- The driver on the fake, its fan answering `state` (mf.state overrides)
+		-- to the first state read; `persisted` seeds mf_breeze before init.
+		local function breeze_driver(state, persisted)
+			local env, c4 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN })
+			c4.persist.mf_breeze = persisted
+			env.OnDriverInit("DIT_STARTUP")
+			env.OnDriverLateInit("DIT_STARTUP")
+			answer(c4, mf.INFO)
+			assert.equal(READ, last_sent(c4))
+			answer(c4, mf.state(state or { fanOn = true, fanSpeed = 3 }))
+			return env, c4
+		end
+
+		-- The next state read the driver starts by itself, within `limit_ms`.
+		local function next_read(c4, limit_ms)
+			local seen = #c4.transfers
+			for _ = 1, (limit_ms or 30000) / 250 do
+				c4.advance(250)
+				if #c4.transfers > seen and last_sent(c4) == READ then
+					return c4.last_transfer()
+				end
+			end
+			error("no state read within " .. tostring(limit_ms or 30000) .. " ms")
+		end
+
+		local function breeze_variable(c4)
+			local out = {}
+			for _, call in ipairs(c4.calls_to("SetVariable")) do
+				if call[1] == "Breeze" then out[#out + 1] = call[2] end
+			end
+			return out
+		end
+
+		local function fired(c4)
+			local out = {}
+			for _, call in ipairs(c4.calls_to("FireEventByID")) do out[#out + 1] = call[1] end
+			return out
+		end
+
+		local function to_companion(c4, id)
+			local out = {}
+			for _, m in ipairs(c4.sent) do
+				if m.id == id and m.command == "MF_BREEZE_STATE" then out[#out + 1] = m.params end
+			end
+			return out
+		end
+
+		it("adds the Breeze variable second, after Online, seeded from mf_breeze", function()
+			local env, c4 = fake.load_driver(DRIVER, {})
+			c4.persist.mf_breeze = true
+			env.OnDriverInit("DIT_STARTUP")
+			local added = c4.calls_to("AddVariable")
+			assert.equal("Online", added[1][1])
+			assert.same({ "Breeze", "1", "BOOL", true }, { added[2][1], added[2][2], added[2][3], added[2][4] })
+			local env2, c42 = fake.load_driver(DRIVER, {})
+			env2.OnDriverInit("DIT_STARTUP")
+			assert.equal("0", c42.calls_to("AddVariable")[2][2])
+		end)
+
+		it("Breeze On while the fan runs sends {\"wind\":true}; the answer sets the variable and fires Started once",
+			function()
+				local env, c4 = breeze_driver()
+				local events_before = #fired(c4)
+				env.ExecuteCommand("Breeze On", {})
+				assert.equal('{"wind":true}', last_sent(c4))
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+				assert.same({ "1" }, breeze_variable(c4))
+				assert.same({ 4 }, { select(events_before + 1, unpack(fired(c4))) })
+				assert.is_true(env.TestCondition("BOOL_BREEZE", {}))
+				assert.is_false(env.TestCondition("BOOL_BREEZE", { VALUE = "False" }))
+				assert.is_true(env.TestCondition("BOOL_BREEZE", { VALUE = "False", LOGIC = "NOT_EQUAL" }))
+				assert.truthy(env.Properties["Status"]:find("Breeze 2", 1, true), env.Properties["Status"])
+				assert.equal(true, c4.persist.mf_breeze)
+				-- The same state again changes nothing.
+				next_read(c4)
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+				assert.same({ "1" }, breeze_variable(c4))
+				assert.same({ 4 }, { select(events_before + 1, unpack(fired(c4))) })
+			end)
+
+		it("Breeze On while the fan is off starts it at the preset speed, then sends {\"wind\":true} (BZ6)", function()
+			local env, c4 = breeze_driver({ fanOn = false, fanSpeed = 3 })
+			env.ExecuteCommand("Breeze On", {})
+			assert.equal('{"fanOn":true,"fanSpeed":3}', last_sent(c4), "the fan first, at the proxy's preset")
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3 }))
+			assert.equal('{"wind":true}', last_sent(c4), "then Breeze")
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+			assert.same({ "1" }, breeze_variable(c4))
+			assert.same({ 3 }, { select(2, unpack(sent(c4, 5001, "CURRENT_SPEED", "SPEED"))) },
+				"the fan's start is told once, from its answer")
+		end)
+
+		it("Breeze Off sends {\"wind\":false}, clears the variable and fires Stopped", function()
+			local env, c4 = breeze_driver({ fanOn = true, fanSpeed = 3, wind = true })
+			assert.is_true(env.TestCondition("BOOL_BREEZE", {}))
+			env.ExecuteCommand("Breeze Off", {})
+			assert.equal('{"wind":false}', last_sent(c4))
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = false }))
+			local values = breeze_variable(c4)
+			assert.equal("0", values[#values])
+			local events = fired(c4)
+			assert.equal(5, events[#events])
+			assert.is_false(env.TestCondition("BOOL_BREEZE", {}))
+		end)
+
+		it("Toggle Breeze goes from what is shown; Set Breeze Strength sends the number, refusing anything but 1 to 3",
+			function()
+				local env, c4 = breeze_driver()
+				env.ExecuteCommand("Toggle Breeze", {})
+				assert.equal('{"wind":true}', last_sent(c4))
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+				env.ExecuteCommand("Toggle Breeze", {})
+				assert.equal('{"wind":false}', last_sent(c4))
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = false }))
+				env.ExecuteCommand("Set Breeze Strength", { STRENGTH = "3" })
+				assert.equal('{"windSpeed":3}', last_sent(c4))
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, windSpeed = 3 }))
+				local count = #c4.transfers
+				env.ExecuteCommand("Set Breeze Strength", { STRENGTH = "5" })
+				assert.equal(count, #c4.transfers, "nothing sent")
+				assert.equal("Breeze strength 5 refused: use 1, 2 or 3", env.Properties["Last Action"])
+			end)
+
+		it("a restart with the fan blowing as mf_breeze says fires nothing and sets nothing (BC22)", function()
+			local _, c4 = breeze_driver({ fanOn = true, fanSpeed = 3, wind = true }, true)
+			assert.same({}, breeze_variable(c4))
+			for _, id in ipairs(fired(c4)) do
+				assert.is_true(id ~= 4 and id ~= 5, "no Breeze event at a restart")
+			end
+		end)
+
+		it("a restart that finds Breeze ended fires Stopped once", function()
+			local _, c4 = breeze_driver({ fanOn = true, fanSpeed = 3, wind = false }, true)
+			assert.same({ "0" }, breeze_variable(c4))
+			local stopped = 0
+			for _, id in ipairs(fired(c4)) do
+				if id == 5 then stopped = stopped + 1 end
+			end
+			assert.equal(1, stopped)
+		end)
+
+		it("guards against gusts: a read whose only change is the speed during Breeze is not told (BZ8)", function()
+			local _, c4 = breeze_driver({ fanOn = true, fanSpeed = 3, wind = true })
+			assert.same({ 3 }, sent(c4, 5001, "CURRENT_SPEED", "SPEED"))
+			next_read(c4)
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 5, wind = true }))
+			assert.same({ 3 }, sent(c4, 5001, "CURRENT_SPEED", "SPEED"), "the gust is not told")
+			next_read(c4)
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 4, wind = false }))
+			local speeds = sent(c4, 5001, "CURRENT_SPEED", "SPEED")
+			assert.equal(4, speeds[#speeds], "the speed is told again once Breeze ends")
+		end)
+
+		it("link 311 toggles Breeze on a push and its LED follows Breeze (BZ4)", function()
+			local env, c4 = breeze_driver()
+			fake.link_keypad(env, 311, 456, 3)
+			env.ReceivedFromProxy(311, "DO_PUSH", {})
+			assert.equal('{"wind":true}', last_sent(c4))
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+			local lit = sent(c4, 311, "MATCH_LED_STATE", "STATE")
+			assert.equal(true, lit[#lit])
+			env.ReceivedFromProxy(311, "DO_PUSH", {})
+			assert.equal('{"wind":false}', last_sent(c4))
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = false }))
+			lit = sent(c4, 311, "MATCH_LED_STATE", "STATE")
+			assert.equal(false, lit[#lit])
+		end)
+
+		it("Add Breeze Switch adds the companion in the fan's room, named after the fan item, and binds it (BZ11)",
+			function()
+				local env, c4 = breeze_driver()
+				env.ExecuteCommand("LUA_ACTION", { ACTION = "Add Breeze Switch" })
+				assert.equal(1, #c4.added)
+				local added = c4.added[1]
+				assert.equal("modernforms_breeze.c4z", added.driver)
+				assert.equal("Modern Forms Fan Breeze", added.name)
+				assert.same({ { c4.device_id, 400, added.id, 1, "MODERNFORMS_BREEZE" } }, c4.calls_to("Bind"))
+				assert.equal("Breeze switch added: Modern Forms Fan Breeze", env.Properties["Last Action"])
+				-- A second click names the one already there and adds nothing.
+				env.ExecuteCommand("LUA_ACTION", { ACTION = "Add Breeze Switch" })
+				assert.equal(1, #c4.added)
+				assert.equal("A Breeze switch is already connected: Modern Forms Fan Breeze",
+					env.Properties["Last Action"])
+			end)
+
+		it("Add Breeze Switch with no fan set up adds nothing", function()
+			local env, c4 = fake.load_driver(DRIVER, {})
+			env.OnDriverInit("DIT_STARTUP")
+			env.OnDriverLateInit("DIT_STARTUP")
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Add Breeze Switch" })
+			assert.same({}, c4.added)
+			assert.equal("No Breeze switch added: set up the fan first", env.Properties["Last Action"])
+		end)
+
+		it("answers the companion: its HELLO gets the state, its SET and TOGGLE run the commands", function()
+			local env, c4 = breeze_driver()
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Add Breeze Switch" })
+			local id = c4.added[1].id
+			env.OnBindingChanged(400, "MODERNFORMS_BREEZE", true, id, 1)
+			env.ExecuteCommand("MF_BREEZE_HELLO", {})
+			local states = to_companion(c4, id)
+			assert.truthy(#states >= 1)
+			local last = states[#states]
+			assert.equal("0", tostring(last.BLOWS))
+			assert.equal("1", tostring(last.AVAILABLE))
+			assert.equal("Modern Forms Fan", last.FAN)
+			env.ExecuteCommand("MF_BREEZE_SET", { ON = "1" })
+			assert.equal('{"wind":true}', last_sent(c4))
+			answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+			states = to_companion(c4, id)
+			assert.equal("1", tostring(states[#states].BLOWS), "the change goes to the companion")
+			env.ExecuteCommand("MF_BREEZE_TOGGLE", {})
+			assert.equal('{"wind":false}', last_sent(c4))
+		end)
+
+		it("with the companion paired, its tile follows Breeze and a tap on it starts Breeze (BZ2)", function()
+			local fan_env, fan_c4 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN })
+			local sw_env, sw_c4 = fake.load_driver("modernforms_breeze", {})
+			fake.pair(fan_env, sw_env,
+				{ bind = { provider_binding = 400, consumer_binding = 1, class = "MODERNFORMS_BREEZE" } })
+			fake.as(fan_env, function()
+				fan_env.OnDriverInit("DIT_STARTUP")
+				fan_env.OnDriverLateInit("DIT_STARTUP")
+				answer(fan_c4, mf.INFO)
+				answer(fan_c4, mf.state({ fanOn = true, fanSpeed = 3 }))
+			end)
+			fake.as(sw_env, function()
+				sw_env.OnDriverInit("DIT_STARTUP")
+				sw_env.OnDriverLateInit("DIT_STARTUP")
+			end)
+			fake.pump()
+			local levels = sent(sw_c4, 5001, "LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+			assert.equal(0, tonumber(levels[#levels]), "the tile is off while Breeze is off")
+			local online = sent(sw_c4, 5001, "ONLINE_CHANGED", "STATE")
+			assert.equal(true, online[#online], "the tile is available")
+			fake.as(sw_env, sw_env.ReceivedFromProxy, 5001, "ON", {})
+			fake.pump()
+			assert.equal('{"wind":true}', last_sent(fan_c4), "the tap reached the fan")
+			fake.as(fan_env, answer, fan_c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true }))
+			fake.pump()
+			levels = sent(sw_c4, 5001, "LIGHT_BRIGHTNESS_CHANGED", "LIGHT_BRIGHTNESS_CURRENT")
+			assert.equal(100, tonumber(levels[#levels]), "the tile lights once the fan confirms")
+		end)
+
+		it("a fan without Breeze refuses the commands, the press and the switch, and sends nothing (BZ10)", function()
+			local env, c4 = breeze_driver({ fanOn = true, fanSpeed = 3, wind = mf.OMIT, windSpeed = mf.OMIT })
+			local count = #c4.transfers
+			env.ExecuteCommand("Breeze On", {})
+			assert.equal(count, #c4.transfers)
+			assert.equal("Breeze not available: this fan reports no Breeze", env.Properties["Last Action"])
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Add Breeze Switch" })
+			assert.same({}, c4.added)
+			assert.equal("No Breeze switch added: this fan reports no Breeze", env.Properties["Last Action"])
+			assert.same({}, breeze_variable(c4))
+			assert.is_false(env.TestCondition("BOOL_BREEZE", {}))
 		end)
 	end)
 

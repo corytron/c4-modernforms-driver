@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build one build/<driver>.c4z per src/<driver>/driver.xml (today modernforms_fan) with
-# Control4's dp3 packager. That directory list is the one list of the packages
+# Build one build/<driver>.c4z per src/<driver>/driver.xml (today modernforms_fan
+# and modernforms_breeze) with Control4's dp3 packager. That directory list is the one list of the packages
 # (docs/prerelease-design.md, section 2): build/manifest.json names them, and the Release
 # workflow and tools/deploy.py read it from there.
 #

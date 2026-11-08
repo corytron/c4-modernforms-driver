@@ -1,8 +1,9 @@
 -- fan.texts: every owner-visible string of the driver, verbatim from the v1
 -- contract's section 7 (docs/v1-design.md), for the fan's name and the rename
 -- job's answers from docs/fan-name-design.md 2.3, and for the Found Fans rows,
--- S2, L7, L21 and L32 from docs/auto-discovery-design.md sections 3 and 5. The
--- module is pure, so nothing here needs the fake runtime. Times are built from
+-- S2, L7, L21 and L32 from docs/auto-discovery-design.md sections 3 and 5, and
+-- for Breeze's S5 forms, L33 to L40 and the 13 links from
+-- docs/breeze-design.md section 5. The module is pure, so nothing here needs the fake runtime. Times are built from
 -- local-time fields, so the specs hold in any time zone.
 --
 -- texts.lua requires fan.names, the table of fan types and their names. This
@@ -98,14 +99,18 @@ describe("fan.texts", function()
 		end)
 
 		it("lists the 18 result keys of section 9.6 left after L8 to L10, the 8 of fan-name-design 2.3, the 2 of"
-			.. " address-follow-design 2.4 and L32 of auto-discovery-design 5, each with a text of its own", function()
-			assert.equal(29, #texts.RESULT_KEYS)
+			.. " address-follow-design 2.4, L32 of auto-discovery-design 5 and the 8 of breeze-design 5, each with a"
+			.. " text of its own", function()
+			assert.equal(37, #texts.RESULT_KEYS)
 			assert.same({ "learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 				"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending", "away_off", "away_already",
 				"learning_off", "learning_already", "not_answering", "not_taken", "not_picked" },
 				{ unpack(texts.RESULT_KEYS, 1, 18) })
 			assert.same({ "name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed",
-				"name_no_pin", "name_busy", "followed", "follow_refused", "picked_wait" }, { unpack(texts.RESULT_KEYS, 19) })
+				"name_no_pin", "name_busy", "followed", "follow_refused", "picked_wait" }, { unpack(texts.RESULT_KEYS, 19, 29) })
+			assert.same({ "breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added",
+				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed" },
+				{ unpack(texts.RESULT_KEYS, 30) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				local text = texts.result(key, { client_id = ID1, address = ADDR, which = "away", at = T,
@@ -277,9 +282,53 @@ describe("fan.texts", function()
 					texts.status(online({ st = state({ speed = 1, wind = true }) })))
 			end)
 
-			it("reverse and Breeze follow off as well (the grammar has no exception)", function()
+			it("reverse and Breeze follow off as well (the grammar has no exception): Breeze set", function()
 				local v = online({ st = state({ fan_on = false, direction = "reverse", wind = true }) })
-				assert.equal("Online: fan off reverse Breeze, light 40 %", texts.status(v))
+				assert.equal("Online: fan off reverse Breeze set, light 40 %", texts.status(v))
+			end)
+
+			-- breeze-design BZ1 and section 5: blowing is `wind` and `fan_on`.
+			it("Breeze blowing shows its strength after the speed and reverse: Breeze 2", function()
+				assert.equal("Online: fan speed 3 Breeze 2, light 40 %",
+					texts.status(online({ st = state({ wind = true, wind_speed = 2 }) })))
+				assert.equal("Online: fan speed 6 reverse Breeze 3, light 100 %",
+					texts.status(online({ st = state({ speed = 6, direction = "reverse", wind = true, wind_speed = 3,
+						level = 100 }) })))
+				for strength = 1, 3 do
+					assert.equal("Online: fan speed 3 Breeze " .. strength .. ", light 40 %",
+						texts.status(online({ st = state({ wind = true, wind_speed = strength }) })))
+				end
+				assert.equal("Online: fan on Breeze 1, light 40 %",
+					texts.status(online({ st = { fan_on = true, wind = true, wind_speed = 1, light_on = true, level = 40 } })),
+					"no speed known")
+			end)
+
+			it("Breeze blowing with no strength known, or one that is not 1 to 3, shows no number", function()
+				for _, odd in ipairs({ false, 0, 4, 2.5, -1, 1e308, 0 / 0, math.huge, "x", "", {} }) do
+					assert.equal("Online: fan speed 3 Breeze, light 40 %",
+						texts.status(online({ st = state({ wind = true, wind_speed = odd }) })), tostring(odd))
+				end
+				assert.equal("Online: fan speed 3 Breeze, light 40 %",
+					texts.status(online({ st = state({ wind = true }) })))
+				assert.equal("Online: fan speed 3 Breeze 2, light 40 %",
+					texts.status(online({ st = state({ wind = true, wind_speed = "2" }) })), "a number as text")
+			end)
+
+			it("Breeze set while the fan is off: the strength is not shown", function()
+				assert.equal("Online: fan off Breeze set, light off",
+					texts.status(online({ st = state({ fan_on = false, wind = true, wind_speed = 2, light_on = false }) })))
+			end)
+
+			it("Breeze with the fan's on/off unknown is the bare flag", function()
+				assert.equal("Online: fan unknown Breeze, light unknown",
+					texts.status(online({ st = { wind = true, wind_speed = 2 } })))
+			end)
+
+			it("a strength without wind adds nothing", function()
+				assert.equal("Online: fan speed 3, light 40 %",
+					texts.status(online({ st = state({ wind = false, wind_speed = 2 }) })))
+				assert.equal("Online: fan off, light 40 %",
+					texts.status(online({ st = state({ fan_on = false, wind_speed = 3 }) })))
 			end)
 
 			it("forward and Breeze off add nothing", function()
@@ -861,6 +910,157 @@ describe("fan.texts", function()
 			end)
 		end)
 
+		-- L33 to L40: Breeze (breeze-design section 5, BZ10, BZ11).
+		describe("L33 to L40, Breeze", function()
+			local AVIATOR = { name = "Aviator 5 Breeze" }
+
+			-- { id, key, args, the text verbatim, its length }
+			local cases = {
+				{ "L33", "breeze_unavailable", {}, "Breeze not available: this fan reports no Breeze", 48 },
+				{ "L34", "breeze_strength", { strength = "5" }, "Breeze strength 5 refused: use 1, 2 or 3", 40 },
+				{ "L36", "breeze_switch_added", AVIATOR, "Breeze switch added: Aviator 5 Breeze", 37 },
+				{ "L37", "breeze_switch_exists", AVIATOR, "A Breeze switch is already connected: Aviator 5 Breeze", 54 },
+				{ "L38", "breeze_switch_no_breeze", {}, "No Breeze switch added: this fan reports no Breeze", 50 },
+				{ "L39", "breeze_switch_no_fan", {}, "No Breeze switch added: set up the fan first", 44 },
+				{ "L40", "breeze_switch_failed", {}, "No Breeze switch added: install modernforms_breeze.c4z first", 60 },
+			}
+			for _, case in ipairs(cases) do
+				it(case[1] .. " " .. case[2] .. " says '" .. case[4] .. "' (" .. case[5] .. " characters)", function()
+					local text = r(case[2], case[3])
+					assert.equal(case[4], text)
+					assert.equal(case[5], #text)
+					assert.is_true(#text <= 70)
+				end)
+			end
+
+			it("the texts that name nothing do not depend on the args", function()
+				for _, key in ipairs({ "breeze_unavailable", "breeze_switch_no_breeze", "breeze_switch_no_fan",
+					"breeze_switch_failed" }) do
+					assert.equal(r(key, {}), r(key, { name = "x", strength = "9", why = "unset", address = ADDR,
+						client_id = ID1 }), key)
+					assert.equal(r(key, {}), r(key), key)
+				end
+			end)
+
+			it("L34 shows the value as given: a number, a text trimmed, cut to 8 characters, ASCII only", function()
+				local function line(shown)
+					return "Breeze strength " .. shown .. " refused: use 1, 2 or 3"
+				end
+				assert.equal(line("5"), r("breeze_strength", { strength = 5 }))
+				assert.equal(line("0"), r("breeze_strength", { strength = 0 }))
+				assert.equal(line("4.5"), r("breeze_strength", { strength = 4.5 }))
+				assert.equal(line("-2"), r("breeze_strength", { strength = "  -2 " }))
+				assert.equal(line("high"), r("breeze_strength", { strength = "high" }))
+				assert.equal(line("12345678"), r("breeze_strength", { strength = "123456789012" }))
+				assert.equal(line("12345678"), r("breeze_strength", { strength = 123456789012 }), "a long number is cut too")
+				assert.equal(line("caf??"), r("breeze_strength", { strength = "caf\195\169" }))
+				assert.equal(line("ab"), r("breeze_strength", { strength = "a\tb\n" }))
+				assert.equal(47, #r("breeze_strength", { strength = string.rep("x", 100) }), "the longest it gets")
+			end)
+
+			it("L34 says ? for no value and for one that is no number or text", function()
+				for _, none in ipairs({ "", "   ", false, true, {}, 0 / 0, math.huge, -math.huge, 1e308 }) do
+					assert.equal("Breeze strength ? refused: use 1, 2 or 3", r("breeze_strength", { strength = none }),
+						tostring(none))
+				end
+				assert.equal("Breeze strength ? refused: use 1, 2 or 3", r("breeze_strength", {}))
+				assert.equal("Breeze strength ? refused: use 1, 2 or 3", r("breeze_strength"))
+				assert.equal("Breeze strength ? refused: use 1, 2 or 3", r("breeze_strength", { pin = { strength = "5" } }),
+					"never from a pin")
+			end)
+
+			-- L35: the model's refusal reasons in words (model.lua refusal() and
+			-- validate(); breeze-design section 2 adds no_breeze and breeze_range).
+			local reasons = {
+				{ "unset", "Breeze not sent: no fan is set up yet", 37 },
+				{ "invalid address", "Breeze not sent: Fan Address is not an IPv4 address", 51 },
+				{ "foreign", "Breeze not sent: another fan answers at Fan Address", 51 },
+				{ "gen4", "Breeze not sent: a Gen 4 fan answers at Fan Address", 51 },
+				{ "notfan", "Breeze not sent: Fan Address answers, but not as a fan", 54 },
+				{ "rebooting", "Breeze not sent: the fan's Wi-Fi module is rebooting", 52 },
+				{ "range", "Breeze not sent: the value is out of range", 42 },
+				{ "no fanOn", "Breeze not sent: the fan reports no fanOn", 41 },
+				{ "no fanSpeed", "Breeze not sent: the fan reports no fanSpeed", 44 },
+			}
+			for _, case in ipairs(reasons) do
+				it("L35 breeze_refused, " .. case[1] .. ": '" .. case[2] .. "' (" .. case[3] .. " characters)", function()
+					local text = r("breeze_refused", { why = case[1] })
+					assert.equal(case[2], text)
+					assert.equal(case[3], #text)
+					assert.is_true(#text <= 70)
+				end)
+			end
+
+			it("L35 with the model's own Breeze reasons is L33 or L34", function()
+				assert.equal(r("breeze_unavailable"), r("breeze_refused", { why = "no_breeze" }))
+				assert.equal("Breeze strength 7 refused: use 1, 2 or 3",
+					r("breeze_refused", { why = "breeze_range", strength = "7" }))
+				assert.equal("Breeze strength ? refused: use 1, 2 or 3", r("breeze_refused", { why = "breeze_range" }))
+			end)
+
+			it("L35 cuts the key of a 'no <key>' reason to 16 characters", function()
+				local text = r("breeze_refused", { why = "no " .. string.rep("k", 40) })
+				assert.equal("Breeze not sent: the fan reports no " .. string.rep("k", 16), text)
+				assert.equal(52, #text)
+			end)
+
+			it("L35 with a reason it does not know, or none, is the bare line, never the reason echoed", function()
+				for _, odd in ipairs({ "busy", "", "no light kit", "no fan-On", "UNSET", "__index", 5, false, true, {} }) do
+					assert.equal("Breeze not sent", r("breeze_refused", { why = odd }), tostring(odd))
+				end
+				assert.equal("Breeze not sent", r("breeze_refused", {}))
+				assert.equal("Breeze not sent", r("breeze_refused"))
+				assert.equal("Breeze not sent", r("breeze_refused", { pin = { why = "unset" } }), "never from a pin")
+			end)
+
+			it("L36 and L37 name the switch as Director gives it, trimmed, control characters dropped", function()
+				assert.equal("Breeze switch added: Aviator 5 Breeze", r("breeze_switch_added", { name = "  Aviator 5 Breeze\n" }))
+				assert.equal("Breeze switch added: Caf\195\169 Breeze", r("breeze_switch_added", { name = "Caf\195\169 Breeze" }),
+					"a name is printed as it is, as L22 does")
+				assert.equal("A Breeze switch is already connected: Hall, Fan Breeze",
+					r("breeze_switch_exists", { name = "Hall, Fan Breeze" }), "a row, not a list item")
+			end)
+
+			it("L36 and L37 cut a long name so the line stays at 70: 49 and 32 characters of it", function()
+				local long = string.rep("N", 100)
+				assert.equal("Breeze switch added: " .. string.rep("N", 49), r("breeze_switch_added", { name = long }))
+				assert.equal(70, #r("breeze_switch_added", { name = long }))
+				assert.equal("A Breeze switch is already connected: " .. string.rep("N", 32),
+					r("breeze_switch_exists", { name = long }))
+				assert.equal(70, #r("breeze_switch_exists", { name = long }))
+				local thirty = "Master Bedroom Ceiling F Breeze" -- the companion's own name, cut to 30 by breeze.lua
+				assert.equal("A Breeze switch is already connected: " .. thirty, r("breeze_switch_exists", { name = thirty }))
+				assert.is_true(#r("breeze_switch_exists", { name = thirty }) <= 70)
+			end)
+
+			it("L36 and L37 never cut inside a UTF-8 character, and leave no blank at the end", function()
+				local e_acute, euro, cyclone = "\195\169", "\226\130\172", "\240\159\140\128"
+				assert.equal("Breeze switch added: " .. string.rep("a", 48),
+					r("breeze_switch_added", { name = string.rep("a", 48) .. e_acute .. "b" }))
+				assert.equal("Breeze switch added: " .. string.rep("a", 47) .. e_acute,
+					r("breeze_switch_added", { name = string.rep("a", 47) .. e_acute .. "b" }), "a whole character stays")
+				assert.equal("Breeze switch added: " .. string.rep("a", 47),
+					r("breeze_switch_added", { name = string.rep("a", 47) .. euro }))
+				assert.equal("Breeze switch added: " .. string.rep("a", 46) .. euro,
+					r("breeze_switch_added", { name = string.rep("a", 46) .. euro .. "zzz" }))
+				assert.equal("A Breeze switch is already connected: " .. string.rep("a", 29),
+					r("breeze_switch_exists", { name = string.rep("a", 29) .. cyclone }))
+				assert.equal("A Breeze switch is already connected: " .. string.rep("a", 31),
+					r("breeze_switch_exists", { name = string.rep("a", 31) .. " Breeze" }))
+			end)
+
+			it("L36 and L37 say ? for no name, and read it from the args only, never from a pin", function()
+				for _, none in ipairs({ "", "   ", "\n\t", false, true, {}, 0 / 0 }) do
+					assert.equal("Breeze switch added: ?", r("breeze_switch_added", { name = none }), tostring(none))
+					assert.equal("A Breeze switch is already connected: ?", r("breeze_switch_exists", { name = none }))
+				end
+				assert.equal("Breeze switch added: ?", r("breeze_switch_added"))
+				assert.equal("Breeze switch added: ?", r("breeze_switch_added", { pin = { name = "Aviator 5 Breeze" } }))
+				assert.equal("A Breeze switch is already connected: ?",
+					r("breeze_switch_exists", { fan = "Aviator 5", client_id = ID1 }))
+			end)
+		end)
+
 		it("a missing value is ?, never an error or the word nil", function()
 			assert.equal("Learned fan ? (Gen ?) at ?", r("learned", {}))
 			assert.equal("Same fan ?, now at ?", r("moved", nil))
@@ -1400,8 +1600,14 @@ describe("fan.texts", function()
 			end
 
 			it("the count, then one item per bound keypad", function()
-				assert.same({ "1 of 12 links bound", "Fan Speed 3: Example Keypad (456)" },
+				assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" },
 					texts.keypad_links({ row("Fan Speed 3 Button Link", "Example Keypad", 456) }))
+			end)
+
+			it("the Breeze link's row is Fan Breeze (breeze-design section 5)", function()
+				local items = texts.keypad_links({ row("Fan Breeze Button Link", "Example Keypad", 456) })
+				assert.same({ "1 of 13 links bound", "Fan Breeze: Example Keypad (456)" }, items)
+				assert.same(items, texts.keypad_links({ row("Fan Breeze", "Example Keypad", 456) }, 13))
 			end)
 
 			it("the count is of links, not keypads: two keypads on one link are one", function()
@@ -1410,27 +1616,27 @@ describe("fan.texts", function()
 					row("Fan Speed 2 Button Link", "Second Keypad", 457),
 					row("Fan Off Button Link", "Example Keypad", 456),
 				})
-				assert.same({ "2 of 12 links bound", "Fan Speed 2: Example Keypad (456)",
+				assert.same({ "2 of 13 links bound", "Fan Speed 2: Example Keypad (456)",
 					"Fan Speed 2: Second Keypad (457)", "Fan Off: Example Keypad (456)" }, items)
 			end)
 
 			it("none bound", function()
-				assert.same({ "0 of 12 links bound" }, texts.keypad_links({}))
-				assert.same({ "0 of 12 links bound" }, texts.keypad_links(nil))
+				assert.same({ "0 of 13 links bound" }, texts.keypad_links({}))
+				assert.same({ "0 of 13 links bound" }, texts.keypad_links(nil))
 			end)
 
 			it("takes the link name with or without Button Link, and rows as arrays", function()
-				assert.same({ "2 of 12 links bound", "Light Top: Example Keypad (456)", "Fan Cycle: Example Keypad (456)" },
+				assert.same({ "2 of 13 links bound", "Light Top: Example Keypad (456)", "Fan Cycle: Example Keypad (456)" },
 					texts.keypad_links({ { "Light Top Button Link", "Example Keypad", 456 },
 						row("Fan Cycle", "Example Keypad", "456") }))
 			end)
 
 			it("a keypad that has no name shows as its device", function()
-				assert.same({ "1 of 12 links bound", "Fan Toggle: device 456" },
+				assert.same({ "1 of 13 links bound", "Fan Toggle: device 456" },
 					texts.keypad_links({ row("Fan Toggle Button Link", nil, 456) }))
-				assert.same({ "1 of 12 links bound", "Fan Toggle: device 456" },
+				assert.same({ "1 of 13 links bound", "Fan Toggle: device 456" },
 					texts.keypad_links({ row("Fan Toggle Button Link", "  ", 456) }))
-				assert.same({ "1 of 12 links bound", "Fan Toggle: Example Keypad (?)" },
+				assert.same({ "1 of 13 links bound", "Fan Toggle: Example Keypad (?)" },
 					texts.keypad_links({ row("Fan Toggle Button Link", "Example Keypad", nil) }))
 			end)
 
@@ -1448,15 +1654,15 @@ describe("fan.texts", function()
 				assert.equal("Fan Off: HallKeypad (456)", items[2])
 			end)
 
-			it("counts against the number of links it is given, 12 by default", function()
-				assert.equal(12, texts.LINK_COUNT)
+			it("counts against the number of links it is given, 13 by default (breeze-design section 5)", function()
+				assert.equal(13, texts.LINK_COUNT)
 				assert.equal("1 of 14 links bound", texts.keypad_links({ row("Fan Off", "K", 1) }, 14)[1])
-				assert.equal("1 of 12 links bound", texts.keypad_links({ row("Fan Off", "K", 1) }, "many")[1])
-				assert.equal("1 of 12 links bound", texts.keypad_links({ row("Fan Off", "K", 1) }, 1e308)[1])
+				assert.equal("1 of 13 links bound", texts.keypad_links({ row("Fan Off", "K", 1) }, "many")[1])
+				assert.equal("1 of 13 links bound", texts.keypad_links({ row("Fan Off", "K", 1) }, 1e308)[1])
 			end)
 
 			it("passes rows that are not tables over", function()
-				assert.same({ "1 of 12 links bound", "Fan Off: K (1)" },
+				assert.same({ "1 of 13 links bound", "Fan Off: K (1)" },
 					texts.keypad_links({ "x", 5, row("Fan Off", "K", 1) }))
 			end)
 		end)
@@ -1956,6 +2162,12 @@ describe("fan.texts", function()
 				assert_clean(table.concat(items, "|"))
 			end
 			assert_clean(texts.result("picked_wait", with({ instance = "MF_Fan_005302", client_id = ID2 })))
+			for _, key in ipairs({ "breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added",
+				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed" }) do
+				assert_clean(texts.result(key, with({ client_id = ID1, address = ADDR, strength = "5", why = "unset",
+					name = "Aviator 5 Breeze", pin = with({ client_id = ID1 }) })))
+			end
+			assert_clean(texts.status(online({ st = with(state({ wind = true, wind_speed = 2 })) })))
 			assert_clean(table.concat(texts.keypad_links({ with({ link_name = "Fan Off", keypad_name = "K", device_id = 1 }) }),
 				"|"))
 		end)
@@ -1998,7 +2210,10 @@ describe("fan.texts", function()
 			local views = {
 				S1 = { phase = "unset", failing = true }, S2 = { phase = "unset" },
 				S3 = { phase = "unset", typed = string.rep("x", 40) }, S4 = { phase = "waiting", address = address },
-				S5 = online({ address = address, st = state({ speed = 6, direction = "reverse", wind = true, level = 100 }) }),
+				S5 = online({ address = address, st = state({ speed = 6, direction = "reverse", wind = true, wind_speed = 3,
+					level = 100 }) }),
+				S5b = online({ address = address, st = state({ fan_on = false, direction = "reverse", wind = true,
+					level = 100 }) }),
 				S6 = online({ address = address, missing = "lightBrightness" }),
 				S6b = online({ address = address, missing = "fanDirection" }),
 				S7 = { phase = "offline", address = address, since = T, now = now, known = true },
@@ -2015,10 +2230,12 @@ describe("fan.texts", function()
 			end
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				for _, which in ipairs({ "away", "learning" }) do
-					-- L22 to L24 with the longest name of the research table and a type that gets cut.
+					-- L22 to L24 with the longest name of the research table and a type that gets cut;
+					-- L34 to L37 with a strength, a reason key and a switch name that get cut.
 					add("L " .. key .. " " .. which, texts.result(key, { client_id = client, was = client, address = address,
 						generation = "1/2", instance = "ABCDEFGHIJKLMNOPQRSTUVWXY", at = T, now = now, which = which,
-						fan = "Size Matters 65", light = "Size Matters 65 Light", fan_type = string.rep("x", 20) }))
+						fan = "Size Matters 65", light = "Size Matters 65 Light", fan_type = string.rep("x", 20),
+						strength = string.rep("9", 20), why = "no " .. string.rep("k", 40), name = string.rep("N", 80) }))
 				end
 			end
 			add("Fan ID", texts.fan_id({ client_id = client, mac = "00005E005301" }))
@@ -2157,7 +2374,7 @@ describe("fan.texts", function()
 						plain(out, phase .. "/" .. field)
 					end
 				end
-				for _, field in ipairs({ "fan_on", "speed", "direction", "wind", "light_on", "level" }) do
+				for _, field in ipairs({ "fan_on", "speed", "direction", "wind", "wind_speed", "light_on", "level" }) do
 					for _, a in ipairs(WEIRD) do
 						local st = state()
 						st[field] = a
@@ -2169,7 +2386,7 @@ describe("fan.texts", function()
 
 		it("result takes any value for each field of its args, for every key", function()
 			local fields = { "client_id", "generation", "address", "was", "instance", "at", "now", "which",
-				"pin", "fan", "light", "fan_type" }
+				"pin", "fan", "light", "fan_type", "strength", "why", "name" }
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				for _, field in ipairs(fields) do
 					for _, a in ipairs(WEIRD) do

@@ -72,13 +72,16 @@ end
 -- Bodies (section 3.1) -------------------------------------------------------------
 
 -- Which group each field belongs to: one body carries one group's fields, and a
--- fan and a light field never share one (section 3.1, last paragraph).
+-- fan and a light field never share one (section 3.1, last paragraph). Breeze is
+-- a group of its own (#111, docs/breeze-design.md section 2).
 local FIELD_GROUP = {
 	fan_on = "fan",
 	speed = "fan",
 	direction = "direction",
 	level = "light",
 	light_on = "light",
+	wind = "breeze",
+	wind_speed = "breeze",
 	away = "away",
 	learning = "learning",
 }
@@ -139,6 +142,29 @@ local function light_body(fields)
 	return on and '{"lightOn":true}' or '{"lightOn":false}'
 end
 
+-- Breeze (breeze-design section 2; BRR 4): exactly four bodies, the strength a
+-- number 1 to 3 and never a string. Off carries no strength, and a strength is
+-- sent alone or with on.
+local function breeze_body(fields)
+	local on, strength = fields.wind, fields.wind_speed
+	if on ~= nil and type(on) ~= "boolean" then
+		return nil, "range"
+	end
+	if strength ~= nil and not integer_in(strength, 1, 3) then
+		return nil, "range"
+	end
+	if strength == nil then
+		return on and '{"wind":true}' or '{"wind":false}'
+	end
+	if on == false then
+		return nil, "mix"
+	end
+	if on == nil then
+		return string.format('{"windSpeed":%d}', strength)
+	end
+	return string.format('{"wind":true,"windSpeed":%d}', strength)
+end
+
 -- The two fan automations are only ever switched off, on a click (V22).
 local function off_body(fields, field, key)
 	if fields[field] ~= false then
@@ -151,15 +177,16 @@ local BUILDERS = {
 	fan = fan_body,
 	direction = direction_body,
 	light = light_body,
+	breeze = breeze_body,
 	away = function(fields) return off_body(fields, "away", "awayModeEnabled") end,
 	learning = function(fields) return off_body(fields, "learning", "adaptiveLearning") end,
 }
 
 -- The body of one group's fields, or nil and why: "empty" (no field), "unknown"
--- (a key outside the allow-list: factory_reset, reboot, schedule, wind ... are
--- never written), "mix" (fields of two groups, or not one of the bodies of
--- section 3.1) or "range" (the right key, a value out of range or of another
--- type).
+-- (a key outside the allow-list: factory_reset, reboot, schedule, a timer ...
+-- are never written), "mix" (fields of two groups, or not one of the bodies of
+-- section 3.1 and breeze-design section 2) or "range" (the right key, a value
+-- out of range or of another type).
 function wire.body(fields)
 	if type(fields) ~= "table" then
 		return nil, "empty"
@@ -308,6 +335,25 @@ local function level_of(value, light_on, adjusted)
 	return nil
 end
 
+-- The Breeze strength 1 to 3 (BRR 1), read as the speed is: rounded, above 3
+-- clamped to 3 and below 1 to 1, saying so; 0 with Breeze off says only that
+-- the kept strength is unknown, and is not an adjustment.
+local function wind_speed_of(value, wind, adjusted)
+	local n = number_of(value)
+	if n == nil then
+		return nil
+	end
+	n = round(n)
+	if n >= 1 and n <= 3 then
+		return n
+	end
+	if n == 0 and wind == false then
+		return nil
+	end
+	adjusted[#adjusted + 1] = "windSpeed " .. tostring(n)
+	return n > 3 and 3 or 1
+end
+
 local function direction_of(value)
 	local text = string_of(value)
 	text = text and text:lower()
@@ -358,7 +404,7 @@ function wire.state(obj)
 	st.light_on = bool_of(obj.lightOn)
 	st.level = level_of(obj.lightBrightness, st.light_on, adjusted)
 	st.wind = bool_of(obj.wind)
-	st.wind_speed = number_of(obj.windSpeed)
+	st.wind_speed = wind_speed_of(obj.windSpeed, st.wind, adjusted)
 	st.away = bool_of(obj.awayModeEnabled)
 	st.learning = bool_of(obj.adaptiveLearning)
 	st.schedule_set = schedule_set_of(obj.schedule)
