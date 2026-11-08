@@ -72,19 +72,20 @@ version.
   the fan runs at that speed and **Speed LED Off Color** when it is dark:
   for example blue at Level 1 and orange at Level 6. By default
   (`Keypad's own`) the keypad's own colours stay.
-- **Finding the fan.** Type the fan's IPv4 address in **Fan Address**, or
-  click **Find Fans**: it lists the fans that answer on the controller's
-  own network in **Found Fans**, and **Use Selected Fan** accepts the one
-  you pick. The driver learns the fan's identity at the first contact and
-  sends nothing to a different fan that answers at that address until
-  **Use Selected Fan** accepts it. **Status** and **Last Action** say what
-  the driver sees.
+- **Finding the fan.** The driver looks for Modern Forms fans on the
+  controller's own network by itself, a few seconds after it starts and,
+  while the device has no fan yet, on a schedule, and lists them in
+  **Found Fans**. Pick the fan there and click **Set**, or type its IPv4
+  address in **Fan Address**. The driver never takes a fan by itself. It
+  learns the fan's identity at the first contact and sends nothing to a
+  different fan that answers at that address until **Use Selected Fan**
+  accepts it. **Status** and **Last Action** say what the driver sees.
 - **The fan's name.** **Fan Model** shows the product name, for example
   Aviator 5, looked up from the model number the fan reports, and whether
-  the fan has Breeze. **Use Selected Fan** names the fan and light items
-  after it while they still have their original names; the action **Name
-  Items After Fan** names them whatever they are called. Nothing else
-  renames them.
+  the fan has Breeze. **Use Selected Fan** (and a pick in **Found Fans**
+  that takes a fan) names the fan and light items after it while they
+  still have their original names; the action **Name Items After Fan**
+  names them whatever they are called. Nothing else renames them.
 - **A new address.** When the router gives the fan a new address, the
   driver finds it again by itself, usually within a minute or two: it
   checks that the fan answering there is the one it learned, rewrites
@@ -130,9 +131,10 @@ programming.
   works as a fan only. A generation 4 fan is refused, and fans with fewer
   than six speeds are not supported.
 - **A network that joins them.** The controller must reach the fan (it
-  answers on port 80). **Find Fans** and following a new address use
-  multicast DNS, which stays on the controller's own network segment; a
-  typed address works wherever the controller can reach the fan.
+  answers on port 80). The search that fills **Found Fans** and following
+  a new address use multicast DNS, which stays on the controller's own
+  network segment; a typed address works wherever the controller can reach
+  the fan.
 - **A fixed address is recommended, not required.** A DHCP reservation in
   your router keeps the fan's address from moving; without one, the driver
   follows the fan to its new address. The **Fan ID** row shows the MAC
@@ -232,11 +234,11 @@ In short:
 2. Add **Modern Forms Fan** (manufacturer Modern Forms) to the fan's room.
    Two items appear: the fan, **Modern Forms Fan**, and under it its
    light, **Modern Forms Fan Light**. Add one device per fan.
-3. Point it at the fan: click **Find Fans** on the fan item's **Actions**
-   tab, pick the fan in **Found Fans** on its **Properties** tab and click
-   **Use Selected Fan**; or type the fan's IPv4 address in **Fan Address**
-   and click the row's **Set**. Within a few seconds **Status** reads
-   `Online: ...`.
+3. Point it at the fan: on the fan item's **Properties** tab, pick the fan
+   in **Found Fans** (the driver fills the list by itself within about half
+   a minute) and click the row's **Set**; or type the fan's IPv4 address in
+   **Fan Address** and click the row's **Set**. Within a few seconds
+   **Status** reads `Online: ...`.
 4. Choose **File > Refresh Navigators**, then bind keypad buttons to the
    driver's links in **Connections** (chapter 5 of the manual).
 
@@ -291,7 +293,7 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
 src/common/          the author's shared Lua modules (log, dispatch, device, devloop), staged into
                      each package as common/
 src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab) and fan/ (the
-                     wire, the state model, the proxies, the links, Find Fans, the item names)
+                     wire, the state model, the proxies, the links, finding fans, the item names)
 tests/               busted specs (spec/), the fake DriverWorks runtime (helpers/), and the fan's
                      answers and multicast DNS announcements, with placeholders (fixtures/)
 tools/               build.sh; check.sh (every check, as CI runs it) and setup-checks.sh (its

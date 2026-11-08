@@ -16,7 +16,11 @@ build of the M3 split, [`v1-design.md`](v1-design.md#13-m3-build-split)). No
 build of this driver has been checked on the house yet, so every step is open.
 Since #45 (2026-11-04) it has no migration steps: the Migration Report they
 read is gone from the driver, and the house's cutover from the stock driver
-is recorded in [`migration-design.md`](migration-design.md).
+is recorded in [`migration-design.md`](migration-design.md). Since #102
+(2026-11-07) the driver finds fans by itself and the Find Fans action is
+gone: steps 1, 4 to 6, 9, 43 and 45 read `Found Fans` instead of clicking,
+and step 5 carries the house checks H1 to H3 of
+[`auto-discovery-design.md`](auto-discovery-design.md).
 
 ## Before you start
 
@@ -99,8 +103,11 @@ installed, the keypad moved to its links and the stock device was deleted
      Forms Fan** (the fan, the parent) and **Modern Forms Fan Light** under
      it, with Control4's standard fan and light icons. On the fan item:
      `Driver Version` the build number, `Debug Mode` Off, `Poll Interval (s)`
-     15, `Status` `Not set up: Find Fans, or enter the fan's address in Fan
-     Address`. File » Refresh Navigators.
+     15, `Status` `Not set up: pick a fan in Found Fans, or enter Fan
+     Address`. Within about 30 seconds, with no click, `Found Fans` reads
+     `1 fan found: pick it and click Set to use it` and lists `MF_Fan_005301
+     at 10.0.2.151` (`2 fans found: …` if another fan is awake); `Last
+     Action` stays empty. File » Refresh Navigators.
    - **Done:** open.
 2. **The update is in place.** Run this one last, when a second build exists.
    Install it over the first the same way; never delete and re-add the
@@ -132,35 +139,51 @@ installed, the keypad moved to its links and the stock device was deleted
 4. **A bad entry, an empty entry, the right entry again.** Set `Fan Address`
    to `fan.local`, then to nothing, then back to the fan's address.
    - **Expect:** `Status` `Fan Address "fan.local" is not an IPv4 address`
-     (nothing is sent); then `Not set up: Find Fans, or enter the fan's
-     address in Fan Address`, and the row stays empty (the driver never fills
-     an empty `Fan Address` by itself, #39); then `Online: …` again with `Fan
+     (nothing is sent); then `Not set up: enter the fan's address in Fan
+     Address` (S1: with a fan pinned, an empty address stops the search, so
+     the list cannot help), the row stays empty (the driver never fills an empty `Fan
+     Address` by itself, #39) and `Found Fans` reads `Not searching while Fan
+     Address is empty`; then `Online: …` again with `Fan
      ID` unchanged (the identity was kept) and `Last Action` still the line
      of step 3.
    - **Done:** open.
-5. **Find Fans.** Actions tab: **Find Fans**. Read `Found Fans` and `Last
-   Action` after about 5 seconds.
-   - **Expect:** `Last Action` `Found 1 fan: pick it in Found Fans, then Use
-     Selected Fan` (`Found 2 fans: pick one in Found Fans, then Use Selected
-     Fan` if another fan is awake); `Found Fans` holds `MF_Fan_005301 at
-     10.0.2.151 (this device's fan)`, the instance name ending in the last
-     six digits of the MAC. If it says `No Modern Forms fan answered on this
-     network` or `Find Fans could not send its query on this controller`,
-     record the exact text and the controller's OS.
+5. **Found Fans fills by itself (#102: H1 to H3).** On the house's own
+   device, right after an install in place, with no click. (H1) Read the
+   **Actions** tab. (H2) About 40 seconds after the install, read `Found
+   Fans` (its value and its items) and `Last Action`. (H3) Note the two
+   items' names in the System Design tree (step 6 needs them), then pick the
+   item of the house fan in `Found Fans` and click the row's **Set**; read
+   `Last Action` and `Found Fans` after about 3 seconds.
+   - **Expect:** (H1) five actions, `Use Selected Fan` first, no `Find
+     Fans` (step 9). (H2) The value and first item `This device's fan
+     answered; no other fan found` (`2 fans found; this device's fan is
+     listed first` if another fan is awake), then the item `MF_Fan_005301 at
+     10.0.2.151 (this device: Aviator 5)`, the instance name ending in the
+     last six digits of the MAC; `Last Action` is unchanged by the search.
+     (H3) `Already using fan MF_00005E005301 at 10.0.2.151`, about 2 seconds
+     later the same line with an ending (`; names kept` on the house), the
+     row back on the first item, nothing else changed. If the first item
+     says `No search possible on this controller: enter Fan Address` or `No
+     fan answered the last search`, record the exact text and the
+     controller's OS.
    - **Done:** open.
-6. **Use Selected Fan.** First read and note the two items' names in the
-   System Design tree. Pick the entry and click **Use Selected Fan**; read
-   `Last Action` and the tree again after about 3 seconds. Then clear `Fan
+6. **Use Selected Fan.** The two items' names noted are those of step 5,
+   before its pick. Pick the entry marked as this device's fan in `Found
+   Fans` and click the row's **Set** (the pick acts at once, as **Use
+   Selected Fan** does); read `Last Action` and the tree again after about 3
+   seconds. Click **Use Selected Fan** with nothing picked. Then clear `Fan
    Address` (Set), click **Use Selected Fan** with nothing picked, and type
    the address back (Set).
-   - **Expect:** first `Already using fan MF_00005E005301 at 10.0.2.151` and
-     the pick cleared, and about 2 seconds later the same line with one
-     ending. `…; items renamed` when both items still had the names a new
+   - **Expect:** first `Already using fan MF_00005E005301 at 10.0.2.151`
+     and the row back on its first item, and about 2 seconds later the same
+     line with one ending. `…; items renamed` when both items still had the names a new
      device is created with (**Modern Forms Fan** and **Modern Forms Fan
      Light**): the tree now shows **Aviator 5** and **Aviator 5 Light**.
      `…; names kept` when either item has another name (the house's own
      device, after the cutover: **Fan** and **Fan Light**): neither changed.
-     Not `…; not renamed`: the model `1811-5-54` has a name. Then `Nothing to
+     Not `…; not renamed`: the model `1811-5-54` has a name. The click with
+     nothing picked checks `Fan Address`: `Already using …` again, with the
+     same ending, or none once the items carry the fan's name. Then `Nothing to
      use: pick a fan in Found Fans, or enter Fan Address` (no ending: nothing
      was accepted, and the names stay as they are); then `Online: …`. When
      this click renamed the items, record what step 7 asks under (b) as well.
@@ -193,7 +216,9 @@ installed, the keypad moved to its links and the stock device was deleted
 
 8. **The rows.** Read the fan item's whole **Properties** tab, in order.
    - **Expect:** `Driver Version` the build, `Status` `Online: …`, `Last
-     Action`, `Fan Address` the address, `Found Fans`, `Follow Address
+     Action`, `Fan Address` the address, `Found Fans` (its first item a
+     summary such as `This device's fan answered; no other fan found`,
+     #102), `Follow Address
      Changes` `On` (a list of `On` and `Off`; #39), `Fan ID`, `Fan Model`
      (for example `Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30,
      Breeze`: the product name of the model number the fan reports; a model
@@ -210,9 +235,9 @@ installed, the keypad moved to its links and the stock device was deleted
      (gone since #45).
    - **Done:** open.
 9. **The Actions tab.**
-   - **Expect:** six actions in this order: `Find Fans`, `Use Selected Fan`,
-     `Name Items After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off
-     Adaptive Learning` (no `Migration Report` since #45).
+   - **Expect:** five actions in this order: `Use Selected Fan`, `Name Items
+     After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive
+     Learning` (no `Migration Report` since #45, no `Find Fans` since #102).
    - **Done:** open.
 10. **The Documentation tab.** Open the fan item's **Documentation** tab,
     scroll to the end.
@@ -505,10 +530,12 @@ installed, the keypad moved to its links and the stock device was deleted
       line appears, although the first fan still answers at its own address:
       an address you type wins until the pinned fan answers there (#39).
       Set the first fan's address back: `Online: …` and `Fan Online`. Optional
-      and only if meant: pick the second fan in `Found Fans` and click **Use
-      Selected Fan** (`Now using fan MF_00005E005302 (was MF_00005E005301)`;
-      links and programming stay), then point the device back at the first fan
-      the same way.
+      and only if meant: pick the second fan in `Found Fans` and click the
+      row's **Set** (`Last Action` `Picked MF_Fan_005302: click Use Selected
+      Fan to switch to it`, nothing else changes), then click **Use Selected
+      Fan** (`Now using fan MF_00005E005302 (was MF_00005E005301)`; links and
+      programming stay), then point the device back at the first fan the same
+      way.
     - **Done:** open.
 44. **Not a fan.** Set `Fan Address` to another device on the network that
     answers on port 80 (any web page: the router's, a printer's), then back.
@@ -547,16 +574,17 @@ installed, the keypad moved to its links and the stock device was deleted
       `Fan Address` now `10.0.2.152`, written by the driver; `Last Action`
       `Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)`; `Fan
       Offline` and `Fan Online` fired once each (step 35's scripts, while
-      they are there); `Fan ID`, `Found Fans`, the item names and the
-      bindings unchanged. Through the stand-in the addresses are the other
+      they are there); `Fan ID`, the item names and the bindings unchanged;
+      `Found Fans` lists the fan at its new address (the follower's searches
+      refresh the list since #102). Through the stand-in the addresses are the other
       way round: `Followed fan MF_00005E005301 to <fan's address> (was <VM
       address>)`, about a minute after the relay stops. By hand, record the
       seconds from the power coming back to `Online: …`; putting the
       reservation back gives a second `Followed fan …` line, back to the
       old address. If nothing is followed within 3
-      minutes, record `Status` and `Last Action` and click **Find Fans**:
-      whether the fan is listed at its new address tells a network that
-      keeps multicast from the controller apart from a driver fault. (b)
+      minutes, record `Status`, `Last Action` and `Found Fans`: whether the
+      fan is listed at its new address tells a network that keeps multicast
+      from the controller apart from a driver fault. (b)
       After about 50 seconds `Status` `Not answering at <free address> since
       <time>; showing last state` and `Fan Offline`; `Fan Address` keeps the
       typed address and no `Followed fan …` line appears, although the fan

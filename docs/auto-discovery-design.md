@@ -34,8 +34,8 @@ order:
 | --- | --- | --- |
 | `stopped` | a fan is pinned and `Fan Address` is empty | none, not even at load |
 | `standby` | the follower is armed (`follower:state()` starts with `armed`) | none: the follower's windows feed the list |
-| `seek` | no fan is pinned; or the pinned fan is away (phase `offline`, `foreign`, `gen4`, `notfan`) and the follower is not armed (Follow Address Changes Off, a typed address pending, a pin without a MAC) | the ladder below |
-| `quiet` | otherwise (pinned; phase `online`, `waiting`, `rebooting`) | none after the load window |
+| `seek` | no fan is pinned; or a fan is pinned and `Fan Address` is not a usable address (phase `unset`) | the ladder below |
+| `quiet` | otherwise: a fan is pinned and its address is set (the fan answers, or it is away with the follower not armed: Follow Address Changes Off keeps meaning "no windows" (F7), a typed address waits for its answer (F5), a pin without a MAC) | none after the load window |
 
 - **The load window.** `start()` (end of `OnDriverLateInit`, so after every
   load, update in place, Director restart or dev-loop reload) plans one

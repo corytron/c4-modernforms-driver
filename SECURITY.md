@@ -54,12 +54,19 @@ What counts already, and will count in every release:
 - **What the driver talks to.** A release build is meant to send requests
   to the fan the owner configured, wherever that fan's own multicast DNS
   answer puts it, and nowhere else. Besides the fan's HTTP interface it
-  sends only the multicast DNS question of Find Fans on the local network.
-  Since #39 the same question also goes out without a click when the
-  configured fan stops answering at its address. An address that answers
-  it is sent one fixed read-only request (the fan's static data) before
-  anything changes, and only when it is a private (RFC 1918) or link-local
-  address that announced the configured fan's MAC address; the driver moves
+  sends only one multicast DNS question (`_easylink._tcp.local`) on the
+  local network segment. Since #102 the driver asks it by itself, with no
+  click: a few seconds after every load and, while the device has no fan
+  yet, on a schedule (30 seconds, 1, 2, 5 and 10 minutes, then every 15
+  minutes), to keep its list of found fans current
+  ([`docs/auto-discovery-design.md`](docs/auto-discovery-design.md#1-decisions));
+  since #39 it also asks it when the configured fan stops answering at its
+  address. It never scans a subnet and never asks the internet. Another fan
+  heard this way is only listed: nothing is sent to it until the owner
+  picks it. An address that announces the configured fan is sent one fixed
+  read-only request (the fan's static data) before anything changes, and
+  only when it is a private (RFC 1918) or link-local address that announced
+  the configured fan's MAC address; the driver moves
   to it only when that answer carries the configured fan's client id and
   MAC address
   ([`docs/address-follow-design.md`](docs/address-follow-design.md#1-decisions),
@@ -67,11 +74,12 @@ What counts already, and will count in every release:
   and MAC address are announced in the clear, so someone on the local
   network who copies them can draw that one read and then the driver's
   requests: the same exposure as spoofing the fan at a fixed address. The
-  v1 contract ([`docs/v1-design.md`](docs/v1-design.md), section 3, V5a and
-  V29) names the hosts, ports and requests. A way to make a release build
-  talk to anything else (a public address, an address nobody announced, a
-  fan other than the configured one without the owner's click), or to open
-  a port on the controller that the contract does not name, counts.
+  v1 contract ([`docs/v1-design.md`](docs/v1-design.md), section 3, V5a,
+  V29 and V30) names the hosts, ports and requests. A way to make a release
+  build talk to anything else (a public address, an address nobody
+  announced, a fan other than the configured one without the owner's pick
+  or click), or to open a port on the controller that the contract does not
+  name, counts.
 - **Private data leaving the house.** A fan's device information names its
   network identity and, as far as the public clients' test data show, its
   owner's account. The project's own tooling refuses LAN addresses, MAC
