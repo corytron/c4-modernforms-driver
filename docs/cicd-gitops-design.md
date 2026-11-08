@@ -81,7 +81,9 @@ without `sudo`: `ruff`, `zizmor` and `shellcheck-py` from
 `tools/requirements-checks.txt`, pinned by version and by the sha256 of
 every file PyPI has for them (`pip install --require-hashes --no-deps
 --only-binary=:all:`), and `actionlint` and `gitleaks` as release binaries
-whose sha256 the script carries. CI runs the same script.
+whose sha256 the script carries. When a release URL fails, the script
+fetches the same asset by its pinned id from the REST API (#134). CI runs
+the same script.
 
 ## 4. CI: `.github/workflows/ci.yml`
 
