@@ -31,6 +31,15 @@ keeps such tooling out of the driver). v1.0-beta.2 (build 29) was published
 but never installed. The owner tested beta.3 on 2026-11-05 and every test
 passed, the follow to a new address included (#58).
 
+**Built on `main`, not released yet (for 1.2 "Thumper"):** Found Fans fills
+by itself and the Find Fans action is gone (#102, PR #109, build 110,
+[`auto-discovery-design.md`](auto-discovery-design.md)); Breeze in Control4
+(#111, PR #114, [`breeze-design.md`](breeze-design.md)): the commands, the
+`Breeze` variable, the events, the condition, keypad link 311, and the
+second package `modernforms_breeze.c4z`, a switch for the Navigators that
+the fan's action Add Breeze Switch adds. The fan's Breeze behaviour was not
+measured on the house: the owner chose to assume the results (BZ5).
+
 ## What runs on the house
 
 - **v1.1, build 97**, one device: `deploy/house.yaml` and the environment
@@ -102,7 +111,7 @@ passed, the follow to a new address included (#58).
 ## Open
 
 Every open item is an issue (`gh issue list --state open`). On 2026-11-07
-none is open. The list below is what was open on 2026-10-27 and how each
+none is open: Breeze (#111) closed with PR #114. The list below is what was open on 2026-10-27 and how each
 ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,

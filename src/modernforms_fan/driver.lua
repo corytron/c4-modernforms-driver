@@ -39,6 +39,7 @@ local rename_mod = require("fan.rename")
 local follow_mod = require("fan.follow")
 local search_mod = require("fan.search")
 local found_mod = require("fan.found")
+local breeze_mod = require("fan.breeze")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -48,9 +49,11 @@ log.set_prefix(LOG_PREFIX)
 -- the two events (section 2.7) and the light's and the fan's links.
 local FAN_BINDING, LIGHT_BINDING = 5001, 5002
 local FIND_BINDING, MDNS_PORT, MDNS_GROUP = 6001, 5353, "224.0.0.251"
+-- breeze-design BZ2 (#111): the companion Breeze switch's binding and its class.
+local BREEZE_BINDING, BREEZE_CLASS, BREEZE_DRIVER = 400, "MODERNFORMS_BREEZE", "modernforms_breeze.c4z"
 local EVENT_FAN_OFFLINE, EVENT_FAN_ONLINE = 1, 2
 local LIGHT_LINKS = { [200] = true, [201] = true, [202] = true }
-local FAN_LINKS = {}
+local FAN_LINKS = { [311] = true } -- 311 Fan Breeze (breeze-design BZ4)
 for id = 300, 308 do
 	FAN_LINKS[id] = true
 end
@@ -176,7 +179,7 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower, search, found_list
+local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 -- Found Fans as last written (auto-discovery-design 3): the rows, the entry
 -- behind each item row, and the text the row was written with.
@@ -218,6 +221,9 @@ function listener.settled(group, st, why)
 	if group == "light" then
 		light:settled(st, why)
 	end
+	if breeze and (group == "fan" or group == "breeze") then
+		breeze:settled(group, st, why)
+	end
 	refresh_status()
 end
 
@@ -228,6 +234,9 @@ function listener.idle(group, st)
 end
 
 function listener.shown(shown)
+	if breeze then
+		breeze:shown(shown) -- first: link 311's LED reads it (BZ4)
+	end
 	links:shown(shown)
 	light:shown()
 	refresh_status()
@@ -250,6 +259,9 @@ function listener.phase(phase, detail, old)
 		search:changed()
 	end
 	light:phase(phase, detail)
+	if breeze then
+		breeze:phase(phase)
+	end
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -351,6 +363,15 @@ links = links_mod.new({
 		return C4:GetDeviceDisplayName(id)
 	end,
 	list = write_keypad_links,
+	-- Link 311, Fan Breeze (breeze-design BZ4): a press toggles, the LED shows Breeze.
+	breeze_toggle = function()
+		if breeze then
+			breeze:toggle()
+		end
+	end,
+	breeze_blows = function()
+		return breeze ~= nil and breeze:blows_shown()
+	end,
 	log = log,
 })
 
@@ -718,6 +739,57 @@ names_job = rename_mod.new({
 	log = log,
 })
 
+-- Breeze (breeze-design, #111): the commands, the variable, the events, the
+-- condition and the companion switch; link 311 goes through links.
+local function fan_item_name()
+	local id = one_consumer(FAN_BINDING)
+	local name = id and C4:GetDeviceDisplayName(id) or nil
+	if type(name) ~= "string" or name == "" then
+		name = "Modern Forms Fan"
+	end
+	return name
+end
+
+breeze = breeze_mod.new({
+	model = model,
+	preset = function()
+		return fan:preset()
+	end,
+	set_variable = function(value)
+		C4:SetVariable("Breeze", value)
+	end,
+	fire = function(id)
+		C4:FireEventByID(id)
+	end,
+	persist = function(key, value)
+		store.set(key, value)
+	end,
+	recall = function(key)
+		return store.get(key)
+	end,
+	result = result,
+	companions = function()
+		local ids = {}
+		for id in pairs(C4:GetBoundConsumerDevices(C4:GetDeviceID(), BREEZE_BINDING) or {}) do
+			ids[#ids + 1] = tonumber(id) or id
+		end
+		table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
+		return ids
+	end,
+	send = function(id, command, params)
+		C4:SendToDevice(id, command, params)
+	end,
+	-- API 9_helper/_0.1-AddDevice.md: for user-initiated use, as this click is.
+	add_device = function(name, cb)
+		C4:AddDevice(BREEZE_DRIVER, C4:RoomGetId(), name, cb)
+	end,
+	bind = function(id)
+		return (pcall(C4.Bind, C4, C4:GetDeviceID(), BREEZE_BINDING, id, 1, BREEZE_CLASS))
+	end,
+	item_name = fan_item_name,
+	log = log,
+})
+
 -- The rename job's outcomes as Last Action keys (fan-name-design 2.3).
 local NAME_RESULTS = {
 	renamed = "name_renamed", same = "name_same", no_name = "name_unknown", no_type = "name_no_type",
@@ -844,6 +916,22 @@ dispatch.commands["Name_Items_After_Fan"] = function()
 	end)
 end
 
+-- Breeze (breeze-design BZ3, BZ11): the programming commands, the action and
+-- the companion's messages (C4:SendToDevice lands in ExecuteCommand).
+for _, name in ipairs({ "Breeze_On", "Breeze_Off", "Toggle_Breeze", "Set_Breeze_Strength" }) do
+	dispatch.commands[name] = function(params)
+		breeze:command(name, params)
+	end
+end
+dispatch.commands["Add_Breeze_Switch"] = function()
+	breeze:add_switch()
+end
+for _, name in ipairs({ "MF_BREEZE_SET", "MF_BREEZE_TOGGLE", "MF_BREEZE_HELLO" }) do
+	dispatch.commands[name] = function(params)
+		breeze:companion(name, params)
+	end
+end
+
 dispatch.commands["Reboot_Fan"] = function()
 	model:reboot(function(key, args)
 		result(key, args)
@@ -873,6 +961,9 @@ dispatch.install(_G)
 function OnDriverInit()
 	online_now = (C4:PersistGetValue("mf_online")) == true
 	C4:AddVariable("Online", online_now and "1" or "0", "BOOL", true)
+	-- breeze-design BZ3: second, never reordered; seeded so a restart alone
+	-- changes nothing (BC22).
+	C4:AddVariable("Breeze", (C4:PersistGetValue("mf_breeze")) == true and "1" or "0", "BOOL", true)
 end
 
 -- The identity rows come from the restored model state until the first answer
@@ -908,6 +999,8 @@ function OnDriverLateInit()
 	links:late_init()
 	-- The load window, then the mode's schedule (auto-discovery-design 2).
 	search:start()
+	-- The companions hear the state (breeze-design 3).
+	breeze:late_init()
 	-- Dev builds: the dev loop starts last, so a reload pushed through it sees
 	-- a fully initialised driver.
 	if devloop then
@@ -930,11 +1023,18 @@ OnBindingChanged = dev.binding_changed(function(binding, _, bound, other_device,
 	if LIGHT_LINKS[binding] and bound then
 		dev.update_leds(true)
 	end
+	if binding == BREEZE_BINDING then
+		breeze:binding_changed(bound)
+	end
 end)
 
 -- Section 2.7: the one condition, "Fan is online". With a VALUE (the text
 -- picked) it compares; without, it answers the state itself.
 function TestCondition(name, params)
+	local answer = breeze:test_condition(name, params)
+	if answer ~= nil then
+		return answer
+	end
 	if name ~= "BOOL_ONLINE" then
 		return false
 	end
@@ -976,6 +1076,7 @@ function OnDriverDestroyed()
 	search:stop()
 	discovery:stop()
 	names_job:stop()
+	breeze:stop()
 	links:stop()
 	light:stop()
 	model:stop()

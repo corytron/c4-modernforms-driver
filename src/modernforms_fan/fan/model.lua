@@ -13,15 +13,16 @@
 --
 --   * Per field the model keeps a confirmed value (the last the fan reported),
 --     an in-flight value (the request on the wire) and a wanted one (asked for,
---     not yet sent); per group (fan, direction, light) it also keeps what the
---     proxies were last told (section 4.1). Shown is wanted over in flight over
+--     not yet sent); per group (fan, direction, breeze, light) it also keeps what
+--     the proxies were last told (section 4.1; breeze since #111,
+--     docs/breeze-design.md section 2). Shown is wanted over in flight over
 --     confirmed: what keypad LEDs follow. A group is busy while one of its
 --     fields is wanted or in flight, and is reported only once it is not
 --     (R5), so a burst's intermediate answers fire nothing.
 --   * One request is in flight at a time. What goes next is, in this order: the
 --     pending Use Selected Fan read (or a follow's), a reboot, the contact (an info
 --     read, then a state read) while one is due, a command (one group per request,
---     fan, direction, light), the due poll (section 4.3).
+--     fan, direction, breeze, light), the due poll (section 4.3).
 --   * A failure of any request makes the next one a contact, so a command is
 --     never sent to a fan whose identity has not been read again since it last
 --     went quiet (V5, ECM N3). A command wanted while a contact is due makes
@@ -68,21 +69,25 @@ model.RAMP_STEP_MS = 500     -- the light's hold steps (its constant; exported w
 local Model = {}
 Model.__index = Model
 
-local GROUPS = { "fan", "direction", "light" }
+-- The request order: the fan goes before Breeze, so Breeze On from off is the fan's
+-- body first and then {"wind":true} (BZ6).
+local GROUPS = { "fan", "direction", "breeze", "light" }
 local GROUP_FIELDS = {
 	fan = { "fan_on", "speed" },
 	direction = { "direction" },
+	breeze = { "wind", "wind_speed" },
 	light = { "light_on", "level" },
 }
-local FIELDS = { "fan_on", "speed", "direction", "light_on", "level" }
--- Section 4.1's read-only rows, kept beside the five fields in the confirmed state.
+local FIELDS = { "fan_on", "speed", "direction", "light_on", "level", "wind", "wind_speed" }
+-- Section 4.1's read-only rows, kept beside the seven fields in the confirmed state.
 local READ_ONLY = {
-	"client_id", "generation", "wind", "wind_speed", "away", "learning", "schedule_set", "fan_timer",
+	"client_id", "generation", "away", "learning", "schedule_set", "fan_timer",
 	"light_timer", "fan_sleep_timer", "light_sleep_timer", "user_data",
 }
--- The names the fan uses for the five fields (section 3.1), for "no <key>" refusals.
+-- The fields' names for the log ("The fan did not take breeze on").
 local FIELD_NAME = {
 	fan_on = "fan", speed = "speed", direction = "direction", light_on = "light", level = "light level",
+	wind = "breeze", wind_speed = "breeze strength",
 }
 local IDENTITY_PHASES = { foreign = true, gen4 = true, notfan = true }
 -- Section 6.1's offline-like phases: the only ones a follow starts from (address-follow-design F2).
@@ -175,6 +180,12 @@ local function group_value(group, f)
 		return nil
 	elseif group == "direction" then
 		return f.direction
+	elseif group == "breeze" then
+		-- Both fields: a new strength is a change too. Nothing while Breeze is not known.
+		if f.wind == nil then
+			return nil
+		end
+		return (f.wind and "on" or "off") .. "/" .. tostring(f.wind_speed)
 	end
 	if f.light_on == false then
 		return 0
@@ -207,6 +218,15 @@ local function describe(group, w)
 		return "speed " .. tostring(w.speed)
 	elseif group == "direction" then
 		return "direction " .. tostring(w.direction)
+	elseif group == "breeze" then
+		local parts = {}
+		if w.wind ~= nil then
+			parts[1] = w.wind and "breeze on" or "breeze off"
+		end
+		if w.wind_speed ~= nil then
+			parts[#parts + 1] = "breeze strength " .. tostring(w.wind_speed)
+		end
+		return table.concat(parts, ", ")
 	end
 	if w.light_on == false then
 		return "light off"
@@ -221,7 +241,7 @@ local function show_value(field, v)
 	if v == nil then
 		return "nothing"
 	end
-	if field == "fan_on" or field == "light_on" then
+	if field == "fan_on" or field == "light_on" or field == "wind" then
 		return v and "on" or "off"
 	end
 	return tostring(v)
@@ -253,6 +273,9 @@ local function summary(c, has_light)
 	end
 	if c.direction ~= nil then
 		fan = fan .. " " .. c.direction
+	end
+	if c.wind == true then
+		fan = fan .. " breeze/" .. tostring(c.wind_speed)
 	end
 	local light = "no light kit"
 	if has_light ~= false then
@@ -472,7 +495,17 @@ end
 
 -- State helpers -------------------------------------------------------------
 
+-- Breeze is there while the fan has said so (has_wind, also restored from mf_wind
+-- before the first answer) and its last answer, if any, still carries `wind`: nothing
+-- about Breeze is sent to a fan without it (BZ10, BC15 to BC17).
+function Model:breeze_present()
+	return self.has_wind == true and not (self.known and self.conf.wind == nil)
+end
+
 function Model:group_present(group)
+	if group == "breeze" then
+		return self:breeze_present()
+	end
 	return group ~= "light" or self.has_light ~= false
 end
 
@@ -793,6 +826,13 @@ function Model:plan_group(g)
 		return { fan_on = true, speed = speed }, { fan_on = true, speed = speed }
 	elseif g == "direction" then
 		return { direction = w.direction }, { direction = w.direction }
+	elseif g == "breeze" then
+		-- Off carries no strength (wire.body's four bodies): a strength wanted with it
+		-- goes in the next request, once Off has been answered.
+		if w.wind == false then
+			return { wind = false }, { wind = false }
+		end
+		return { wind = w.wind, wind_speed = w.wind_speed }, { wind = w.wind, wind_speed = w.wind_speed }
 	end
 	if w.light_on == false then
 		return { light_on = false }, { light_on = false }
@@ -1105,17 +1145,37 @@ function Model:normalize(st, quiet)
 	end
 	n.fan_on, n.direction, n.light_on = st.fan_on, st.direction, st.light_on
 	n.speed, n.level = st.speed, st.level
+	n.wind, n.wind_speed = st.wind, st.wind_speed
 	if type(n.speed) == "number" and (n.speed < 1 or n.speed > 6) then
 		if not (n.speed == 0 and n.fan_on == false) and not quiet then
 			self:note_clamp("fanSpeed " .. tostring(n.speed))
 		end
-		n.speed = (n.speed == 0 and n.fan_on == false) and nil or math.max(1, math.min(6, n.speed))
+		-- Not "c and nil or x": that is always x.
+		if n.speed == 0 and n.fan_on == false then
+			n.speed = nil
+		else
+			n.speed = math.max(1, math.min(6, n.speed))
+		end
 	end
 	if type(n.level) == "number" and (n.level < 1 or n.level > 100) then
 		if (n.level > 100 or n.light_on == true) and not quiet then
 			self:note_clamp("lightBrightness " .. tostring(n.level))
 		end
-		n.level = (n.level < 1 and n.light_on ~= true) and nil or math.max(1, math.min(100, n.level))
+		if n.level < 1 and n.light_on ~= true then
+			n.level = nil
+		else
+			n.level = math.max(1, math.min(100, n.level))
+		end
+	end
+	if type(n.wind_speed) == "number" and (n.wind_speed < 1 or n.wind_speed > 3) then
+		if not (n.wind_speed == 0 and n.wind == false) and not quiet then
+			self:note_clamp("windSpeed " .. tostring(n.wind_speed))
+		end
+		if n.wind_speed == 0 and n.wind == false then
+			n.wind_speed = nil
+		else
+			n.wind_speed = math.max(1, math.min(3, n.wind_speed))
+		end
 	end
 	if self.has_light == false then
 		n.light_on, n.level = nil, nil
@@ -1185,10 +1245,28 @@ function Model:apply_read_value(f, r, now)
 	end
 end
 
+-- BZ8, the gust guard (BRR 5 item 1; BC23): while Breeze runs, the confirmed and
+-- the answered `wind` both true and the fan on in both, a fanSpeed the request did
+-- not set is taken for a gust. The confirmed speed stays the base speed, so it is
+-- not told, not "outside" and opens no fast window. A speed Control4 sends is its
+-- answer's (the new base), and the first answer with `wind` false is believed whole.
+function Model:gust(rec, norm)
+	local c = self.conf
+	if rec.sent.speed ~= nil or c.wind ~= true or norm.wind ~= true or c.fan_on ~= true or norm.fan_on ~= true then
+		return false
+	end
+	if norm.speed == nil or c.speed == nil or norm.speed == c.speed then
+		return false
+	end
+	self.log.debug("fanSpeed %s during Breeze is taken for a gust: the speed stays %s (BZ8)", tostring(norm.speed),
+		tostring(c.speed))
+	return true
+end
+
 -- A command's answer is the full new shadow (section 4.4): the fields it set
 -- take the answer's values, start a settle window and are compared with what
--- was sent; the rest is read as usual.
-function Model:apply_command_fields(rec, norm, now)
+-- was sent; the rest is read as usual (a gust's speed is not, BZ8).
+function Model:apply_command_fields(rec, norm, now, gust)
 	for _, f in ipairs(FIELDS) do
 		local sent = rec.sent[f]
 		if sent ~= nil then
@@ -1204,7 +1282,7 @@ function Model:apply_command_fields(rec, norm, now)
 				self.log.warn("The fan did not take %s %s (reports %s)", FIELD_NAME[f], show_value(f, sent),
 					show_value(f, got))
 			end
-		else
+		elseif not (gust and f == "speed") then
 			self:apply_read_value(f, norm[f], now)
 		end
 	end
@@ -1228,11 +1306,14 @@ function Model:apply_answer(rec, st)
 		-- A contact reads afresh: what an earlier command still held is not believed over it.
 		self.settle, self.held = {}, {}
 	end
+	local gust = self:gust(rec, norm)
 	if rec.kind == "command" then
-		self:apply_command_fields(rec, norm, now)
+		self:apply_command_fields(rec, norm, now, gust)
 	else
 		for _, f in ipairs(FIELDS) do
-			self:apply_read_value(f, norm[f], now)
+			if not (gust and f == "speed") then
+				self:apply_read_value(f, norm[f], now)
+			end
 		end
 	end
 	for _, f in ipairs(READ_ONLY) do
@@ -1252,7 +1333,7 @@ function Model:apply_answer(rec, st)
 		-- unchanged pin (a restart, an update) nothing else would show it again (#59).
 		self:announce_info()
 	end
-	self:reconcile({ why = why, cmd = rec.group })
+	self:reconcile({ why = why, cmd = rec.group, command = rec.kind == "command" })
 	if why == "start" then
 		self.reported = true
 	end
@@ -1283,6 +1364,8 @@ end
 -- ("start", "online", "command" or "outside"), then idle(group, st) when the
 -- group has just stopped being busy (its st is {} while nothing has been read
 -- yet); a change nobody commanded also opens the fast window and fires outside(...).
+-- A command's answer is "command" for every group it changed, not only the one it
+-- carried (BZ9): Breeze On that starts the fan or turns it forward is not "outside".
 --
 -- Differences are told only while the fan is online, or by the contact that is
 -- about to make it so (ctx.why): a fan that is offline, foreign or being contacted
@@ -1294,7 +1377,7 @@ function Model:reconcile(ctx)
 	local may_tell = ctx.why ~= nil or self.phase_ == "online"
 	for _, g in ipairs(GROUPS) do
 		if not self:group_present(g) then
-			self:reconcile_absent(g)
+			self:reconcile_absent(g, ctx, may_tell)
 		elseif self:busy(g) then
 			self.was_busy[g] = true
 			if ctx.why then
@@ -1310,11 +1393,17 @@ function Model:reconcile(ctx)
 	end
 end
 
--- No light kit (H4): what was wanted of the group goes, and whoever waited for it
--- is told it is idle.
-function Model:reconcile_absent(g)
+-- No light kit (H4), or no Breeze (BZ10): what was wanted of the group goes, and
+-- whoever waited for it is told it is idle. Breeze that was told and is gone (another
+-- fan picked, an answer without `wind`; BC18), or that mf_wind promised and the first
+-- answer lacks, is told once more, so whoever showed it hears a state without it.
+function Model:reconcile_absent(g, ctx, may_tell)
 	if self:group_has_wanted(g) then
-		self:release_group(g, "No light kit")
+		self:release_group(g, g == "breeze" and "No Breeze" or "No light kit")
+	end
+	if g == "breeze" and may_tell and (self.told[g] ~= nil or (ctx and ctx.why == "start" and self.has_wind == true)) then
+		self.told[g] = nil
+		self:emit("settled", g, self:confirmed() or {}, ctx and ctx.why or "outside")
 	end
 	if self.was_busy[g] then
 		self.was_busy[g] = false
@@ -1325,7 +1414,8 @@ end
 function Model:reconcile_idle(g, ctx, may_tell, outside)
 	local v = group_value(g, self.conf)
 	if may_tell and v ~= nil and v ~= self.told[g] then
-		local why = ctx.why or (ctx.cmd == g and "command") or self.owed[g] or "outside"
+		local why = ctx.why or (ctx.cmd == g and "command") or self.owed[g] or (ctx.command and "command")
+			or "outside"
 		self.told[g] = v
 		if why == "outside" then
 			outside[#outside + 1] = g
@@ -1715,6 +1805,21 @@ function Model:validate(fields)
 		end
 		plan.direction = { direction = fields.direction }
 	end
+	if fields.wind ~= nil or fields.wind_speed ~= nil then
+		any = true
+		-- BZ10: nothing about Breeze for a fan that has not said it has it (no answer yet,
+		-- Gen 1/2, a Gen 3 without the hardware) or whose last answer has no `wind`.
+		if not self:breeze_present() then
+			return nil, "no_breeze"
+		end
+		if fields.wind ~= nil and type(fields.wind) ~= "boolean" then
+			return nil, "range"
+		end
+		if fields.wind_speed ~= nil and not is_int(fields.wind_speed, 1, 3) then
+			return nil, "breeze_range"
+		end
+		plan.breeze = { wind = fields.wind, wind_speed = fields.wind_speed }
+	end
 	if fields.light_on ~= nil or fields.level ~= nil then
 		any = true
 		if self.has_light == false then
@@ -1745,10 +1850,13 @@ function Model:validate(fields)
 	return plan
 end
 
--- Wants fields of any of the three groups (section 9.5): { fan_on, speed } |
--- { direction } | { light_on, level }. The latest wanted fields of a group replace
--- the earlier ones; a wanted field is sent even when it equals the confirmed
--- state (V8). Returns true, or false and why.
+-- Wants fields of any of the four groups (section 9.5): { fan_on, speed } |
+-- { direction } | { wind, wind_speed } | { light_on, level }. The latest wanted
+-- fields of a group replace the earlier ones, except Breeze's two, which are
+-- separate settings and replace field by field (a strength wanted after Breeze On
+-- joins it). A wanted field is sent even when it equals the confirmed state (V8).
+-- Returns true, or false and why: the phase's refusal, "range", "no <key>",
+-- "no light kit", "no_breeze" (BZ10) or "breeze_range" (a strength not 1 to 3).
 function Model:want(fields)
 	if self.stopped then
 		return false, "unset"
@@ -1763,7 +1871,9 @@ function Model:want(fields)
 	end
 	for g, p in pairs(plan) do
 		for _, f in ipairs(GROUP_FIELDS[g]) do
-			self.wanted[f] = p[f]
+			if g ~= "breeze" or p[f] ~= nil then
+				self.wanted[f] = p[f]
+			end
 		end
 		if g == "light" and p.light_on == false then
 			self.leveled = false

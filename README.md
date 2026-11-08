@@ -18,10 +18,13 @@
 
 An independent Control4 DriverWorks driver for Modern Forms smart ceiling
 fans with an integrated light, working over the fan's own local network
-interface. One `.c4z` driver, **Modern Forms Fan**, makes the fan and its
-light ordinary Control4 devices: a fan with its speeds and a dimmable light
-that you switch, dim, program in Composer Pro and bind to keypads like any
-other fan and light.
+interface. The driver **Modern Forms Fan** (`modernforms_fan.c4z`) makes
+the fan and its light ordinary Control4 devices: a fan with its speeds and
+a dimmable light that you switch, dim, program in Composer Pro and bind to
+keypads like any other fan and light. On a fan that has Breeze, Control4
+switches Breeze too, and a small second driver, **Modern Forms Breeze**
+(`modernforms_breeze.c4z`), shows it on the Navigators as an on/off
+switch.
 
 A personal project for one Control4 home. It is not affiliated with,
 endorsed by or supported by Modern Forms, WAC Lighting or Snap One
@@ -56,11 +59,27 @@ version.
 - **The light.** The fan's light is a Control4 light (the `light_v2`
   proxy) with on, off and dimming from 1 to 100 %. It turns on at the
   **Default On Brightness**. It cannot fade and has no colour.
-- **Button Links that work.** Twelve Button Links of the driver's own:
-  **Fan Off**, **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle** and
-  **Fan Cycle**, and the light's **Light Top**, **Light Bottom** and
-  **Light Toggle**. A bound keypad button acts when pressed, and its LED
-  follows the fan or the light: it shows the target at once and is
+- **Breeze.** On a Gen 3 fan that has Breeze (the fan varies its speed
+  like a natural breeze, at a strength of 1 to 3), programming gets the
+  commands **Breeze On**, **Breeze Off**, **Toggle Breeze** and **Set
+  Breeze Strength**, the variable **Breeze**, the events **Breeze
+  Started** and **Breeze Stopped** and the condition **Breeze is on**; a
+  keypad button bound to **Fan Breeze** toggles it, its LED lit while
+  Breeze blows. Breeze On starts a fan that is off at its preset speed
+  first; a speed change, Off or Toggle never switches Breeze off by
+  itself, and the driver shows what the fan does then. A fan without
+  Breeze refuses the commands and says so.
+- **The Breeze switch.** Control4's fan tile has no place for Breeze, so
+  the action **Add Breeze Switch** on the fan item adds a companion on/off
+  switch, named after the fan ("Aviator 5 Breeze"), to the fan's room:
+  lit while Breeze blows, one tap toggles it, on the Control4 app and the
+  touch screens. Keep it out of "all lights" groups: off ends Breeze while
+  the fan keeps turning.
+- **Button Links that work.** Thirteen Button Links of the driver's own:
+  **Fan Off**, **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle**, **Fan
+  Cycle** and **Fan Breeze**, and the light's **Light Top**, **Light
+  Bottom** and **Light Toggle**. A bound keypad button acts when
+  pressed, and its LED follows the fan or the light: it shows the target at once and is
   corrected if the fan does something else. A hold on a light link
   brightens or dims the light, and a keypad's Up and Down buttons can be
   bound to **Light Top** and **Light Bottom**.
@@ -116,9 +135,9 @@ Control4 stays the source of truth: the driver reports what the fan does
 and never fights it. It does not set or clear the fan's own schedules,
 timers, Away mode or adaptive learning; it shows them in **Fan
 Automations** and offers two clicks, **Turn Off Away Mode** and **Turn Off
-Adaptive Learning**. It never adds, moves or deletes a Control4 device and
-never changes keypad programming. Automations belong in Control4
-programming.
+Adaptive Learning**. It adds a Control4 device only when you click **Add
+Breeze Switch**, never moves or deletes one, and never changes keypad
+programming. Automations belong in Control4 programming.
 
 ## What you need
 
@@ -151,7 +170,9 @@ tests there passed: keypad presses, the LEDs following the fan in their
 per-speed colours, the double taps, the light's Up and Down buttons, and
 following the fan to a new address. No Gen 1 or Gen 2 fan has been tried,
 and following a new address relies on an answer seen from Gen 3 fans
-only.
+only. Breeze (#111) was built without trying the fan's own behaviour in
+Breeze on the house: whether a speed change or Off ends it is the fan's
+decision, and the driver shows what the fan reports.
 
 ## Get it
 
@@ -159,8 +180,10 @@ Releases are on the
 [Releases page](https://github.com/corytron/c4-modernforms-driver/releases),
 numbered `X.Y` and tagged `vX.Y`. The newest is always at
 [releases/latest](https://github.com/corytron/c4-modernforms-driver/releases/latest),
-and its driver downloads directly from
-[`releases/latest/download/modernforms_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_fan.c4z).
+and its packages download directly from
+[`releases/latest/download/modernforms_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_fan.c4z)
+and, from the first release after 1.1,
+[`releases/latest/download/modernforms_breeze.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_breeze.c4z).
 Each X.Y carries its own codename from Denis Villeneuve's *Dune* films, a
 major name for an X.0 and a lesser one for a point release: 1.0 is
 "Arrakis", 1.1 is "Jamis". Prereleases for testers (`X.Y-beta.N`) are marked
@@ -170,30 +193,32 @@ release's notes and the end of the driver's Documentation tab repeat.
 
 Every release is built and attached by the repository's Release workflow
 ([`release.yml`](.github/workflows/release.yml)) from `main`, never by hand,
-and carries the driver `modernforms_fan.c4z`, `SHA256SUMS.txt` (its
-checksum), `manifest.json` (what was built: the tag, the build number that
-Composer shows as **Driver Version**, the commit, and each package's
-`sha256` and size) and the build-provenance attestations. To check a
-download:
+and carries the two packages `modernforms_fan.c4z` and
+`modernforms_breeze.c4z` (the Breeze switch, since #111; 1.0 and 1.1 carry
+the first alone), `SHA256SUMS.txt` (their checksums), `manifest.json` (what
+was built: the tag, the build number that Composer shows as **Driver
+Version**, the commit, and each package's `sha256` and size) and the
+build-provenance attestations. To check a download, in the folder that
+holds every file of the release:
 
 ```sh
 sha256sum -c SHA256SUMS.txt
-gh attestation verify modernforms_fan.c4z --repo corytron/c4-modernforms-driver \
-  --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml   # GitHub CLI 2.102.0 or newer
+for f in *.c4z; do gh attestation verify "$f" --repo corytron/c4-modernforms-driver \
+  --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml; done   # GitHub CLI 2.102.0 or newer
 ```
 
-The second command confirms that the file was built and signed by this
+The second command confirms that each file was built and signed by this
 repository's Release workflow, and fails otherwise.
 
 ## Build from source
 
-[`tools/build.sh`](tools/build.sh) packages the driver with Snap One's
+[`tools/build.sh`](tools/build.sh) packages the drivers with Snap One's
 public driver packager, which you clone yourself (nothing of Snap One's is
 vendored here):
 
 ```sh
 git clone https://github.com/snap-one/drivers-driverpackager ~/c4-tools/drivers-driverpackager
-tools/build.sh          # -> build/modernforms_fan.c4z, build/manifest.json
+tools/build.sh          # -> build/modernforms_fan.c4z, build/modernforms_breeze.c4z, build/manifest.json
 tools/build.sh --dev    # development build: dev loop, Lua command window, the dev key; never install or share it as production
 ```
 
@@ -229,8 +254,9 @@ The driver's **Documentation** tab in Composer
 is the owner's and dealer's manual; its chapter 3 covers adding the fan.
 In short:
 
-1. Choose **Driver > Add or Update Driver or Agent...** and open
-   `modernforms_fan.c4z`.
+1. Choose **Driver > Add or Update Driver or Agent...** and open both
+   packages of the release, `modernforms_fan.c4z` and
+   `modernforms_breeze.c4z`.
 2. Add **Modern Forms Fan** (manufacturer Modern Forms) to the fan's room.
    Two items appear: the fan, **Modern Forms Fan**, and under it its
    light, **Modern Forms Fan Light**. Add one device per fan.
@@ -241,13 +267,18 @@ In short:
    **Status** reads `Online: ...`.
 4. Choose **File > Refresh Navigators**, then bind keypad buttons to the
    driver's links in **Connections** (chapter 5 of the manual).
+5. On a fan with Breeze, for the Navigators: click **Add Breeze Switch** on
+   the fan item's **Actions** tab, then **File > Refresh Navigators** again
+   ([the Breeze switch](src/modernforms_fan/www/documentation.html#breeze-switch)
+   in chapter 4 of the manual).
 
 The rules that hold from then on:
 
-- Update through **Driver > Add or Update Driver or Agent...** as well. An
-  update goes **in place** onto every existing device; never delete and
-  re-add the device, since its connections, its state and every
-  programming line that names it go with it.
+- Update through **Driver > Add or Update Driver or Agent...** as well,
+  with both packages at once. An update goes **in place** onto every
+  existing device; never delete and re-add the device, since its
+  connections, its state and every programming line that names it go with
+  it. The update that brings Breeze needs no controller reboot.
 - If Composer asks **Restart Director?**, the new build changes the driver's
   capabilities. Answer Yes, then **reboot the controller from System
   Manager** (Tools > System Manager): the new code loads only with the
@@ -270,7 +301,7 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
    branch must be up to date with `main`.
 2. A release is cut from `main` by the Release workflow (Actions ▸ Release ▸
    Run workflow ▸ version, or a pushed `vX.Y` tag on a commit of `main`): it
-   lints, tests, builds, and attaches the package, the checksums, the
+   lints, tests, builds, and attaches the packages, the checksums, the
    manifest and the attestations described above.
 3. [`deploy/house.yaml`](deploy/house.yaml) names the release and build the
    house should run. Changing it is a pull request of its own.
@@ -282,7 +313,7 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
    checksums, the manifest and the attestations, records the deployment and
    writes a brief; the author's Windows Composer session
    ([`docs/composer-remote.md`](docs/composer-remote.md)) installs the
-   package from the GitHub release URL through *Add or Update Driver or
+   packages from the GitHub release URLs through *Add or Update Driver or
    Agent...* (the controller has no install API, so this click is never
    automatic); `python3 tools/deploy.py done` records the result, which
    closes the issue.
@@ -293,7 +324,10 @@ repository ([`docs/cicd-gitops-design.md`](docs/cicd-gitops-design.md)):
 src/common/          the author's shared Lua modules (log, dispatch, device, devloop), staged into
                      each package as common/
 src/modernforms_fan/ the driver: driver.lua, driver.xml, www/ (its Documentation tab) and fan/ (the
-                     wire, the state model, the proxies, the links, finding fans, the item names)
+                     wire, the state model, the proxies, the links, finding fans, the item names,
+                     Breeze)
+src/modernforms_breeze/ the Breeze switch (#111): a small light_v2 on/off driver, its Documentation
+                     tab and icons, bound to the fan driver
 tests/               busted specs (spec/), the fake DriverWorks runtime (helpers/), and the fan's
                      answers and multicast DNS announcements, with placeholders (fixtures/)
 tools/               build.sh; check.sh (every check, as CI runs it) and setup-checks.sh (its

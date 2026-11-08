@@ -1,6 +1,7 @@
--- The fan's nine Button Links, 300 to 308 (Off, Speed 1 to 6, Toggle, Cycle),
--- their keypad LEDs, and the Keypad Links bookkeeping of all twelve links
--- (docs/v1-design.md sections 5.1, 5.3 and 9.8).
+-- The fan's ten Button Links, 300 to 308 (Off, Speed 1 to 6, Toggle, Cycle) and
+-- 311 (Breeze), their keypad LEDs, and the Keypad Links bookkeeping of all
+-- thirteen links (docs/v1-design.md sections 5.1, 5.3 and 9.8;
+-- docs/breeze-design.md BZ4 and section 6 for 311).
 --
 -- What a keypad sends over a link, as measured on the house (K6 and K7, 2026-11-04,
 -- OS 3.4.3): a tap is DO_PUSH, then DO_CLICK 0.15 to 0.25 s later; a hold is
@@ -19,6 +20,13 @@
 --     keypad asks with REQUEST_BUTTON_COLORS.
 --   * Colours: none are sent unless Speed LED Colors is "per_speed" (V27); the
 --     button then shows the colours set on the keypad itself.
+--   * Fan Breeze (311, BZ4) is handled as Fan Toggle: its push calls
+--     breeze_toggle(), the click rule and the release are the same. Its LED is
+--     breeze_blows() (BZ1: the shown `wind` and `fan_on`), read again on every
+--     shown state and sent only when it changes, on a bind and on
+--     REQUEST_BUTTON_COLORS; like Off, Toggle and Cycle it never gets
+--     BUTTON_COLORS (BC27). Without breeze_blows it stays dark, and without
+--     breeze_toggle a press does nothing.
 --
 -- Everything that touches Director is an argument (section 9.1):
 --
@@ -35,6 +43,8 @@
 --       display = fn(device_id) -> C4:GetDeviceDisplayName(device_id),
 --       list = fn(items),       -- writes the Keypad Links property
 --       texts = fan/texts.lua (default: required when the list is first written),
+--       breeze_toggle = fn(),   -- link 311's press (fan/breeze.lua's b:toggle()); optional
+--       breeze_blows = fn() -> bool,   -- link 311's LED (b:blows_shown()); optional
 --       log = log,              -- default common.log
 --   })
 
@@ -47,7 +57,11 @@ links.LINKS = {
 	[304] = "Fan Speed 4", [305] = "Fan Speed 5", [306] = "Fan Speed 6",
 	[307] = "Fan Toggle",
 	[308] = "Fan Cycle",
+	[311] = "Fan Breeze", -- "Fan Breeze Button Link" in driver.xml (BZ4)
 }
+
+-- The Breeze link (BZ4): a press toggles Breeze, the LED shows it.
+links.BREEZE = 311
 
 -- The light's links belong to common/device.lua; here they are bookkeeping only.
 links.LIGHT_LINKS = { [200] = "Light Top", [201] = "Light Bottom", [202] = "Light Toggle" }
@@ -61,8 +75,9 @@ links.REREAD_MS = 3000 -- after an unbind whose keypad may have another button o
 local UNKNOWN = "?"
 
 local SPEEDS = 6
-local FAN_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308 }
-local ALL_IDS = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308 }
+local BREEZE = links.BREEZE
+local FAN_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
+local ALL_IDS = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
 
 -- Parsing ------------------------------------------------------------------
 
@@ -116,6 +131,8 @@ function links.new(opts)
 		display = opts.display,
 		list = opts.list,
 		texts = opts.texts,
+		breeze_toggle = type(opts.breeze_toggle) == "function" and opts.breeze_toggle or nil,
+		breeze_blows = type(opts.breeze_blows) == "function" and opts.breeze_blows or nil,
 		log = opts.log or require("common.log"),
 		led = {}, -- [link] = the STATE last sent
 		led_speed = {}, -- [link] = the speed whose colours went with that STATE (per speed only)
@@ -173,10 +190,28 @@ function links:set_button_color(link)
 	self.log.debug("link %d: SET_BUTTON_COLOR ignored; the fan links take their colours elsewhere", link)
 end
 
+-- Link 311's intent (BZ4): fan/breeze.lua toggles from the shown value and
+-- writes its own Last Action for a fan without Breeze (BZ10). Without
+-- breeze_toggle the press does nothing; one that raises is logged.
+function links:toggle_breeze(how)
+	if not self.breeze_toggle then
+		self.log.debug("link %d (%s): %s; nothing to do without Breeze", BREEZE, links.LINKS[BREEZE], how)
+		return true
+	end
+	local called, ok, why = pcall(self.breeze_toggle)
+	if not called then
+		self.log.error("link %d (%s): %s failed: %s", BREEZE, links.LINKS[BREEZE], how, tostring(ok))
+		return true
+	end
+	return ok, why
+end
+
 -- The link's intent. The Cycle link stops at 6, as the proxy's does (V11, #77).
 function links:act(link, how)
 	local ok, why
-	if link == 300 then
+	if link == BREEZE then
+		ok, why = self:toggle_breeze(how)
+	elseif link == 300 then
 		ok, why = self.fan:off()
 	elseif link == 307 then
 		ok, why = self.fan:toggle()
@@ -192,12 +227,30 @@ end
 
 -- LEDs (sections 5.1 and 4.5) ---------------------------------------------------------
 
+-- Link 311's lit state (BZ1, BZ4): breeze_blows(), read each time; false
+-- without it (the LED stays dark), nil when it raises (nothing is sent).
+function links:blows()
+	if not self.breeze_blows then
+		return false
+	end
+	local ok, blows = pcall(self.breeze_blows)
+	if not ok then
+		self.log.warn("link %d: whether Breeze blows could not be read: %s", BREEZE, tostring(blows))
+		return nil
+	end
+	return blows == true
+end
+
 -- Whether a link is lit by a shown state, and for a lit speed link the speed
--- (it names the colour). nil: not known, and nothing is sent then.
+-- (it names the colour). nil: not known, and nothing is sent then. The Breeze
+-- link waits for the first contact as the others do (BC22), then follows
+-- breeze_blows().
 function links:lit(link, shown)
 	local on, speed = shown.fan_on, shown.speed
 	if on == nil then
 		return nil
+	elseif link == BREEZE then
+		return self:blows()
 	elseif link == 300 then
 		return on == false
 	elseif link == 307 or link == 308 then
@@ -213,7 +266,8 @@ function links:lit(link, shown)
 end
 
 -- A speed link lit at `speed` has a colour of its own only with Per speed
--- and a colour set for that speed; the Off, Toggle and Cycle links never do.
+-- and a colour set for that speed; the Off, Toggle, Cycle and Breeze links
+-- never do (BC27).
 function links:colour_for(link, speed)
 	if self.mode ~= "per_speed" or speed == nil or link < 301 or link > 306 then
 		return nil
@@ -263,14 +317,15 @@ function links:push_led(link, shown, force)
 	return true
 end
 
--- The model's listener.shown: the links whose lit state changed.
+-- The model's listener.shown: the links whose lit state changed (311's from
+-- breeze_blows(), read again now).
 function links:shown(shown)
 	for _, link in ipairs(FAN_IDS) do
 		self:push_led(link, shown or {}, false)
 	end
 end
 
--- All nine, whether they changed or not (the first contact).
+-- All ten, whether they changed or not (the first contact).
 function links:refresh()
 	local shown = self.model:shown() or {}
 	for _, link in ipairs(FAN_IDS) do
@@ -402,7 +457,8 @@ function links:texts_module()
 	return self.texts
 end
 
--- Writes the Keypad Links property when its items changed.
+-- Writes the Keypad Links property when its items changed, counted against
+-- the links this module keeps ("N of 13 links bound", BZ4).
 function links:publish()
 	if not self.list then
 		return
@@ -411,7 +467,7 @@ function links:publish()
 	if not texts then
 		return
 	end
-	local ok, items = pcall(texts.keypad_links, self:rows())
+	local ok, items = pcall(texts.keypad_links, self:rows(), #ALL_IDS)
 	if not ok or type(items) ~= "table" then
 		self.log.warn("Keypad Links: the text could not be built: %s", tostring(items))
 		return
@@ -432,7 +488,7 @@ function links:publish()
 	end
 end
 
--- OnBindingChanged for any of the twelve links. The event names the keypad;
+-- OnBindingChanged for any of the thirteen links. The event names the keypad;
 -- Director's own table may still lag behind it (a Bind is asynchronous), so
 -- the table says who else is bound and the event settles the one it names.
 -- A fan link that was bound is answered at once (K6: the button is dark
@@ -441,7 +497,7 @@ function links:binding_changed(id, bound, other_device, other_binding)
 	local link = tonumber(id)
 	local name = links.LINKS[link] or links.LIGHT_LINKS[link]
 	if not name then
-		self.log.debug("OnBindingChanged on binding %s: not one of the twelve links", tostring(id))
+		self.log.debug("OnBindingChanged on binding %s: not one of the thirteen links", tostring(id))
 		return
 	end
 	bound = bound and true or false
@@ -603,7 +659,7 @@ function links:stop()
 end
 
 -- Dev State (section 12): the LED each fan link was last sent (nil: never)
--- and how many of the twelve links have a keypad bound.
+-- and how many of the thirteen links have a keypad bound.
 function links:debug()
 	local leds, count = {}, 0
 	for _, link in ipairs(FAN_IDS) do

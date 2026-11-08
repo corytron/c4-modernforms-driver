@@ -8,7 +8,7 @@ at once) on one address (--bind; by default this VM's LAN address, never every a
   the developer's side  /status /admin/enqueue /admin/pin /admin/unpin (tools/devctl.py)
 
 Served trees: one per src/<driver>/driver.xml found at startup, named after its directory (today
-modernforms_fan), each exactly the Lua and XML that tools/build.sh stages for that driver, with
+modernforms_fan and modernforms_breeze), each exactly the Lua and XML that tools/build.sh stages for that driver, with
 src/common mounted as common/. /manifest, /bundle and /file take ?tree=<name>; a request that names
 no tree gets the only tree while there is exactly one, and a 400 otherwise:
   <name>: src/<name>/**/*.lua, **/*.xml  ->  driver.lua, driver.xml, fan/http.lua

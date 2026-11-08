@@ -20,7 +20,11 @@ is recorded in [`migration-design.md`](migration-design.md). Since #102
 (2026-11-07) the driver finds fans by itself and the Find Fans action is
 gone: steps 1, 4 to 6, 9, 43 and 45 read `Found Fans` instead of clicking,
 and step 5 carries the house checks H1 to H3 of
-[`auto-discovery-design.md`](auto-discovery-design.md).
+[`auto-discovery-design.md`](auto-discovery-design.md). Since #111
+(2026-11-07) the release carries two packages and the driver has Breeze:
+steps 1, 5, 8, 9, 11, 17, 18 and 24 count the Fan Breeze link and the
+action Add Breeze Switch, and section J (steps 49 to 56) installs the
+Breeze switch and checks it.
 
 ## Before you start
 
@@ -37,8 +41,9 @@ and step 5 carries the house checks H1 to H3 of
   of [`composer-remote.md`](composer-remote.md#rules-for-the-windows-session)
   (rule 8) and names the hard-to-undo steps inside it: installs, bindings and
   Disconnects, a Set on a property, a rename of an item or the delete of a
-  throw-away device (steps 7 and 48) and the throw-away programming scripts
-  of step 35.
+  throw-away device (steps 7 and 48), the throw-away programming scripts
+  of step 35, the Breeze switch that Add Breeze Switch adds (step 51) and
+  the throw-away If line of step 55.
 - **The test buttons.** Since the cutover (2026-11-04) the house keypad's
   fan and light buttons are bound to this driver's links
   ([`status.md`](status.md)), so the steps press those buttons themselves:
@@ -78,9 +83,10 @@ and step 5 carries the house checks H1 to H3 of
   as they did: Default On Brightness 100, the fan item's Preset Level
   Level 3, every `Speed N Link Also Lit At` at `No other speed`, `Follow
   Address Changes` On, `Fan Address` the fan's address, the test
-  buttons restored, `Debug Mode` Off, and the two items' names as they were
+  buttons restored, `Debug Mode` Off, the two items' names as they were
   before step 6 (the driver changes them in steps 6 and 7; they are put back
-  by hand in step 48).
+  by hand in step 48), and the fan's Breeze as it was (step 56). The Breeze
+  switch of step 51 stays.
 
 The house this version was written for (2026-11-04, before the first
 install): one Modern Forms fan on the stock driver
@@ -94,12 +100,14 @@ installed, the keypad moved to its links and the stock device was deleted
 ## A. Install and update
 
 1. **Install and add the device.** Driver » "Add or Update Driver or Agent…",
-   select `modernforms_fan.c4z` of the build, Open. Then add **Modern Forms
+   select the packages of the build (since #111 two, `modernforms_fan.c4z`
+   and `modernforms_breeze.c4z`), Open. Then add **Modern Forms
    Fan** to a room (the fan's room, as
    [`migration-design.md`](migration-design.md#3-phases) Phase 1 has it).
    - **Expect:** "Update Succeeded: Drivers or agents were successfully
      updated: modernforms_fan.c4z" (the text Composer Pro 3.4.2 shows for the
-     Hue drivers) and **no** "Restart Director?". Two tree items: **Modern
+     Hue drivers; since #111 it names `modernforms_breeze.c4z` too) and
+     **no** "Restart Director?". No Breeze switch is added by the install. Two tree items: **Modern
      Forms Fan** (the fan, the parent) and **Modern Forms Fan Light** under
      it, with Control4's standard fan and light icons. On the fan item:
      `Driver Version` the build number, `Debug Mode` Off, `Poll Interval (s)`
@@ -155,7 +163,7 @@ installed, the keypad moved to its links and the stock device was deleted
    item of the house fan in `Found Fans` and click the row's **Set**; read
    `Last Action` and `Found Fans` after about 3 seconds.
    - **Expect:** (H1) five actions, `Use Selected Fan` first, no `Find
-     Fans` (step 9). (H2) The value and first item `This device's fan
+     Fans` (step 9; six since #111, `Add Breeze Switch` last). (H2) The value and first item `This device's fan
      answered; no other fan found` (`2 fans found; this device's fan is
      listed first` if another fan is awake), then the item `MF_Fan_005301 at
      10.0.2.151 (this device: Aviator 5)`, the instance name ending in the
@@ -227,7 +235,7 @@ installed, the keypad moved to its links and the stock device was deleted
      (`<date time>, answered in <s> s`, moving on every 10 seconds at most),
      `Last Change By` empty until the fan changes from outside, `Fan
      Automations` (`None` or `Active: …`), `Poll Interval (s)` 15, `Keypad
-     Links` (`0 of 12 links bound`), `Speed 1 Link Also Lit At` to `Speed 6
+     Links` (`0 of 13 links bound`; `of 12` before #111), `Speed 1 Link Also Lit At` to `Speed 6
      Link Also Lit At` all `No other speed`, `Speed LED Colors` `Keypad's
      own`, `Speed 1 LED Color` to `Speed 6 LED Color` `0,0,255` and `Speed LED
      Off Color` `0,0,0` (V27, #31), `Debug Mode` Off, and a release build has
@@ -235,9 +243,10 @@ installed, the keypad moved to its links and the stock device was deleted
      (gone since #45).
    - **Done:** open.
 9. **The Actions tab.**
-   - **Expect:** five actions in this order: `Use Selected Fan`, `Name Items
+   - **Expect:** six actions in this order: `Use Selected Fan`, `Name Items
      After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive
-     Learning` (no `Migration Report` since #45, no `Find Fans` since #102).
+     Learning`, `Add Breeze Switch` (no `Migration Report` since #45, no
+     `Find Fans` since #102; `Add Breeze Switch` since #111).
    - **Done:** open.
 10. **The Documentation tab.** Open the fan item's **Documentation** tab,
     scroll to the end.
@@ -250,8 +259,10 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** the fan proxy's own events and conditions, and the driver's
       two events `Fan Offline` ("When <name> stops answering on the
       network") and `Fan Online` ("When <name> answers on the network
-      again"), and the condition "Fan is online". The light item lists its
-      own light events.
+      again"), and the condition "Fan is online"; since #111 also the four
+      Breeze commands, the events `Breeze Started` and `Breeze Stopped`, the
+      condition "Breeze is on" and the variable `Breeze` (step 50). The
+      light item lists its own light events.
     - **Done:** open.
 12. **The fan on a Navigator.** *By hand*, after File » Refresh Navigators:
     open the fan on a Navigator or in the Control4 app. Tap each of Level 1
@@ -297,11 +308,13 @@ installed, the keypad moved to its links and the stock device was deleted
 ## D. Fan speed links (the driver's own Button Links)
 
 17. **The links are listed.** Connections: select the fan item.
-    - **Expect:** under its Control Outputs the nine fan links **Fan Off**,
-      **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle** and **Fan Cycle
-      Button Link**, and the three light links **Light Top**, **Light
-      Bottom** and **Light Toggle Button Link**; the light item lists the
-      same twelve in this per-item view. In the lower list of a keypad's
+    - **Expect:** under its Control Outputs the ten fan links **Fan Off**,
+      **Fan Speed 1** to **Fan Speed 6**, **Fan Toggle**, **Fan Cycle** and
+      **Fan Breeze Button Link** (Fan Breeze since #111); the three light
+      links **Light Top**, **Light Bottom** and **Light Toggle Button
+      Link**; and **Breeze Switch**, the output a Breeze switch is connected
+      to (#111). The light item lists the same thirteen links in this
+      per-item view. In the lower list of a keypad's
       Connections they appear under the fan item only (seen with the probe
       on 2026-10-27).
     - **Done:** open.
@@ -312,7 +325,7 @@ installed, the keypad moved to its links and the stock device was deleted
     read both lists afterwards).
     - **Expect:** both lists show the binding; the button's LED Behavior
       reads Follow Connection (the binding sets it, seen with the probe on
-      2026-10-27); `Keypad Links` reads `1 of 12 links bound` and `Fan Speed
+      2026-10-27); `Keypad Links` reads `1 of 13 links bound` and `Fan Speed
       3: <keypad> (<id>)`; the LED is already right for the fan's state.
     - **Done:** open.
 19. **A press.** Press the bound button once (with the fan at another speed).
@@ -347,7 +360,7 @@ installed, the keypad moved to its links and the stock device was deleted
 24. **Disconnect.** Right-click the binding of each link used so far and
     choose Disconnect; read both lists.
     - **Expect:** the prompt names the two devices; both lists show the link
-      unbound; `Keypad Links` reads `0 of 12 links bound`; set the button's LED
+      unbound; `Keypad Links` reads `0 of 13 links bound`; set the button's LED
       Behavior back to Programmed (a Disconnect does not restore it) when the
       button is borrowed (R-K).
     - **Done:** open.
@@ -622,6 +635,94 @@ installed, the keypad moved to its links and the stock device was deleted
     Then read the fan item's properties once more.
     - **Expect:** the rows read as in step 8; the item names are as before
       step 6; the keypad is as before step 18.
+    - **Done:** open.
+
+## J. Breeze (#111)
+
+Written 2026-11-07 for the release that brings Breeze: the contract's
+house steps ([`breeze-design.md`](breeze-design.md#9-on-the-house-after-the-release-install-windows-session),
+section 9) and the checks BN1 to BN5 of
+[`edge-cases-breeze.md`](edge-cases-breeze.md#5-checks-on-the-house-each-under-a-minute).
+The fan's own behaviour in Breeze was not tried before the build (BZ5):
+where a step makes the fan blow a breeze, it records what the fan did
+instead of expecting a result. The house keypad has no free button, so the
+Fan Breeze link (311) stays unbound here; the specs carry its press and
+LED. On the house the fan item is named **Fan**, so the switch is named
+**Fan Breeze**; on a device named after the fan it would be **Aviator 5
+Breeze**.
+
+49. **Install both packages in place.** Driver » "Add or Update Driver or
+    Agent…", select both files of the release, `modernforms_fan.c4z` and
+    `modernforms_breeze.c4z`, Open (the install brief of
+    [`release-checklist.md`](release-checklist.md#deploy-to-the-house)
+    does this).
+    - **Expect:** "Update Succeeded" naming both files and **no** "Restart
+      Director?" (no capability of the fan device changes); no new item in
+      the tree. On the fan item: `Driver Version` the build, `Status`
+      `Online: …` (with ` Breeze 2` while the fan runs with Breeze, ` Breeze
+      set` while it is off with Breeze set), `Fan Model` ending in `,
+      Breeze`, `Keypad Links` `<n> of 13 links bound` with the bindings it
+      had, `Debug Mode` Off; the Actions tab as step 9; in Connections the
+      fan item lists **Fan Breeze Button Link** and **Breeze Switch**, both
+      unbound. No `[ERROR]` line in the Lua tab.
+    - **Done:** open.
+50. **Programming, read only (BN1).** Open Programming and select the fan
+    item; read its commands, events, conditions and variables; add nothing.
+    - **Expect:** the device-specific commands `Breeze On` ("Turn Breeze on
+      for <name>"), `Breeze Off`, `Toggle Breeze` and `Set Breeze Strength`
+      (a list `1`, `2`, `3`); the events `Breeze Started` ("When <name>
+      starts blowing a Breeze") and `Breeze Stopped` ("When <name> stops
+      blowing a Breeze") beside `Fan Offline` and `Fan Online`; the
+      condition "Breeze is on" (True, False) beside "Fan is online"; the
+      variable `Breeze` (0 or 1, read-only) after `Online`. Record any list
+      that differs.
+    - **Done:** open.
+51. **Add Breeze Switch (BN2).** On the fan item's Actions tab click **Add
+    Breeze Switch** once; read `Last Action`, the System Design tree, the
+    fan item's `Breeze Switch` output in Connections and the new item's
+    Properties. Then click it again.
+    - **Expect:** within a few seconds `Breeze switch added: Fan Breeze`; a
+      new item **Fan Breeze** in the fan's room, with the switch's own
+      icon; the fan item's `Breeze Switch` output bound to it; on the
+      switch `Driver Version` the build, `Status` `Breeze off on Fan` (or
+      `Breeze on Fan` while Breeze blows) and `Debug Mode` Off; no
+      "Restart Director?". The second click: `A Breeze switch is already
+      connected: Fan Breeze`, and nothing is added. Record the seconds
+      until the item showed.
+    - **Done:** open.
+52. **Refresh Navigators (BN2).** File » Refresh Navigators.
+    - **Expect:** it completes with no error.
+    - **Done:** open.
+53. **The switch on the phone (BN3).** *By hand, under a minute*: open the
+    fan's room in the Control4 app, then on one touch screen; find **Fan
+    Breeze** among the lights; tap it on, wait until it lights, tap it off.
+    The Windows session reads the fan's `Status` and the switch's `Status`
+    before, between and after the taps.
+    - **Expect:** the switch is listed among the room's lights, lit or dark
+      as the fan's Breeze is; the tap on lights it within a couple of
+      seconds, the fan goes into Breeze (from off it first starts at the
+      preset speed, Level 3) and its `Status` shows ` Breeze <strength>`;
+      the tap off darkens it, Breeze ends and the fan keeps turning.
+      Record what the fan did, in the owner's words (the fan decides, BZ5):
+      whether its speed varied, and what it did after the tap off.
+    - **Done:** open.
+54. **Where the switch is listed (BN4).** Read only: the room's Navigator
+    settings in Composer (its lists such as Lights and Comfort), for the
+    fan and for the switch.
+    - **Expect:** record where each is listed; the switch is expected among
+      the lights.
+    - **Done:** open.
+55. **The condition (BN5).** The Windows session puts one If line on
+    "Breeze is on" into a throw-away script, with a harmless effect as in
+    step 35, reads it back with Copy All, then deletes the line.
+    - **Expect:** the If offers True and False and takes the line; after
+      the delete, Copy All equals what it was before.
+    - **Done:** open.
+56. **Breeze back as it was.** After step 53 the fan's Breeze is as it was
+    before (off on the house); if not, tap the switch once more. The switch
+    stays: it is meant to.
+    - **Expect:** the fan's `Status` as before step 53, the switch dark,
+      still in the fan's room and connected.
     - **Done:** open.
 
 ## What to paste back

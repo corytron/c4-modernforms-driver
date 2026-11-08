@@ -32,13 +32,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li><a href="#ch1">What this driver does</a></li>
 <li><a href="#ch2">Before you start</a></li>
 <li><a href="#ch3">Adding the fan</a></li>
-<li><a href="#ch4">The fan from Control4</a></li>
+<li><a href="#ch4">The fan from Control4, and Breeze</a></li>
 <li><a href="#ch5">Keypad buttons</a></li>
 <li><a href="#ch6">The light</a></li>
 <li><a href="#ch7">When the fan is offline, rebooting or the wrong one</a></li>
 <li><a href="#ch8">A new address, a replaced or a reset fan</a></li>
 <li><a href="#ch9">The fan's own automations</a></li>
-<li><a href="#ch10">Properties, actions and events, row by row</a></li>
+<li><a href="#ch10">Properties, actions, commands and events, row by row</a></li>
 <li><a href="#ch11">Moving from the stock WAC driver</a></li>
 <li><a href="#ch12">Troubleshooting</a></li>
 <li><a href="#ch13">Limits</a></li>
@@ -50,12 +50,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <!-- ================================================================ -->
 <h2 id="ch1">1. What this driver does</h2>
 
-<p>This driver makes a Modern Forms smart ceiling fan, and the light on it, ordinary Control4 devices. The fan has its six speeds, off and a direction; the light is a dimmer. Keypad buttons can be bound to twelve Button Links that belong to the driver, and a bound button's LED shows what the fan or the light is really doing. The driver talks to the fan directly over your home network and never contacts the vendor's cloud, so Control4 keeps working when the cloud is down. The fan itself has to be set up on your Wi-Fi with the Modern Forms app first (chapter 2).</p>
+<p>This driver makes a Modern Forms smart ceiling fan, and the light on it, ordinary Control4 devices. The fan has its six speeds, off and a direction; the light is a dimmer. On a fan that has Breeze, Breeze can be switched from Control4 as well. Keypad buttons can be bound to thirteen Button Links that belong to the driver, and a bound button's LED shows what the fan or the light is really doing. The driver talks to the fan directly over your home network and never contacts the vendor's cloud, so Control4 keeps working when the cloud is down. The fan itself has to be set up on your Wi-Fi with the Modern Forms app first (chapter 2).</p>
 
 <ul>
 <li><b>The fan</b>: Control4's fan with six speeds, named Level 1 to Level 6 as the stock driver names them, off, forward and reverse, and a preset speed for On and Toggle (Level 3 until you change it).</li>
 <li><b>The light</b>: a Control4 light with on, off and dimming. It turns on at the Default On Brightness. These lights have no colour, so there is no colour control.</li>
-<li><b>Keypad buttons that work</b>: Button Links for Fan Off, Fan Speed 1 to 6, Fan Toggle and Fan Cycle, and for the light's Top, Bottom and Toggle. A bound button's LED lights the moment it is pressed and is corrected if the fan does not do what was asked (chapter 5).</li>
+<li><b>Breeze</b>: on a Gen 3 fan that has Breeze, the fan's mode that varies its speed like a natural breeze, programming can switch Breeze and set its strength, programming events and a condition follow it, and a keypad button can toggle it with an LED that shows it. The Navigators show it on a small companion switch, the <b>Breeze switch</b>, which one click adds (<a href="#breeze">Breeze</a> and <a href="#breeze-switch">The Breeze switch</a>, chapter 4).</li>
+<li><b>Keypad buttons that work</b>: Button Links for Fan Off, Fan Speed 1 to 6, Fan Toggle, Fan Cycle and Fan Breeze, and for the light's Top, Bottom and Toggle. A bound button's LED lights the moment it is pressed and is corrected if the fan does not do what was asked (chapter 5).</li>
 <li><b>Live state</b>: the fan reports nothing by itself, so the driver asks it, every 15 seconds and every 2 seconds for 20 seconds after any change. A change made with the remote, the wall control or the Modern Forms app shows up in Control4 within that time: on Navigators, in programming events and on the keypad LEDs.</li>
 <li><b>A fan that goes away is handled</b>: when the fan stops answering (power cut at the wall, Wi-Fi gone), the driver keeps the last state, says so in <b>Status</b>, fires the event <b>Fan Offline</b> and, when the fan answers again, <b>Fan Online</b>. It never replays old commands (chapter 7). If the fan comes back at a new address, the driver finds it there by itself and rewrites <b>Fan Address</b> (chapter 8).</li>
 <li><b>Finding the fan</b>: the driver looks for Modern Forms fans on your network by itself and lists them in <b>Found Fans</b>; picking one there sets the device up. It never takes a fan by itself (chapter 3).</li>
@@ -64,12 +65,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li><b>For dealers</b>: a fan on the stock WAC driver is moved to this driver by hand in Composer, with the old device kept until the end (chapter 11).</li>
 </ul>
 
-<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver never adds, moves or deletes a Control4 device and never changes keypad programming. It renames its own two items only when you click <b>Use Selected Fan</b> (or pick a fan in <b>Found Fans</b>, which does the same) or <b>Name Items After Fan</b>; Use Selected Fan never renames one you named yourself (chapter 3).</p>
+<p><b>Control4 is the source of truth.</b> The driver reports what the fan does and never fights it: it does not re-send old state to "correct" the fan, and it does not set or clear the fan's own schedules, timers, Away mode or adaptive learning. It shows them (chapter 9) and offers two clicks that turn Away mode and adaptive learning off. Automations belong in Control4 programming, where you can see and change them. The driver adds a Control4 device only when you click <b>Add Breeze Switch</b> (chapter 4), never moves or deletes one, and never changes keypad programming. It renames its own two items only when you click <b>Use Selected Fan</b> (or pick a fan in <b>Found Fans</b>, which does the same) or <b>Name Items After Fan</b>; Use Selected Fan never renames one you named yourself (chapter 3).</p>
 
 <p>This is an independent driver. It is not made, endorsed or supported by Modern Forms, WAC Lighting or Snap One (Control4); the trademark notices are at the end of this page.</p>
 
 <h3>What appears in Composer</h3>
-<p>Adding the driver creates two items, as the stock driver does: <b>Modern Forms Fan</b>, the fan, and under it <b>Modern Forms Fan Light</b>, the light. The fan item is the main one. It carries every property and action of the driver, this Documentation tab and the fan's <b>Preset Level</b>. The light item shows only Control4's own light settings page (Default On Brightness, hold ramp rates, the keypad LED colours). Both use Control4's standard fan and light icons. You may rename them at any time: the driver then leaves them alone, and <b>Name Items After Fan</b> gives them the fan's product name whenever you want it (chapter 3). Selecting either item in Connections lists all twelve Button Links as its outputs.</p>
+<p>Adding the driver creates two items, as the stock driver does: <b>Modern Forms Fan</b>, the fan, and under it <b>Modern Forms Fan Light</b>, the light. The fan item is the main one. It carries every property and action of the driver, this Documentation tab and the fan's <b>Preset Level</b>. The light item shows only Control4's own light settings page (Default On Brightness, hold ramp rates, the keypad LED colours). Both use Control4's standard fan and light icons. You may rename them at any time: the driver then leaves them alone, and <b>Name Items After Fan</b> gives them the fan's product name whenever you want it (chapter 3). Selecting either item in Connections lists all thirteen Button Links as its outputs. Connections also shows the output <b>Breeze Switch</b>, which a Breeze switch is connected to.</p>
+<p>A third item appears only when you click <b>Add Breeze Switch</b>: the Breeze switch, for example <b>Aviator 5 Breeze</b>, in the fan's room. It comes from a second driver, <code>modernforms_breeze.c4z</code> (<b>Modern Forms Breeze</b>), which is installed together with this one (<a href="#breeze-switch">The Breeze switch</a>, chapter 4).</p>
 
 <p>Words used here: a <i>Navigator</i> is anything you control the house from (touch screens, remotes, the Control4 app); a <i>link</i> is one of the driver's Button Links; the <i>shown</i> speed is the speed the driver believes the fan has right now, counting a command it has just sent; <i>Gen 3</i> and the like are the fan's hardware generation, which the <b>Fan Model</b> row names.</p>
 
@@ -89,7 +91,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 
 <h3>Install and add</h3>
 <ol>
-<li>In Composer choose <b>Driver</b> &raquo; <b>Add or Update Driver or Agent&hellip;</b>, select <code>modernforms_fan.c4z</code> and open it.</li>
+<li>In Composer choose <b>Driver</b> &raquo; <b>Add or Update Driver or Agent&hellip;</b>, select both files of the release, <code>modernforms_fan.c4z</code> and <code>modernforms_breeze.c4z</code> (the Breeze switch, chapter 4), and open them. An update goes the same way: both files at once, in place.</li>
 <li>Add <b>Modern Forms Fan</b> (manufacturer Modern Forms) to the room the fan hangs in, the way you add any device. The fan and its light appear in the System Design tree. Do not add a second device for the same fan.</li>
 <li>Select the fan item and open its <b>Properties</b> tab. <b>Status</b> reads <code>Not set up: pick a fan in Found Fans, or enter Fan Address</code>. Within about half a minute <b>Found Fans</b> lists the fans the driver found on the network.</li>
 <li>Point the device at the fan: pick it in <b>Found Fans</b> and click the row's <b>Set</b> (<a href="#found-fans">Found Fans</a>, below), or type its address in <b>Fan Address</b> (next section).</li>
@@ -196,7 +198,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><code>Not set up: enter the fan's address in Fan Address</code></td><td>The controller did not let the driver send its search (<b>Found Fans</b> says so), or the device has its fan and <b>Fan Address</b> is empty, which stops the search.</td><td>Type the address in <b>Fan Address</b> and click <b>Set</b>.</td></tr>
 <tr><td><code>Fan Address "fan.local" is not an IPv4 address</code></td><td>The text is not a dotted IPv4 address. Nothing is sent.</td><td>Type the address as four numbers.</td></tr>
 <tr><td><code>Waiting for the fan at 10.0.2.151</code></td><td>The driver has just started, or has a new address, and has not heard from the fan yet. Commands wait until the fan's identity is checked.</td><td>Wait a few seconds. If it stays, see the not-answering lines below.</td></tr>
-<tr><td><code>Online: fan speed 3, light 40 %</code></td><td>Working. After <code>Online: fan</code> comes <code>off</code> or <code>speed N</code>, then <code>reverse</code> when the fan runs in reverse and <code>Breeze</code> when its Breeze mode is on; after the comma, <code>light off</code>, <code>light N %</code> or <code>no light kit</code>. Examples: <code>Online: fan off, light off</code>, <code>Online: fan speed 6 reverse Breeze, light 100 %</code>.</td><td>Nothing.</td></tr>
+<tr><td><code>Online: fan speed 3, light 40 %</code></td><td>Working. After <code>Online: fan</code> comes <code>off</code> or <code>speed N</code>, then <code>reverse</code> when the fan runs in reverse, then <code>Breeze 2</code> while the fan runs with Breeze (the number is its strength, 1 to 3) or <code>Breeze set</code> while the fan is off with Breeze still set (<a href="#breeze">Breeze</a>, chapter 4); after the comma, <code>light off</code>, <code>light N %</code> or <code>no light kit</code>. Examples: <code>Online: fan off, light off</code>, <code>Online: fan speed 3 Breeze 2, light 100 %</code>, <code>Online: fan off Breeze set, light off</code>.</td><td>Nothing.</td></tr>
 <tr><td><code>Online, but the fan reports no fanSpeed; speed control paused</code></td><td>The fan answered but left out a field the driver needs; the name of the field and the control that pauses vary (speed, direction or light). The other controls keep working.</td><td>Usually a firmware difference. If it persists, note <b>Fan Model</b> and <b>Firmware</b> and open an issue on GitHub.</td></tr>
 <tr><td><code>Not answering at 10.0.2.151 since 14:02; showing last state</code></td><td>Three requests in a row got no answer (timeouts or refusals). The last known state is kept and marked not current.</td><td>Check the fan's power, Wi-Fi and address (chapters 7 and 12).</td></tr>
 <tr><td><code>Not answering at 10.0.2.151 since 14:02; state unknown</code></td><td>The same, and the driver has not heard from the fan since it started.</td><td>As above.</td></tr>
@@ -209,7 +211,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 </table>
 
 <!-- ================================================================ -->
-<h2 id="ch4">4. The fan from Control4</h2>
+<h2 id="ch4">4. The fan from Control4, and Breeze</h2>
 
 <h3>Speeds and Navigators</h3>
 <p>The fan is a Control4 fan with six speeds, shown as <b>Level 1</b> to <b>Level 6</b> (the names the stock driver used, so Navigators and programming that say "Level 2" look the same after the move), and off. A speed chosen on a Navigator, in programming or by a keypad link is sent at once as one request that turns the fan on at that speed; off is one request that turns it off. Control4's own commands are always sent, even when they equal what the driver last heard, because what it last heard can be up to one poll old. A fast series of taps ends on the last one: the requests are queued one at a time with a quarter second between them, and the newest wish wins.</p>
@@ -219,6 +221,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li><b>On</b> and <b>Toggle</b> (from off) turn the fan on at the <i>preset speed</i>, Level 3 until you change it. On a fan that already runs, On changes nothing, so a stray On never changes a speed you chose.</li>
 <li><b>Off</b> and Toggle (from on) turn the fan off.</li>
 <li>The preset is the fan item's <b>Preset Level</b> in Composer (Control4's Designate Preset). The driver remembers it through updates, restarts and reboots.</li>
+<li>None of them switches Breeze on or off. A fan that kept Breeze set may start in Breeze (<a href="#breeze">Breeze</a>, below).</li>
 </ul>
 
 <h3>Cycling</h3>
@@ -233,20 +236,89 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <h3>What programming gets</h3>
 <ul>
 <li>The fan's own events, conditionals and variables from Control4's fan proxy appear under the fan item in Programming with Control4's wording: the fan turning on, turning off, its speed changing, its direction changing, whether it is on, off, at a given speed, or reversed.</li>
-<li>The driver adds two events, <b>Fan Offline</b> and <b>Fan Online</b>, one variable, <b>Online</b>, and one condition, <b>Fan is online</b> (chapter 10). Fan Offline also fires when the wrong fan, a Gen 4 fan or a device that is not a fan answers at the address. A fan that the driver follows to a new address shows as one Fan Offline and one Fan Online; the move has no event of its own (chapter 8).</li>
+<li>The driver adds four events, <b>Fan Offline</b>, <b>Fan Online</b>, <b>Breeze Started</b> and <b>Breeze Stopped</b>; two variables, <b>Online</b> and <b>Breeze</b>; two conditions, <b>Fan is online</b> and <b>Breeze is on</b>; and four commands for Breeze (<a href="#breeze">Breeze</a>, below, and chapter 10). Fan Offline also fires when the wrong fan, a Gen 4 fan or a device that is not a fan answers at the address. A fan that the driver follows to a new address shows as one Fan Offline and one Fan Online; the move has no event of its own (chapter 8).</li>
 <li>The light's events (on, off, level changed) are the light's own, in Programming under the light item.</li>
+</ul>
+
+<h3 id="breeze">Breeze</h3>
+<p>Some Gen 3 fans have <b>Breeze</b>: the fan varies its speed by itself, in gusts, like a natural breeze, at a strength of 1, 2 or 3. <b>Fan Model</b> ends in <code>, Breeze</code> when the fan has it. On such a fan Control4 can switch Breeze; on any other fan nothing about Breeze is sent (below). The driver update that brought Breeze installs in place: no controller reboot, no new fan device, and keypads and programming stay as they are.</p>
+<p><b>"Breeze is on" means that the fan runs with Breeze.</b> A fan that is off while Breeze is still set counts as off, because it is not blowing. The variable, the events, the condition, the keypad LED and the Breeze switch all follow that one meaning. <b>Status</b> shows the rest: <code>Breeze 2</code> after the speed while the fan runs with Breeze (the number is the strength), <code>Breeze set</code> while the fan is off with Breeze still set. A new strength changes only <b>Status</b>: no event, no variable.</p>
+
+<p><b>Commands for programming.</b> They are the fan item's device-specific commands in Programming:</p>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><b>Breeze On</b></td><td>Turns Breeze on. A fan that is off is first turned on at its preset speed (<b>Preset Level</b>, above), then Breeze is switched on: two requests, a quarter second apart.</td></tr>
+<tr><td><b>Breeze Off</b></td><td>Turns Breeze off. The fan keeps running; what it does then is the fan's decision, and the driver shows it.</td></tr>
+<tr><td><b>Toggle Breeze</b></td><td>While Breeze is on: Breeze Off. Otherwise, a fan that is off included: Breeze On.</td></tr>
+<tr><td><b>Set Breeze Strength</b></td><td>Sets the strength, <code>STRENGTH</code> 1, 2 or 3. Only the strength is sent; whether the fan starts Breeze because of it is the fan's decision.</td></tr>
+</table>
+<p>As every Control4 command, a Breeze command is sent even when the fan already seems to be in that state; one that changes nothing fires no event.</p>
+
+<p><b>Speeds, Off and Toggle never switch Breeze off by themselves.</b> The driver sends only what the command asks for and shows what the fan answers:</p>
+<ul>
+<li>A speed chosen while Breeze is on (on a Navigator, in programming, on a keypad) is sent as usual. Whether Breeze carries on is the fan's decision. When the answer shows that Breeze ended, <b>Breeze Stopped</b> fires.</li>
+<li><b>Off</b> (Toggle, the Fan Off link) stops the fan, so Breeze stops blowing and <b>Breeze Stopped</b> fires. The driver does not clear Breeze with it. If the fan keeps Breeze set, <b>Status</b> reads <code>Breeze set</code>, and the next start (On, a speed, the remote, the app) may come up in Breeze: <b>Breeze Started</b> fires, and a speed LED and the Fan Breeze LED may both be lit. Send <b>Breeze Off</b> when the fan should run without it.</li>
+<li>The direction during Breeze is the fan's decision as well; the driver shows the direction the fan reports.</li>
+</ul>
+
+<p><b>The fan's tile during Breeze.</b> Control4's fan has no place for Breeze, so the fan's tile cannot show it; the Breeze switch does (below). The tile keeps the speed the fan reports. The fan may report its gusts as speed changes, so while Breeze is on the driver passes on no speed change that the fan reports by itself: the tile, the fan's speed events and the speed LEDs stay as they were, and nothing is written to <b>Last Change By</b> for it. They catch up from the first answer after Breeze ends. A speed chosen in Control4 during Breeze is sent and shown as usual.</p>
+
+<p><b>Changes made elsewhere.</b> Breeze switched with the Modern Forms app, or with a remote or wall control that has Breeze, shows up at the next poll like any other change: the variable, the events, the keypad LED, the Breeze switch and <b>Status</b> follow, and <b>Last Change By</b> says who did it. The driver never switches it back.</p>
+
+<p><b>Variable, events and condition</b> (their texts in Programming are in chapter 10):</p>
+<ul>
+<li>The variable <b>Breeze</b> is 1 while Breeze is on, 0 otherwise. It is read-only: switch Breeze with the commands. It is remembered across restarts and updates, so a restart alone fires no event; if Breeze changed while the driver was not running, the fan's first answer fires the event once. While the fan is offline the variable keeps its last value.</li>
+<li>The events <b>Breeze Started</b> and <b>Breeze Stopped</b> fire once per change, whoever made it: Control4, the app, the remote, or the fan coming up in Breeze when it starts.</li>
+<li>The condition <b>Breeze is on</b>, True or False, for If and While lines.</li>
+</ul>
+<div class="note"><b>No loops in programming.</b> A line on <b>Breeze Started</b> that sends <b>Breeze Off</b>, together with a line on <b>Breeze Stopped</b> that sends <b>Breeze On</b>, switches Breeze on and off for as long as both lines exist. The driver has no guard against it: each event fires once the fan has confirmed the change, so the loop runs at the fan's pace, one request at a time, until you remove one of the lines. The same holds for programming on the Breeze switch's own light events.</div>
+
+<p><b>A fan without Breeze</b> (Gen 1 and 2 fans, and Gen 3 fans without the hardware: their <b>Fan Model</b> has no <code>, Breeze</code>): nothing about Breeze is ever sent to the fan. The commands and a press on the Fan Breeze link are refused and <b>Last Action</b> says so; the variable stays 0, the condition is False, no event fires, and <b>Add Breeze Switch</b> adds nothing. The commands stay listed in Programming, because the driver is the same for every fan.</p>
+<p><b>The fan away.</b> While the fan is offline a Breeze command is tried once and dropped if it fails, as every command is (chapter 7). With no fan set up, another fan, a Gen 4 fan or a device that is not a fan at the address, or the fan rebooting, it is refused and <b>Last Action</b> says why.</p>
+<table>
+<tr><th>Last Action</th><th>Meaning</th></tr>
+<tr><td><code>Breeze not available: this fan reports no Breeze</code></td><td>A Breeze command, or a press on the Fan Breeze link, on a fan without Breeze.</td></tr>
+<tr><td><code>Breeze strength 5 refused: use 1, 2 or 3</code></td><td>Set Breeze Strength with a strength that is not 1, 2 or 3 (the line shows the value received).</td></tr>
+<tr><td><code>Breeze not sent: </code> and the reason, for example <code>Breeze not sent: another fan answers at Fan Address</code></td><td>A Breeze command refused for another reason: no fan set up, another fan, a Gen 4 fan or not a fan at the address, the fan rebooting. <b>Status</b> says more.</td></tr>
+</table>
+
+<h3 id="breeze-switch">The Breeze switch for the Navigators</h3>
+<p>Control4's fan has no place for a mode such as Breeze, so no Navigator can show it on the fan's tile. The Navigators get a companion instead: the <b>Breeze switch</b>, a small on/off switch from a second driver, <code>modernforms_breeze.c4z</code> (<b>Modern Forms Breeze</b>). It is lit while the fan runs with Breeze, and one tap toggles Breeze. It works in the Control4 app, on touch screens and on every other Navigator, and in programming like any switch.</p>
+<ol>
+<li>Install both packages, <code>modernforms_fan.c4z</code> and <code>modernforms_breeze.c4z</code>, through <b>Driver</b> &raquo; <b>Add or Update Driver or Agent&hellip;</b> (chapter 3). There is no need to add a Modern Forms Breeze device yourself: the next step does it.</li>
+<li>Select the fan item, open its <b>Actions</b> tab and click <b>Add Breeze Switch</b>.</li>
+<li>The driver adds one switch to the fan item's room, named after the fan item followed by <i>Breeze</i> (for example <b>Aviator 5 Breeze</b>, at most 30 characters), and connects it to the fan's <b>Breeze Switch</b> output. <b>Last Action</b> reads <code>Breeze switch added: Aviator 5 Breeze</code>.</li>
+<li>Choose <b>File</b> &raquo; <b>Refresh Navigators</b>. The touch screens and the app show the new switch only after that.</li>
+</ol>
+<p>The switch is added only on that click: never at start-up, at an update or a restore, and never because the fan showed Breeze. <b>Add Breeze Switch</b> writes one of these lines in <b>Last Action</b>:</p>
+<table>
+<tr><th>Last Action</th><th>Meaning</th></tr>
+<tr><td><code>Breeze switch added: Aviator 5 Breeze</code></td><td>Done. Choose File &raquo; Refresh Navigators.</td></tr>
+<tr><td><code>A Breeze switch is already connected: Aviator 5 Breeze</code></td><td>A switch is connected to this fan already, under the name shown; nothing was added.</td></tr>
+<tr><td><code>No Breeze switch added: this fan reports no Breeze</code></td><td>The fan has no Breeze.</td></tr>
+<tr><td><code>No Breeze switch added: set up the fan first</code></td><td>No fan is set up on this device yet (chapter 3).</td></tr>
+<tr><td><code>No Breeze switch added: install modernforms_breeze.c4z first</code></td><td>Composer did not add or connect the switch, usually because the Breeze package is not installed. Install it, then click again.</td></tr>
+</table>
+<ul>
+<li><b>Where it shows.</b> Among the lights of the fan's room. It is lit while the fan runs with Breeze, whoever started it, and dark otherwise; a fan that is off with Breeze set counts as dark, as for the <b>Breeze</b> variable.</li>
+<li><b>A tap.</b> On starts Breeze, and the fan at its preset speed first if it was off. Off ends Breeze, and the fan keeps turning. The switch shows the new state at once and is corrected if the fan does otherwise, as a keypad LED is.</li>
+<li><b>Greyed out</b> while the fan has no Breeze, while it is offline, while no fan is set up or another device answers at the address, and while the switch is connected to no fan device.</li>
+<li><b>Its own item.</b> The switch's item in Composer has its own <b>Status</b> row (<code>Breeze on Aviator 5</code>, <code>Breeze off on Aviator 5</code>, <code>Aviator 5 has no Breeze</code>, <code>Waiting for Aviator 5</code> or <code>Not connected to a Modern Forms Fan</code>) and its own Documentation tab.</li>
+<li><b>Keep it out of "all lights" groups</b>, lighting scenes and a voice assistant's "all lights" commands. An "all off" only ends Breeze while the fan keeps turning, and an "all on" starts the fan.</li>
+<li><b>Afterwards.</b> The name is given once: rename the switch or move it to another room as you like; neither driver renames it. A deleted switch is forgotten, and a new click adds another. A switch can also be connected by hand in Connections, to the fan's <b>Breeze Switch</b> output; two switches on one fan both work. Keypad buttons use the fan's own <b>Fan Breeze</b> link (chapter 5), not the switch.</li>
 </ul>
 
 <!-- ================================================================ -->
 <h2 id="ch5">5. Keypad buttons</h2>
 
-<p>The driver offers twelve Button Links, named as below (each name ends in <i>Button Link</i>). Select the fan item or the light item in Connections and either lists all twelve as its outputs; in the lower list that you drag a keypad button onto, they all appear under the fan item, the light's three included.</p>
+<p>The driver offers thirteen Button Links, named as below (each name ends in <i>Button Link</i>). Select the fan item or the light item in Connections and either lists all thirteen as its outputs; in the lower list that you drag a keypad button onto, they all appear under the fan item, the light's three included.</p>
 <table>
 <tr><th>Link</th><th>A press</th><th>The bound button's LED is lit while</th></tr>
 <tr><td><b>Fan Off</b></td><td>Turns the fan off (the request is sent even if the fan looks off already).</td><td>the fan is off</td></tr>
 <tr><td><b>Fan Speed 1</b> to <b>Fan Speed 6</b></td><td>Turns the fan on at that speed.</td><td>the fan runs at that speed, or at the speed named in that link's <b>Speed N Link Also Lit At</b> row (below)</td></tr>
 <tr><td><b>Fan Toggle</b></td><td>Fan on: off. Fan off: on at the preset speed.</td><td>the fan is on</td></tr>
 <tr><td><b>Fan Cycle</b></td><td>Fan off: Level 1. Fan on: one speed up; at Level 6 nothing changes.</td><td>the fan is on</td></tr>
+<tr><td><b>Fan Breeze</b></td><td>Breeze on: Breeze off. Otherwise, the fan off included: Breeze on, the fan first started at the preset speed if it was off (<a href="#breeze">Breeze</a>, chapter 4). On a fan without Breeze the press is refused and <b>Last Action</b> says so.</td><td>the fan runs with Breeze</td></tr>
 <tr><td><b>Light Top</b></td><td>A tap turns the light on at the Default On Brightness; a hold brightens it (chapter 6).</td><td>the light is on</td></tr>
 <tr><td><b>Light Bottom</b></td><td>A tap turns the light off; a hold dims it.</td><td>the light is <i>off</i></td></tr>
 <tr><td><b>Light Toggle</b></td><td>A tap switches the light the other way; a hold brightens it when it is off and dims it when it is on.</td><td>the light is on</td></tr>
@@ -263,8 +335,8 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 
 <h3>What a press does</h3>
 <ul>
-<li>A fan link acts at once on the <b>press</b>. A keypad that only sends clicks is handled too: a click acts when no press arrived on that link in the previous 10 seconds. Letting go does nothing, and there is no hold and no repeat on the fan links: holding Fan Speed 3 sets Level 3 once.</li>
-<li>A <b>double tap</b> is two presses and acts twice. For a button whose double tap should do something else, use the keypad's own <b>Double Tap</b> event in programming (see below): the fan may briefly go to the single-tap speed first, and the Double Tap line then sets the other speed. That relies on your keypad delivering its Double Tap event for a bound button; check it on yours.</li>
+<li>A fan link, Fan Breeze included, acts at once on the <b>press</b>. A keypad that only sends clicks is handled too: a click acts when no press arrived on that link in the previous 10 seconds. Letting go does nothing, and there is no hold and no repeat on the fan links: holding Fan Speed 3 sets Level 3 once.</li>
+<li>A <b>double tap</b> is two presses and acts twice. For a button whose double tap should do something else, use the keypad's own <b>Double Tap</b> event in programming (see below): the fan may briefly go to the single-tap speed first, and the Double Tap line then sets the other speed. That relies on your keypad delivering its Double Tap event for a bound button; check it on yours. A double tap on a button bound to <b>Fan Breeze</b> toggles twice, so Breeze ends where it started.</li>
 <li>Several keypads may be bound to the same link; they share it.</li>
 <li><b>Fan offline</b>: a press is tried once, as the check whether the fan is there, and dropped if it fails; it is never replayed. <b>Wrong fan, Gen 4, not a fan, no address, rebooting</b>: the press is refused and the LED stays as it was.</li>
 </ul>
@@ -273,7 +345,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <ul>
 <li>When you press a bound button its LED shows the target <i>at once</i>; when the fan answers otherwise, or the request fails, the LEDs are corrected. A change made with the remote, the app or the wall control moves the LEDs at the next poll.</li>
 <li>Right after the driver starts, while the fan's state is not known yet, no LED is touched (a newly bound button is told "off"). While the fan is offline the LEDs keep their last state.</li>
-<li><b>Colours.</b> By default the driver sends no colours on the fan links: a bound fan button shows the on and off colours set on the keypad itself. Set <b>Speed LED Colors</b> to <code>Per speed</code> for a colour of its own at each speed (below). The light links tell the keypad the colours of the light item's settings page (blue by default; Top and Toggle lit while the light is on, Bottom lit while it is off).</li>
+<li><b>Colours.</b> By default the driver sends no colours on the fan links: a bound fan button shows the on and off colours set on the keypad itself. A button bound to Fan Breeze always shows the keypad's own colours. Set <b>Speed LED Colors</b> to <code>Per speed</code> for a colour of its own at each speed (below). The light links tell the keypad the colours of the light item's settings page (blue by default; Top and Toggle lit while the light is on, Bottom lit while it is off).</li>
 </ul>
 
 <h3 id="also-lit">Speed N Link Also Lit At</h3>
@@ -282,13 +354,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 
 <h3 id="speed-colors">Speed LED Colors: a colour per speed</h3>
 <p>A button on Follow Connection has one on colour, the one set on the keypad. To show a different colour at each speed (for example a button lit blue at Level 1 and orange at Level 6), set <b>Speed LED Colors</b> to <code>Per speed</code> and pick the colours: <b>Speed 1 LED Color</b> to <b>Speed 6 LED Color</b> are the colours a speed link shows while the fan runs at that speed, and <b>Speed LED Off Color</b> is the colour it shows when dark. Each is a Composer colour row: its R, G and B boxes only show the value. Click the colour swatch, choose <b>Define Custom Colors</b>, type Red, Green and Blue (for example 0, 0 and 255 for blue), click <b>OK</b>, then click <b>Set</b> on the row. A row already at that colour shows no <b>Set</b>. Set the colours first and switch <b>Speed LED Colors</b> to <b>Per speed</b> last, so the buttons never show the default blue in between. With <code>Keypad's own</code> (the default) the driver sends no colours and the six colour rows do nothing.</p>
-<p>The driver sends the colours over the link, just before it lights the button, and again whenever you change a colour while the button is lit. A button that is bound later, or a keypad that asks, gets them too. Going back to <code>Keypad's own</code> sends nothing: the keypad keeps the last colours it took until you set its own on the keypad. The Off, Toggle and Cycle links and the light's links are not affected.</p>
+<p>The driver sends the colours over the link, just before it lights the button, and again whenever you change a colour while the button is lit. A button that is bound later, or a keypad that asks, gets them too. Going back to <code>Keypad's own</code> sends nothing: the keypad keeps the last colours it took until you set its own on the keypad. The Off, Toggle, Cycle and Breeze links and the light's links are not affected.</p>
 
 <h3>Up and Down buttons</h3>
 <p>A keypad's Up and Down buttons are often Regular Buttons without an LED, but they have Button Link inputs too. Bind Up to <b>Light Top</b> and Down to <b>Light Bottom</b>: a tap turns the light on (at the Default On Brightness) or off, as a programmed line would, and a hold now brightens (Up) or dims (Down) it. These buttons have no LED to follow.</p>
 
 <h3>The Keypad Links row</h3>
-<p><b>Keypad Links</b> lists the bindings: the first item reads <code>5 of 12 links bound</code>, then one item per binding, for example <code>Fan Speed 3: Example Keypad (456)</code> (the link without "Button Link", the keypad's name and its device id). Picking an item changes nothing.</p>
+<p><b>Keypad Links</b> lists the bindings: the first item reads <code>5 of 13 links bound</code>, then one item per binding, for example <code>Fan Speed 3: Example Keypad (456)</code> or <code>Fan Breeze: Example Keypad (456)</code> (the link without "Button Link", the keypad's name and its device id). Picking an item changes nothing.</p>
 
 <!-- ================================================================ -->
 <h2 id="ch6">6. The light</h2>
@@ -323,7 +395,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><b>Not set up</b>: no address, or not an IPv4 address</td><td>Status says so; <b>Online</b> is 0; no events.</td><td>Refused.</td></tr>
 <tr><td><b>Waiting</b>: just started, or a new address</td><td><code>Waiting for the fan at 10.0.2.151</code>; no events.</td><td>Held until the fan's identity is checked.</td></tr>
 <tr><td><b>Online</b></td><td><code>Online: &hellip;</code>; <b>Online</b> is 1. <b>Fan Online</b> fires once if the fan was away before.</td><td>Sent.</td></tr>
-<tr><td><b>Offline</b>: three requests in a row got no usable answer</td><td><code>Not answering at&hellip;</code> or <code>No usable answer from&hellip;</code>; <b>Online</b> is 0; <b>Fan Offline</b> fires once; the light's controls are greyed out. The last speed and level stay on the tiles and the LEDs keep their last state.</td><td>Each is tried once and dropped if it fails.</td></tr>
+<tr><td><b>Offline</b>: three requests in a row got no usable answer</td><td><code>Not answering at&hellip;</code> or <code>No usable answer from&hellip;</code>; <b>Online</b> is 0; <b>Fan Offline</b> fires once; the light's controls and the Breeze switch are greyed out. The last speed and level stay on the tiles, the LEDs keep their last state and the <b>Breeze</b> variable its last value.</td><td>Each is tried once and dropped if it fails.</td></tr>
 <tr><td><b>Rebooting</b>: after <b>Reboot Fan</b></td><td><code>Rebooting the fan's Wi-Fi module (sent 14:02)</code>; no event.</td><td>Refused.</td></tr>
 <tr><td><b>Another fan</b>, a <b>Gen 4 fan</b>, or <b>not a fan</b> at the address</td><td>The matching Status line; <b>Online</b> is 0; <b>Fan Offline</b> fires as for offline.</td><td>Refused; the LEDs stay as they were.</td></tr>
 </table>
@@ -389,7 +461,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 </ul>
 
 <!-- ================================================================ -->
-<h2 id="ch10">10. Properties, actions and events, row by row</h2>
+<h2 id="ch10">10. Properties, actions, commands and events, row by row</h2>
 
 <h3>Properties</h3>
 <p>The fan item's <b>Properties</b> tab lists these rows in this order. Only the editable ones are meant to be changed; a changed value reaches the driver when you click the row's <b>Set</b> button.</p>
@@ -397,7 +469,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><th>Property</th><th>Default</th><th>What it shows or does</th></tr>
 <tr><td><b>Driver Version</b></td><td>(set by the driver)</td><td>The build number of the installed driver, for example <code>12</code>; a newer build has a higher one. Read-only.</td></tr>
 <tr><td><b>Status</b></td><td></td><td>One line about the fan: the texts of chapter 3. Read-only.</td></tr>
-<tr><td><b>Last Action</b></td><td></td><td>The result of the last action you clicked or the last pick in <b>Found Fans</b>, or of the driver's own <code>Learned fan&hellip;</code>, <code>Same fan&hellip;</code> and <code>Followed fan&hellip;</code> lines. The driver's searches for fans never write it. After <b>Use Selected Fan</b> the line may be written again with an ending about naming the items (chapter 3). Every line is also written to the log. Read-only.</td></tr>
+<tr><td><b>Last Action</b></td><td></td><td>The result of the last action you clicked or the last pick in <b>Found Fans</b>, a refused Breeze command or Fan Breeze press (chapter 4), or of the driver's own <code>Learned fan&hellip;</code>, <code>Same fan&hellip;</code> and <code>Followed fan&hellip;</code> lines. The driver's searches for fans never write it. After <b>Use Selected Fan</b> the line may be written again with an ending about naming the items (chapter 3). Every line is also written to the log. Read-only.</td></tr>
 <tr><td><b>Fan Address</b></td><td>empty</td><td>The fan's IPv4 address. Editable; click <b>Set</b>. The driver rewrites it when it follows the fan to a new address (chapter 8).</td></tr>
 <tr><td><b>Found Fans</b></td><td>(filled by the driver)</td><td>The fans the driver found on the network by itself, after a first item that says what the last search found (chapter 3). A pick, then <b>Set</b>, takes that fan at once, as <b>Use Selected Fan</b> does; a different fan picked on a device that already has its fan waits for <b>Use Selected Fan</b>.</td></tr>
 <tr><td><b>Follow Address Changes</b></td><td><code>On</code></td><td><code>On</code> or <code>Off</code>. On, the driver finds the fan it has learned again by itself when the fan's address changes, and rewrites <b>Fan Address</b> (chapter 8). Off, a fan at a new address stays "not answering" until you type the address. Editable.</td></tr>
@@ -408,7 +480,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><b>Last Change By</b></td><td></td><td>Who changed the fan when it was not Control4 (chapter 9). Read-only.</td></tr>
 <tr><td><b>Fan Automations</b></td><td></td><td><code>None</code> or <code>Active: &hellip;</code> (chapter 9). Read-only.</td></tr>
 <tr><td><b>Poll Interval (s)</b></td><td>15</td><td>How often the driver asks the fan while nothing is happening: 10 to 120 seconds. After any change it asks every 2 seconds for 20 seconds whatever this says. Raise it if the fan is slow or freezes under load; it is never below 10 because these fans do not like to be asked more often. Editable.</td></tr>
-<tr><td><b>Keypad Links</b></td><td></td><td><code>5 of 12 links bound</code>, then one item per bound link, naming the keypad (chapter 5). A pick snaps back to the first item.</td></tr>
+<tr><td><b>Keypad Links</b></td><td></td><td><code>5 of 13 links bound</code>, then one item per bound link, naming the keypad (chapter 5). A pick snaps back to the first item.</td></tr>
 <tr><td><b>Speed 1 Link Also Lit At</b> to <b>Speed 6 Link Also Lit At</b></td><td><code>No other speed</code></td><td>The choices <code>No other speed</code> and <code>Speed 1</code> to <code>Speed 6</code>: a second speed at which that speed link's LED is lit as well (chapter 5). Editable.</td></tr>
 <tr><td><b>Speed LED Colors</b></td><td><code>Keypad's own</code></td><td><code>Keypad's own</code> or <code>Per speed</code>: whether the fan's speed links send a colour for each speed (chapter 5). Editable.</td></tr>
 <tr><td><b>Speed 1 LED Color</b> to <b>Speed 6 LED Color</b></td><td><code>0,0,255</code> (blue)</td><td>The colour a speed link shows while the fan runs at that speed, used only with <code>Per speed</code>. Editable.</td></tr>
@@ -418,7 +490,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <p>A development build also shows <b>Dev Server</b> and <b>Dev State</b> rows, for the developer's test setup; release builds do not have them.</p>
 
 <h3>Actions</h3>
-<p>The <b>Actions</b> tab lists these five in this order. Each one ends in <b>Last Action</b>. There is no action to search for fans: the driver keeps <b>Found Fans</b> current by itself (chapter 3).</p>
+<p>The <b>Actions</b> tab lists these six in this order. Each one ends in <b>Last Action</b>. There is no action to search for fans: the driver keeps <b>Found Fans</b> current by itself (chapter 3).</p>
 <table>
 <tr><th>Action</th><th>What it does</th></tr>
 <tr><td><b>Use Selected Fan</b></td><td>Accepts the fan picked in <b>Found Fans</b>, else the one at <b>Fan Address</b>. Then names the two items after the fan, but only while they still have their original names or the names the driver gave them (chapter 3).</td></tr>
@@ -426,6 +498,17 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><b>Reboot Fan</b></td><td>Restarts the fan's Wi-Fi module; only while the fan answers (chapter 7).</td></tr>
 <tr><td><b>Turn Off Away Mode</b></td><td>Switches the fan's Away mode off (chapter 9).</td></tr>
 <tr><td><b>Turn Off Adaptive Learning</b></td><td>Switches the fan's adaptive learning off (chapter 9).</td></tr>
+<tr><td><b>Add Breeze Switch</b></td><td>Adds the Breeze switch for the Navigators to the fan's room and connects it to the fan; only on a fan with Breeze, and only one (<a href="#breeze-switch">The Breeze switch</a>, chapter 4).</td></tr>
+</table>
+
+<h3>Commands for programming</h3>
+<p>In Programming these are the fan item's device-specific commands (<a href="#breeze">Breeze</a>, chapter 4). On a fan without Breeze they are listed too, and refused.</p>
+<table>
+<tr><th>Command</th><th>Text in Programming</th><th>What it does</th></tr>
+<tr><td><b>Breeze On</b></td><td>Turn Breeze on for NAME</td><td>Breeze on; a fan that is off is first started at the preset speed.</td></tr>
+<tr><td><b>Breeze Off</b></td><td>Turn Breeze off for NAME</td><td>Breeze off; the fan keeps running.</td></tr>
+<tr><td><b>Toggle Breeze</b></td><td>Toggle Breeze for NAME</td><td>Breeze on: off. Otherwise: as Breeze On.</td></tr>
+<tr><td><b>Set Breeze Strength</b></td><td>Set the Breeze strength of NAME to PARAM1</td><td>The strength, <code>STRENGTH</code> 1, 2 or 3; only the strength is sent.</td></tr>
 </table>
 
 <h3>Events, variable and condition</h3>
@@ -435,8 +518,12 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td>Event <b>Fan Online</b></td><td>When NAME answers on the network again</td><td>Once, when it is back.</td></tr>
 <tr><td>Variable <b>Online</b></td><td></td><td>1 while the fan answers as the learned fan, 0 otherwise. It is remembered across restarts, so a restart alone does not fire an event.</td></tr>
 <tr><td>Condition <b>Fan is online</b></td><td>NAME fan is online is True / False</td><td>True while the variable is 1.</td></tr>
+<tr><td>Event <b>Breeze Started</b></td><td>When NAME starts blowing a Breeze</td><td>Once, when the fan starts running with Breeze, whoever started it (chapter 4).</td></tr>
+<tr><td>Event <b>Breeze Stopped</b></td><td>When NAME stops blowing a Breeze</td><td>Once, when it stops: Breeze off, or the fan off.</td></tr>
+<tr><td>Variable <b>Breeze</b></td><td></td><td>1 while the fan runs with Breeze, 0 otherwise (also on a fan without Breeze). Read-only; remembered across restarts, so a restart alone fires no event.</td></tr>
+<tr><td>Condition <b>Breeze is on</b></td><td>NAME Breeze is on is True / False</td><td>True while the variable is 1.</td></tr>
 </table>
-<p>In Programming, NAME is replaced by the device's name. A fan that the driver follows to a new address fires one <b>Fan Offline</b> and, once it answers there, one <b>Fan Online</b>; the move itself has no event (chapter 8). The fan's and the light's own events, conditions and variables come from Control4's proxies (chapter 4).</p>
+<p>In Programming, NAME is replaced by the device's name and PARAM1 by the strength picked. A fan that the driver follows to a new address fires one <b>Fan Offline</b> and, once it answers there, one <b>Fan Online</b>; the move itself has no event (chapter 8). The fan's and the light's own events, conditions and variables come from Control4's proxies (chapter 4).</p>
 
 <!-- ================================================================ -->
 <h2 id="ch11">11. Moving from the stock WAC driver</h2>
@@ -472,6 +559,12 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td>A double tap sends the fan to the single-tap speed first</td><td>A double tap is two presses.</td><td>Expected; the last wish wins.</td></tr>
 <tr><td>The light turns on at 100 %, not at its old level</td><td>Turn-on goes to the <b>Default On Brightness</b>.</td><td>Change it on the light item's settings page.</td></tr>
 <tr><td>The light's tile is greyed out</td><td>The fan is offline, or has no light kit.</td><td>Read <b>Status</b>.</td></tr>
+<tr><td><b>Add Breeze Switch</b> writes <code>No Breeze switch added: install modernforms_breeze.c4z first</code></td><td>The Breeze package is not installed, or Composer refused the new device.</td><td>Install both packages through Add or Update Driver or Agent&hellip; and click again (chapter 4).</td></tr>
+<tr><td>The Breeze switch does not appear on a Navigator</td><td>The Navigators have not been refreshed since it was added, or it is in another room than you look in.</td><td>Choose <b>File</b> &raquo; <b>Refresh Navigators</b>; look in the lights of the room the switch is in.</td></tr>
+<tr><td>The Breeze switch is greyed out</td><td>The fan has no Breeze, the fan is away (offline, not set up, another device at the address), or the switch is connected to no fan device.</td><td>Read <b>Status</b> on the fan item and on the switch; connect the switch to the fan's <b>Breeze Switch</b> output in Connections if it says <code>Not connected to a Modern Forms Fan</code>.</td></tr>
+<tr><td>A Breeze command does nothing</td><td>The fan has no Breeze, or the fan is away.</td><td>Read <b>Last Action</b> and <b>Status</b>.</td></tr>
+<tr><td>Breeze goes on and off by itself, again and again</td><td>A loop in programming: a line on Breeze Started or Breeze Stopped (or on the Breeze switch's events) that switches Breeze the other way.</td><td>Remove one of the lines (chapter 4).</td></tr>
+<tr><td>The fan starts in Breeze, though a speed was chosen</td><td>The fan kept Breeze set from before (<b>Status</b> read <code>Breeze set</code> while it was off).</td><td>Send <b>Breeze Off</b>, or tap the Breeze switch off.</td></tr>
 <tr><td>The fan drops off Wi-Fi each time its direction is changed from Control4</td><td>Reported once for another fan model; not seen on the fan this driver was tested with.</td><td>Switch its power off at the wall for 10 seconds, use the remote for the direction, and tell the project on GitHub which model it is.</td></tr>
 </table>
 
@@ -480,6 +573,9 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li>The fan tile keeps its last speed while the fan is offline. Control4's fan has no offline state; <b>Status</b> and the <b>Online</b> variable carry it.</li>
 <li>On a running fan, On does nothing. That is deliberate (chapter 4).</li>
 <li>A light that is on is never shown at 0 %: its lowest level is 1 %.</li>
+<li>The fan's tile does not show Breeze, and keeps its speed while the fan blows in gusts. Control4's fan has no place for Breeze; the Breeze switch shows it (chapter 4).</li>
+<li><b>Status</b> reads <code>Breeze set</code> while the fan is off, and the Breeze switch is dark: Breeze is still set on the fan, but the fan is not blowing.</li>
+<li>A speed LED and the Fan Breeze LED are lit together: the fan runs at that speed with Breeze.</li>
 <li>For a few seconds after every update, restart or address change <b>Status</b> reads <code>Waiting for the fan at&hellip;</code> while the driver checks which fan answers.</li>
 <li><b>Fan Address</b> can change without anyone typing it: the driver followed the fan to its new address, and <b>Last Action</b> says so (chapter 8).</li>
 <li><b>Found Fans</b> changes without anyone clicking, and <b>Last Action</b> does not say so: the driver keeps the list current by itself (chapter 3).</li>
@@ -494,11 +590,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <ul>
 <li><b>Fans:</b> Modern Forms generations 1 to 3 with six speeds. A generation 4 fan is refused; a fan with fewer speeds is not supported. One device controls one fan; several fans are several devices.</li>
 <li><b>No push:</b> the fan reports nothing, so everything made outside Control4 is seen at the next poll (15 seconds by default).</li>
-<li><b>The fan's own automations:</b> schedules, sleep timers, Away mode and adaptive learning are shown but never set or cleared, apart from the two turn-off clicks. Breeze, UV-C and other special features are not controlled; Breeze is only named in <b>Status</b>.</li>
+<li><b>The fan's own automations:</b> schedules, sleep timers, Away mode and adaptive learning are shown but never set or cleared, apart from the two turn-off clicks. UV-C and other special features are not controlled.</li>
+<li><b>Breeze:</b> on Gen 3 fans that have it, switched and set from programming, the Fan Breeze link and the Breeze switch. The fan's tile cannot show it, and its gusts are not shown as speeds. What the fan itself does in Breeze (whether a speed change or Off ends it, whether it comes back at the next start, which direction it turns) has not been tried on a fan: the driver shows what the fan reports.</li>
 <li><b>No fades and no colour</b> on the light; no colour temperature.</li>
 <li><b>Address:</b> only a dotted IPv4 address, no host names. The driver follows the fan it has learned to a new address only when the fan announces itself on the controller's own network segment, only to a private or link-local address, and only after the fan has answered there as itself; an address you typed wins until the fan has answered at it (chapter 8). It never scans the network and never takes another fan by itself. The search that fills <b>Found Fans</b> asks one multicast DNS question on the controller's own network segment, by itself: at every start-up, and on a schedule while the device has no fan yet. Following relies on an answer seen from Gen 3 fans only so far.</li>
 <li><b>Keypads:</b> a bound fan button shows the keypad's own LED colours unless <b>Speed LED Colors</b> is <code>Per speed</code>. Double taps are keypad programming. No hold on the fan links.</li>
-<li><b>Programming:</b> two events and one condition of the driver's own, no commands of its own (a Reboot Fan or a turn-off is a click, never programmed), no "changed outside Control4" event, no History entries.</li>
+<li><b>Programming:</b> four events, two variables, two conditions and four Breeze commands of the driver's own; a Reboot Fan, a turn-off or Add Breeze Switch is a click, never programmed; no "changed outside Control4" event, no History entries.</li>
+<li><b>Devices:</b> the Breeze switch is a device of its own, added only with <b>Add Breeze Switch</b>; the fan device stays as it is and nothing needs to be added again.</li>
 <li><b>Icons:</b> the driver's own fan and light icons. A device keeps the icons of the build that created it, so a device added with build 73 or earlier keeps Control4's own fan and light icons after an update; only removing and adding the device again would change them, and that loses its connections and programming.</li>
 <li><b>Detecting a second device for the same fan:</b> not done; add one device per fan.</li>
 <li><b>A restored project:</b> the identity is expected to be found again from <b>Fan Address</b> and <b>Fan ID</b> and checked at the first contact, and a fan that moved since the backup to be followed (chapter 8); the light's keypad settings may fall back to their defaults. This has not been tried yet.</li>
@@ -508,7 +606,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <!-- ================================================================ -->
 <h2 id="ch14">14. Privacy</h2>
 
-<p>The driver talks only to the fan on your network and to nothing outside the house. To find fans (the <b>Found Fans</b> list, chapter 3, and following a fan that moved, chapter 8) it also asks, by itself, one multicast DNS question that stays on your local network: at every start-up, and on a schedule while the device has no fan yet or is following its fan. It never scans the network. It reads the fan's state and identity: on, speed, direction, light on and level, Breeze, Away mode, adaptive learning, whether a schedule or a timer is set, the model, the firmware, the client id and the MAC address.</p>
+<p>The driver talks only to the fan on your network and to nothing outside the house. To find fans (the <b>Found Fans</b> list, chapter 3, and following a fan that moved, chapter 8) it also asks, by itself, one multicast DNS question that stays on your local network: at every start-up, and on a schedule while the device has no fan yet or is following its fan. It never scans the network. It reads the fan's state and identity: on, speed, direction, light on and level, Breeze and its strength, Away mode, adaptive learning, whether a schedule or a timer is set, the model, the firmware, the client id and the MAC address.</p>
 <p>The fan also hands out details that belong to you, and the driver <b>drops them the moment they arrive</b>: the owner's e-mail address, the cloud identity, the fan's name from the app, the Wi-Fi network's name and address, the time zone, the cloud certificate and the schedule itself (it only notes whether one exists). They are never stored, never shown in a property and never logged. This differs from the stock driver, whose rows show some of them.</p>
 <p>The client id and MAC address are shown in the <b>Fan ID</b> row, in your own Composer, because you need them for the router; in the log they appear only as their last four digits. Before you share a screenshot of the Properties tab, hide <b>Fan ID</b> and <b>Fan Address</b>.</p>
 

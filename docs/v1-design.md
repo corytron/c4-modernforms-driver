@@ -23,6 +23,9 @@ Following the pinned fan to a new address by itself (V29, #39, 2026-11-04)
 is [`address-follow-design.md`](address-follow-design.md)'s.
 Finding fans by itself, with the Find Fans action removed (V30, #102,
 2026-11-07), is [`auto-discovery-design.md`](auto-discovery-design.md)'s.
+Breeze in Control4, with the companion package `modernforms_breeze.c4z`
+for the Navigators (V31, #111, 2026-11-07), is
+[`breeze-design.md`](breeze-design.md)'s.
 
 **Status key**, as in [`design.md`](design.md) ("Method"): **VERIFIED**
 names its primary source (an SDK file, the house, M0, or `aiomodernforms` /
@@ -55,8 +58,8 @@ properties and the keypad) later the same day.
 
 | # | Decision | Basis | Mark |
 | --- | --- | --- | --- |
-| V1 | **One driver** `src/modernforms_fan/` → `modernforms_fan.c4z`, Composer name "Modern Forms Fan", with two proxies: the fan proxy on binding 5001, **declared first and `primary`**, and a `light_v2` proxy on 5002. The first-declared proxy is the parent item in Composer and carries the driver's properties, actions and Documentation tab (K2), so Status, Fan Address and every row of §2.5 sit on the fan; the light is its child, with the light_v2 settings page. Kept after M0 although the stock driver declares its light first and so has "Fan Light" as the parent and "Fan" as a child (§2.2 says why). One Lua instance is the only thing that talks to the fan. | #6 decision 1; LSR §2.2; FUND `8_proxies_and_proxy_types/_1-SINGLEANDMULTIPROXIES.md`, `11_connections/_5-PROXYBINDINGMULTIPLE.md`; XML `15_common_xml/_32-proxy.md`; K1, K2 | VERIFIED-doc: several proxies, one binding each, the binding in every command. VERIFIED-house (K1, K2): one driver with a `light_v2` and a `fan` proxy runs on this house; the fan proxy's XML name is `fan`, its class `FAN`; the first-declared proxy is the parent and carries the driver's rows; a child item shows its own proxy's settings. ASSUMED (K4): that `primary` agrees with the order (the fan has both), and that the light as a child shows its settings page. If K4 fails: [section 2.8](#28-if-the-two-proxy-probe-fails). |
-| V2 | **The driver's own Button Links**: light Top/Bottom/Toggle on 200–202, fan Off 300, Speed 1–6 on 301–306, Toggle 307, Cycle 308. Each takes `DO_PUSH`/`DO_CLICK`/`DO_RELEASE` and sends `MATCH_LED_STATE`. `proxy_fan_speed_connections` is **not** declared; K5 records how it behaves for a later version. Ids 203–209 and 309–319 stay free for later links (connections can only ever be added). | #6 decision 2; FPR §3, §6, §7; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`; FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` | VERIFIED-house: the mechanism on the Hue Light (HUE `docs/keypad-design.md`, "Hardware findings"); the stock driver declares its own 12 links the same way, ids 0–11 without `proxybindingid`, and **no** `proxy_fan_speed_connections`, and Composer lists all 12 under both of its items (K1, K2). ASSUMED (K6): that a press arrives on a fan-proxy driver's link (the stock's links were dead in its own Lua). M1?: `proxybindingid` on the links (K4). |
+| V1 | **One driver** `src/modernforms_fan/` → `modernforms_fan.c4z`, Composer name "Modern Forms Fan", with two proxies: the fan proxy on binding 5001, **declared first and `primary`**, and a `light_v2` proxy on 5002. The first-declared proxy is the parent item in Composer and carries the driver's properties, actions and Documentation tab (K2), so Status, Fan Address and every row of §2.5 sit on the fan; the light is its child, with the light_v2 settings page. Kept after M0 although the stock driver declares its light first and so has "Fan Light" as the parent and "Fan" as a child (§2.2 says why). One Lua instance is the only thing that talks to the fan. | #6 decision 1; LSR §2.2; FUND `8_proxies_and_proxy_types/_1-SINGLEANDMULTIPROXIES.md`, `11_connections/_5-PROXYBINDINGMULTIPLE.md`; XML `15_common_xml/_32-proxy.md`; K1, K2 | VERIFIED-doc: several proxies, one binding each, the binding in every command. VERIFIED-house (K1, K2): one driver with a `light_v2` and a `fan` proxy runs on this house; the fan proxy's XML name is `fan`, its class `FAN`; the first-declared proxy is the parent and carries the driver's rows; a child item shows its own proxy's settings. ASSUMED (K4): that `primary` agrees with the order (the fan has both), and that the light as a child shows its settings page. If K4 fails: [section 2.8](#28-if-the-two-proxy-probe-fails). **Since #111 (V31):** a second package, `modernforms_breeze.c4z`, whose devices talk only to the fan driver; the fan device keeps its two proxies and stays the only thing that talks to the fan. |
+| V2 | **The driver's own Button Links**: light Top/Bottom/Toggle on 200–202, fan Off 300, Speed 1–6 on 301–306, Toggle 307, Cycle 308. Each takes `DO_PUSH`/`DO_CLICK`/`DO_RELEASE` and sends `MATCH_LED_STATE`. `proxy_fan_speed_connections` is **not** declared; K5 records how it behaves for a later version. Ids 203–209 and 309–319 stay free for later links (connections can only ever be added). **Since #111 (V31):** 311 is **Fan Breeze**; 309, 310 and 312–319 stay free. | #6 decision 2; FPR §3, §6, §7; KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`; FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` | VERIFIED-house: the mechanism on the Hue Light (HUE `docs/keypad-design.md`, "Hardware findings"); the stock driver declares its own 12 links the same way, ids 0–11 without `proxybindingid`, and **no** `proxy_fan_speed_connections`, and Composer lists all 12 under both of its items (K1, K2). ASSUMED (K6): that a press arrives on a fan-proxy driver's link (the stock's links were dead in its own Lua). M1?: `proxybindingid` on the links (K4). |
 | V3 | **Minimum OS 3.3.0** in `driver.xml`, and a run-time check of `C4:GetVersionInfo()`: on an older controller the Status says so and the driver runs on. | #6 decision 3; LSR §3; LV2 `3_whats_new/_12-WHATSNEWIN330.md` (the brightness target); KP `3_whats_new/_20-WhatwasNewinOS3.md` (Button Linking); API `35_url/_10-Post.md` (3.0.0); FUND `14_updating_released_drivers/_1-UPDATINGRELEASEDDRIVERS.md` (the tag is documented as an auto-update gate only); API `5_director_command/_2-GetVersionInfo.md` | VERIFIED-doc. VERIFIED-hardware (K9, 2026-11-04, #17): Composer Pro refuses to add a package whose minimum is above the controller's OS (an "Incompatible Driver" dialog, no device created), so the XML tag gates installs; the run-time check stays as the second line (an update over an installed driver was not tried). |
 | V4 | **Gen 1–3 fans with six speeds** (`POST /mf`). A Gen 4 fan (HTTP 404 on `/mf`, then `fan_g4` from `/device`) is refused with a Status and never sent a command. | #6 decision 4; MFR §1, §4; ECM H2, H7 | VERIFIED: AIO's generation detection (MFR §1); M0: the house fan is Gen 3 with six speeds. |
 | V5 | **Adding a fan**: the owner types `Fan Address`; the driver pins the fan's identity (client id and station MAC) at first contact; a different fan at that address gets nothing until **Use Selected Fan** accepts it; a new address of the pinned fan is followed when the owner types it or picks it, and, **since #39 (2026-11-04), by itself** when the pinned fan's own multicast DNS answer names it and one read-only read there shows the pinned fan (V29); another fan is never taken by itself; no subnet scan, ever. **Find Fans** (an mDNS query) is in v1: K10 passed on the house (V5a). **Since #102 (2026-11-07)** the Find Fans action is gone: the driver asks the same query by itself, at every load and, while no fan is pinned, on a backing-off schedule, keeps `Found Fans` current, and a pick there takes the fan at once; a different fan picked on a pinned device still waits for Use Selected Fan (V30). | #6 decision 5; #39; #102; M0 (mDNS); ECM N1–N10, Q3; ECC D18–D20 | VERIFIED: `clientId` in every answer (M0; MFR §2.4). See V5a and V29. |
@@ -79,13 +82,14 @@ properties and the keypad) later the same day.
 | V21 | **Persistence**: the identity, the fan's model and firmware, the last online flag and the preset speed with `C4:PersistSetValue`; the fan's state is not persisted. The `Fan ID` row doubles as the identity's copy in the project file. | FUND `24_persisting_driver_data/_1-PERSISTINGDRIVERDATA.md`; API `26.5_persistence/_3-PersistGetValue.md`, `_4-PersistSetValue.md`; ECC D9, D10; HUE `docs/design.md` "Storage" | VERIFIED-house: values survive an update and a reboot. ASSUMED (parked to the first restore): a driver-written read-only row is in a project backup. |
 | V22 | **The fan's own automations are shown, not fought**: `Fan Automations` lists a schedule, away mode, adaptive learning and running sleep timers; `Last Change By` names who changed the fan when it was not Control4 (Gen 3 `userData`); **Turn Off Away Mode** and **Turn Off Adaptive Learning** are offered as clicks. Schedules and timers are not cleared in v1. | ECM A1–A7, §9; MFR §2.3 (the allow-list), §11 row 11; `CLAUDE.md` (Control4 is the source of truth) | VERIFIED: the fields (AIO, MFR §2.2; M0 shows all of them on the house fan). ASSUMED (K16): what `userData` says for the remote. |
 | V23 | **Reboot Fan** action (`{"reboot":true}`), a click only, never automatic; up to 2 minutes of silence afterwards counts as rebooting, not offline. Not a programming command (every command is forever once released). | MFR §2.3, §11 row 10; ECM P4, P6; ECC §5.2 | VERIFIED: AIO `reboot()` (MFR §2.3); the fan's behaviour after it ASSUMED (K18). |
-| V24 | **No custom icons in v1**: the two proxies show Control4's own fan and light icons, which a device keeps for good from its creation. An owner who wants custom icons says so before the first install. **Since #78 (the owner's answer, 2026-11-05):** the driver's own icons, a fan and a fan light drawn by `tools/make_icons.py` at 16 and 32 px, on the device (`<small>`, `<large>`) and on each proxy (`small_image`, `large_image`, `image_source="c4z"`); a device created by build 73 or earlier, the house's among them, is expected to keep Control4's. | HUE `docs/design.md` "Composer Pro 3.4.2 UI" (builds 125 and 135); ECC D25 | VERIFIED-house: the icon rule. |
-| V25 | **Programming surface**: events 1 Fan Offline and 2 Fan Online (3 reserved for a later "Changed Outside Control4"); one variable, `Online`; one conditional, `BOOL_ONLINE`; no programming commands of the driver's own. | ECC §5.2, F2, F24; API `36_variable/_1-AddVariable.md`, `7_event/_4-FireEventByID.md`; FUND `10_conditionals/_4-USINGTHETESTCONDITIONFUNCTION.md`, `_8-XMLINABOOLEANTYPECONDITIONAL.md` | VERIFIED-doc. |
+| V24 | **No custom icons in v1**: the two proxies show Control4's own fan and light icons, which a device keeps for good from its creation. An owner who wants custom icons says so before the first install. **Since #78 (the owner's answer, 2026-11-05):** the driver's own icons, a fan and a fan light drawn by `tools/make_icons.py` at 16 and 32 px, on the device (`<small>`, `<large>`) and on each proxy (`small_image`, `large_image`, `image_source="c4z"`); a device created by build 73 or earlier, the house's among them, is expected to keep Control4's. The Breeze switch (V31, #111) has its own icons from its first build. | HUE `docs/design.md` "Composer Pro 3.4.2 UI" (builds 125 and 135); ECC D25 | VERIFIED-house: the icon rule. |
+| V25 | **Programming surface**: events 1 Fan Offline and 2 Fan Online (3 reserved for a later "Changed Outside Control4"); one variable, `Online`; one conditional, `BOOL_ONLINE`; no programming commands of the driver's own. **Since #111 (V31):** events 4 Breeze Started and 5 Breeze Stopped, a second variable `Breeze`, a second conditional `BOOL_BREEZE` and four programming commands for Breeze, the driver's first (§2.7, §2.9). | ECC §5.2, F2, F24; API `36_variable/_1-AddVariable.md`, `7_event/_4-FireEventByID.md`; FUND `10_conditionals/_4-USINGTHETESTCONDITIONFUNCTION.md`, `_8-XMLINABOOLEANTYPECONDITIONAL.md` | VERIFIED-doc. |
 | V26 | **A speed link can light at one more speed.** Each of the six speed links has a setting, `Speed N Link Also Lit At` ("No other speed" by default, or one of the six speeds): the link's LED is then lit while the fan runs at its own speed *or* at that one. This closes the gap [`migration-design.md`](migration-design.md#8-open-items) item 11 found: today the house's Low button (single tap speed 2) is lit at speed 1, its double tap, and the High button (single tap 5) at speed 6 (K1–K3, §5.4); with one Follow Connection link per button and V12 they would be dark there. On the house: `Speed 2 Link Also Lit At` = `Speed 1`, `Speed 5 Link Also Lit At` = `Speed 6`. It is an LED rule, not a tap machine: the double tap stays the keypad's programming. In the keypad's own on colour, one colour per button (V27 for more). | #6 decisions 2, 7, 9; the coordinator's question of 2026-10-27 | VERIFIED: which state a link's `MATCH_LED_STATE` carries is the driver's to choose (KP `62_keypad_button_link_bindings/_1-KEYPADBUTTONLINKBINDINGS.md`: the notification says only whether the on or the off colour is active); the message works on this house's keypads (HUE `docs/design.md`, "Keypad and scene dimmer: verified on hardware": a switch's LEDs follow a scene device). |
 | V27 | **A colour per speed only if the keypad takes colours over the link and the owner wants them.** The link protocol has the driver's `BUTTON_COLORS` notification (on and off colour, 6-digit hex) and the keypad's `REQUEST_BUTTON_COLORS` asking for it (KP `62/_1`, VERIFIED-doc), and `common/device.lua` already sends it on the light links. Not documented, and never seen on the house: that a keypad applies colours received this way, and again each time they change while the button is bound. If K6 shows both, and the owner says yes (FPR §7 item 8: per-link colours "only if T6 shows the keypad adopts them and the owner wants them"), the build carries `Speed LED Colors` and a colour per speed (§2.5): a speed link lit at speed s is first sent the on colour of s, reproducing today's blue at 1 and `#ff6000` at 6, which programming paints over the buttons' own `#8000FF` (§5.4). Otherwise v1 sends no colours on the fan links and each linked fan button shows the colours set on the keypad itself: an **open item for the owner** ([section 17](#17-open-items-for-the-owner)). Adding the rows later costs no capability, connection or reboot. | #6 decision 9; FPR §5, §7 item 8; KP `62/_1`; `src/common/device.lua` (`send_button_colors`, after Snap One's `c4hook_light_v2.lua`) | VERIFIED-hardware (K6, 2026-11-04, #17): the house keypad applies `BUTTON_COLORS` over a link. **Shipped (2026-11-04, #31):** the owner asked for the keypad to match how it is today, which includes blue at speed 1 and `#ff6000` at 6; the default stays `Keypad's own`. |
 | V28 | **The fan's product name, and naming the two items after it** (#37, 2026-11-04; the contract is [`fan-name-design.md`](fan-name-design.md#1-decisions), N1 to N9). The name is looked up by the exact `fanType` in a table shipped with the driver (`fan/names.lua`: no prefix, family or fuzzy match, no guess; an unknown model has no name) and shown in `Fan Model` (§7.3). The driver renames its fan item and its light item (`<Name>` and `<Name> Light`, ASCII, at most 19 characters for `<Name>`) on two clicks only: **Use Selected Fan**, when it leaves a fan pinned (L2, L3, L4), *guarded*: only while both items still carry a shipped default name or the name the driver last wrote and Director confirmed (`mf_names`, §8), else both stay and the line ends `; names kept`; and the new action **Name Items After Fan** (§2.6), *forced*: both items whatever they are called, from the stored pin and model so also while the fan is silent, refused without a pin or a known name, idempotent. Nothing else renames: not start-up, late init, an update, a restore, a poll, a new address typed in `Fan Address` (the first contact included), a firmware or light-kit change, and never after the app's `deviceName` (V20). Two fans of one model get the same name: no suffix, number or room. The job runs from a timer, not inside the click, and reads the names back before it records them. On the house the items keep "Fan" and "Fan Light" (N8). Row D15 of [`edge-cases-control4.md`](edge-cases-control4.md) is changed to match (N9). | #37, the owner's request of 2026-11-04; [`fan-name-design.md`](fan-name-design.md), [`edge-cases-rename.md`](edge-cases-rename.md), [`fan-names-research.md`](fan-names-research.md); API `22_miscellaneous/_32-RenameDevice.md`, `22_miscellaneous/_25.2-SafeUsageTable.md` (unsafe before late init), `32_serial_network_device/_6-GetDeviceDisplayName.md` | VERIFIED-doc: the calls and their limits (ECR RF1 to RF3). VERIFIED-house: the Hue drivers renamed a proxy with `C4:RenameDevice` on this house (ECR RF6). ASSUMED until the first click on the house ([`fan-name-design.md`](fan-name-design.md#5-assumed-until-the-first-click-on-the-house)): the call on the fan proxy of a two-proxy device, an open Composer repainting its tree, Navigators following without File » Refresh Navigators. |
 | V29 | **Following the pinned fan to a new address by itself** (#39, 2026-11-04; the contract is [`address-follow-design.md`](address-follow-design.md#1-decisions), F1 to F9). The device is pinned to a fan, not an address. When the model's phase is offline (three failed polls, about 45 s), foreign, gen4 or notfan, while `Follow Address Changes` is On (§2.5), `Fan Address` is not empty, the pin has a MAC and the typed address is not pending, the follower (`fan/follow.lua`, §9.14) asks the network for the pinned MAC with the Find Fans query (V5a) in windows: the first 2 s after arming plus a per-device slot of up to about 25 s, then 30 s, 1, 2, 5, 10 min, then every 15 min, each ±20 %. A heard entry with the pinned MAC in its TXT record, SRV port 80 and a private (RFC 1918) or link-local address other than the current one (at most 3 a window) is read once, read-only (`queryStaticShadowData`); only an answer with the pin's client id and MAC moves the device: the model adopts the address as Use Selected Fan's "moved" path does (new epoch, `mf_identity`, phase waiting), then the driver rewrites `Fan Address` and writes L30 (§7.2). Programming sees one Fan Offline / Fan Online pair; no new event, variable or command. A typed `Fan Address` wins until the pinned fan has answered there (typing the pin's own address back resumes); an empty one stops everything; a fourth follow within an hour is refused (L31, once). Never a subnet scan, another fan, a public address, a match by name, model or address, or an announcement acted on without the read. The read checks identity, it does not authenticate (SECURITY.md). | #39, the owner's request of 2026-11-04; [`edge-cases-address.md`](edge-cases-address.md) (ECA); ECM N1, N3, Q3; ECC D19; K10 | VERIFIED-hardware (K10): the query and the TXT MAC on the house's Gen 3 fan. VERIFIED-code: the specs of `follow.lua`, `discovery.candidates`, `model:follow` and `fan_driver_spec` (address-follow-design 4). ASSUMED until seen on the house ([`address-follow-design.md`](address-follow-design.md#5-assumed-until-seen-on-the-house), K20 to K22): Gen 1/2 answer a query as Gen 3 does (their announcement layout is a fixture, ECA E4), the fan re-announces after a lease change, about 100 windows a day are harmless, a driver-written `Fan Address` survives a restart. One network segment only: multicast DNS does not cross routers. |
 | V30 | **Finding fans by itself; the Find Fans action removed** (#102, 2026-11-07; the contract is [`auto-discovery-design.md`](auto-discovery-design.md#1-decisions), AD1 to AD10). The driver keeps `Found Fans` current with V5a's query (`_easylink._tcp.local` on binding 6001) and no click: one window at every load (late init + 3 s + the device's slot of 3.5 s per device id mod 8 + 0 to 0.5 s) and, while no fan is pinned (or `Fan Address` is not a usable address), again 30 s, 1, 2, 5 and 10 min after the previous window closed, then every 15 min, each ±20 %, never sooner than 30 s after any window of the device closed (`fan/search.lua`, §9.10). A pinned device searches only at load; while the follower is armed its windows feed the list and no second schedule runs; a pinned device with an empty `Fan Address` opens no window at all, not even at load. One list (`fan/found.lua`), fed by every window whoever opened it, keyed by MAC, keeps each fan at the address of its latest answer until three windows in a row that sent their query missed it; its first item and value is a summary (`This device's fan answered; no other fan found` and the others of the contract's section 3.1), then the pinned fan first and the others by instance (§7.3). A search writes the list and the log, never Last Action, and never pins, reads, renames or adopts a listed fan, fills `Fan Address`, scans a subnet or asks the internet. A pick takes the fan at once through Use Selected Fan's path (the same results, `Fan Address` write and guarded rename, V28); a different fan picked on a pinned device reads nothing and waits for Use Selected Fan (L32). The Find Fans action and its command go, with no alias in a release build and no "Search again" row (a dev build has the signed `Dev Search`); S2 and L21 change, L8 to L10 go, L32 is new (§7.1, §7.2). No variable, event, programming command, connection or capability is added, nothing new is persisted, and the update needs no reboot. | #102, the owner's request of 2026-11-07 (as the Hue driver's bridge detection does); [`auto-discovery-design.md`](auto-discovery-design.md), [`edge-cases-discovery.md`](edge-cases-discovery.md) (EDC), [`auto-discovery-research.md`](auto-discovery-research.md) (ADR); K10 | VERIFIED-hardware (K10): the query and its answers on the house's Gen 3 fan. VERIFIED-code: the specs of `search.lua`, `found.lua`, `discovery.lua`, `texts.lua` and `fan_driver_spec` (auto-discovery-design 8). ASSUMED until seen on the house (auto-discovery-design 9, H1 to H3): five actions after the install in place; `Found Fans` filled 40 s after it with Last Action untouched; a pick of the house fan gives L4. Parked: the seek cadence over hours, an open Composer drop-down while the list changes, an OS 4.x controller, a second device of this driver on the house. |
+| V31 | **Breeze in Control4, and a companion switch for the Navigators** (#111, 2026-11-07; the contract is [`breeze-design.md`](breeze-design.md#1-decisions), BZ1 to BZ12). "Breeze blows" means the fan reports `wind` true **and** `fanOn` true; that one value drives the read-only variable `Breeze` (order 2, after `Online`, seeded from the new persisted `mf_breeze`, §8), the events Breeze Started (4) and Breeze Stopped (5), the conditional `BOOL_BREEZE` "Breeze is on" (id 1), the LED of the new link 311 Fan Breeze (§5.1) and the companion's tile; `Status` keeps the raw flag (S5: ` Breeze 2`, ` Breeze set`). The driver's first programming commands: Breeze On, Breeze Off, Toggle Breeze and Set Breeze Strength (`STRENGTH` 1, 2, 3; §2.9). The model gains a fourth command group, `breeze` (`wind`, `wind_speed`; §4.1), with exactly four bodies (§3.1); Breeze On with the fan off is the fan on at the preset, then `{"wind":true}` (two requests, the fan first); a speed, Off, Toggle or Cycle sends only its own fields, never a hidden `{"wind":false}`, and what the answer shows about `wind` is reported; the gust guard (§4.5): while the confirmed `wind` is true, a read whose only change is `fanSpeed` is not told, not "outside" and opens no fast window; an answer is "command" for every group it changed. The fan tile cannot show Breeze, so the Navigators get a **companion package** `modernforms_breeze.c4z`: one on/off `light_v2` proxy, added only by the new action **Add Breeze Switch** (sort order 7, §2.6) into the fan item's room, named once after the fan item plus " Breeze", bound on the new provider control binding 400 (class `MODERNFORMS_BREEZE`, §2.4), lit while Breeze blows, one tap toggles (§9.15). A fan without Breeze (no `wind` key) is sent nothing about Breeze: the commands and a 311 press are refused (L33), the switch too (L38); the commands stay listed. Last Action gains L33 to L40 (§7.2), `Keypad Links` counts 13 (§7.3). No capability changes and nothing is re-created: the fan device is updated in place with no reboot. The fan's own behaviour in Breeze was not measured (BZ5, the owner's call of 2026-11-07): the design works whatever the fan does, because the driver reports what the fan answers. | #111, the owner's request of 2026-11-07 (the Navigators first); [`breeze-design.md`](breeze-design.md), [`edge-cases-breeze.md`](edge-cases-breeze.md) (ECB, BC1 to BC36), [`breeze-research.md`](breeze-research.md) (BRR); FAN every page (no mode, preset mode or extras, ECB BE1); FUND `14_updating_released_drivers/_2-DRIVERUPDATECONSIDERATIONS.md` (no proxy added to an installed device, ECB BE4); API `9_helper/_0.1-AddDevice.md`, `9_helper/_1-bind.md`, `32_serial_network_device/_19-SendToDevice.md`; XML `35_commands_xml/` | VERIFIED-doc: the fan proxy has no place for a mode; commands, events, variables and conditionals may be added in an update (ECB BE9). VERIFIED-house: a `light_v2` device added by another driver with `C4:AddDevice`, bound with `C4:Bind` and shown on the owner's phone after Refresh Navigators (the Hue bridge, ECB BE6); commands added in an update with no reboot (ECB BE11). VERIFIED-code: the fields `wind` (boolean) and `windSpeed` (1 to 3) and the four bodies (AIO, BRR §1, §4). ASSUMED (BZ5; the house checks BR1 to BR6 were skipped): `fanSpeed` during gusts, whether `{"wind":true}` alone starts a fan, whether Off keeps `wind`, whether a speed command keeps Breeze, a strength alone, the direction during Breeze. ASSUMED until seen on the house ([`breeze-design.md`](breeze-design.md#9-on-the-house-after-the-release-install-windows-session) section 9; ECB BN1 to BN5): the programming lines after the update, the switch and its binding, the switch on the phone and a touch screen. |
 
 ## 2. Structure and `driver.xml`
 
@@ -199,6 +203,8 @@ Not declared: `click_rate_min`/`_max`, `supports_color_stop`, any
 | 301–306 | Fan Speed 1 Button Link … Fan Speed 6 Button Link | 1 | False | `BUTTON_LINK` | True | one per speed |
 | 307 | Fan Toggle Button Link | 1 | False | `BUTTON_LINK` | True | |
 | 308 | Fan Cycle Button Link | 1 | False | `BUTTON_LINK` | True | |
+| 311 | Fan Breeze Button Link | 1 | False | `BUTTON_LINK` | True | since #111 (V31): handled as 307, its LED lit while Breeze blows (§5.1) |
+| 400 | Breeze Switch | 1 | False | `MODERNFORMS_BREEZE` | True | since #111 (V31): a provider control binding, not a Button Link; a Breeze switch's consumer binding 1 is bound to it, by Add Breeze Switch or by hand (§9.15) |
 
 Each link is the Hue Light's pattern (`facing` 6, `audiosource` and
 `videosource` False; HUE `src/hue_light/driver.xml`): a provider control
@@ -215,7 +221,8 @@ it does the stock driver's 12 (K2), which serves the keypad drag of the
 migration either way. That a press arrives on each link is still K4's
 steps 3 to 5. Reserved, never declared in v1: 203–209 (light),
 309 "Fan Cycle Down Button Link", 310 "Fan Direction Button Link", 311–319
-(fan), 6001 (the dynamic network binding of the multicast DNS query,
+(fan; since #111, V31, 311 is declared as Fan Breeze and 312–319 stay
+reserved), 6001 (the dynamic network binding of the multicast DNS query,
 V5a: Find Fans' until #102, since then the driver's own search's and the
 follower's, V29, V30; no XML).
 
@@ -272,11 +279,13 @@ the house keys of [`scaffold-design.md`](scaffold-design.md) section 5.
 | 4 | Reboot Fan | V23, [section 6.4](#64-reboot-fan) |
 | 5 | Turn Off Away Mode | V22: `{"awayModeEnabled":false}` |
 | 6 | Turn Off Adaptive Learning | V22: `{"adaptiveLearning":false}` |
+| 7 | Add Breeze Switch | since #111 (V31): adds the companion Breeze switch into the fan item's room and binds it on 400 (§9.15); refused without a pin, without Breeze or with one already bound; the results are L36 to L40 (§7.2) |
 
 `sort_order` on every action (XML `30_actions/_45-sortorder.md`; without it
 Composer lists them in reverse, ECC F29). The numbers stay even without
 Find Fans: since #102 (V30) the five remaining actions keep 2 to 6, Use
-Selected Fan first. Each action ends in `Last Action` (§7.2).
+Selected Fan first. Since #111 (V31) Add Breeze Switch is the sixth, with 7.
+Each action ends in `Last Action` (§7.2).
 
 ### 2.7 Events, variables, conditional
 
@@ -287,6 +296,8 @@ forever, ECC F24):
 | --- | --- | --- | --- | --- |
 | 1 | Fan Offline | When NAME stops answering on the network | 1 | once per transition to offline, foreign, Gen 4 or not-a-fan ([section 6](#6-offline-online-rebooting-and-the-wrong-fan)) |
 | 2 | Fan Online | When NAME answers on the network again | 2 | once per transition back to online |
+| 4 | Breeze Started | When NAME starts blowing a Breeze | 3 | since #111 (V31): once when "Breeze blows" (`wind` and `fanOn`) turns true, whoever caused it; at the first contact after a restart only if it differs from `mf_breeze` |
+| 5 | Breeze Stopped | When NAME stops blowing a Breeze | 4 | since #111 (V31): once when it turns false (Breeze off, the fan off, Breeze hardware gone) |
 
 Id 3 is reserved for "Changed Outside Control4". `C4:FireEventByID`, never
 before late init (API `7_event/_4-FireEventByID.md`). The fan's speed, on,
@@ -299,6 +310,7 @@ renamed or removed (API `36_variable/_1-AddVariable.md`; ECC F23, F24):
 | Order | Name | Type | Read-only | Hidden | Initial value |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Online | BOOL ("1"/"0") | yes | no | the persisted `mf_online` (`C4:PersistGetValue` may run before late init, API `26.5_persistence/_3-PersistGetValue.md`), else "0" |
+| 2 | Breeze | BOOL ("1"/"0") | yes | no | since #111 (V31): the persisted `mf_breeze`, else "0"; added on every device, with or without Breeze, so its number is the same everywhere; "1" while Breeze blows |
 
 Conditional (FUND `10_conditionals/_8-XMLINABOOLEANTYPECONDITIONAL.md`):
 
@@ -313,6 +325,16 @@ Conditional (FUND `10_conditionals/_8-XMLINABOOLEANTYPECONDITIONAL.md`):
 		<true_text>True</true_text>
 		<false_text>False</false_text>
 	</conditional>
+	<!-- since #111 (V31) -->
+	<conditional>
+		<id>1</id>
+		<name>BOOL_BREEZE</name>
+		<type>BOOL</type>
+		<condition_statement>Breeze is on</condition_statement>
+		<description>NAME Breeze is on is STRING</description>
+		<true_text>True</true_text>
+		<false_text>False</false_text>
+	</conditional>
 </conditionals>
 ```
 
@@ -322,7 +344,9 @@ Conditional (FUND `10_conditionals/_8-XMLINABOOLEANTYPECONDITIONAL.md`):
 "True")`, inverted for `LOGIC` `NOT_EQUAL`; with no `VALUE` it is `online`
 itself. ASSUMED (checked at M4 with one If line): FUND `10/_4` lists an empty
 table for BOOL, while the Hue motion driver also reads `VALUE`. Any other
-name answers false. No `<commands>` (V25).
+name answers false. Since #111 (V31) `BOOL_BREEZE` answers the same way
+from "Breeze blows" (`fan/breeze.lua`'s `test_condition`, §9.15). No
+`<commands>` until #111 (V25); since then the four of §2.9.
 
 ### 2.8 If the two-proxy probe fails
 
@@ -339,6 +363,25 @@ the fan links, every text. Changed: `fan/light.lua` moves into the light
 driver and talks to the fan driver by `C4:SendToDevice` messages; this
 contract gains a message table. Decided before the first install, since a
 device's proxies are fixed at its creation.
+
+### 2.9 Programming commands (V31, #111)
+
+Added by #111 ([`breeze-design.md`](breeze-design.md#7-the-fan-drivers-xml-and-wiring-the-coordinator),
+sections 1 and 7) and numbered after 2.8 so that no section moves. The
+driver's own commands in Programming (XML `35_commands_xml/`); names, the
+parameter and its list are fixed forever once released (ECB BC26):
+
+| `sort_order` | Name | Description | Parameter | Effect (`fan/breeze.lua`, §9.15) |
+| --- | --- | --- | --- | --- |
+| 0 | Breeze On | Turn Breeze on for NAME | — | `want({ wind = true })`; with the fan shown off, `want({ fan_on = true, speed = preset, wind = true })`: two requests, the fan first |
+| 1 | Breeze Off | Turn Breeze off for NAME | — | `want({ wind = false })` |
+| 2 | Toggle Breeze | Toggle Breeze for NAME | — | from the shown state: blowing → Breeze Off, anything else → Breeze On |
+| 3 | Set Breeze Strength | Set the Breeze strength of NAME to PARAM1 | `STRENGTH`, LIST `1`, `2`, `3` | `want({ wind_speed = N })`, sent alone; anything else refused (L34) |
+
+`fan/breeze.lua` takes them as `Breeze_On`, `Breeze_Off`, `Toggle_Breeze`
+and `Set_Breeze_Strength` from `ExecuteCommand` (breeze-design section 3). A refusal writes Last Action (L33 to L35,
+§7.2); success writes nothing, as for every proxy command. The commands are
+listed on every device, with or without Breeze (BZ10).
 
 ## 3. Transport
 
@@ -367,14 +410,17 @@ writes arrays as objects).
 | light off | `{"lightOn":false}` | a target of 0 | VERIFIED: AIO |
 | away mode off | `{"awayModeEnabled":false}` | Turn Off Away Mode only | VERIFIED: AIO `away()` |
 | adaptive learning off | `{"adaptiveLearning":false}` | Turn Off Adaptive Learning only | VERIFIED: AIO `adaptive_learning()` |
+| breeze (since #111, V31) | `{"wind":true}`, `{"wind":false}`, `{"windSpeed":N}` or `{"wind":true,"windSpeed":N}`, N 1–3 as a number | the Breeze commands (§2.9), a 311 press, the Breeze switch; only while the fan has the `wind` key; Breeze On from off sends the fan body first | VERIFIED: the fields and bodies (AIO, BRR §1, §4); what the fan does with them ASSUMED (BZ5) |
 | reboot | `{"reboot":true}` | Reboot Fan only; no answer expected | VERIFIED: AIO `reboot()` |
 | Gen 4 probe | `{"query":true}` to `/device` | once after an HTTP 404 on `/mf` | VERIFIED: AIO `_probe_gen4()` (MFR §1) |
 
 A body never carries `lightOn:true` together with a changed
 `lightBrightness` (the flash, MFR §2.3), nor fan and light fields together,
 nor any key outside this table (`factoryReset`, `decommission`,
-`resetRfPairList`, `rfPairModeActive`, `firmwareUrl`, `schedule`, timers,
-`wind` are never written).
+`resetRfPairList`, `rfPairModeActive`, `firmwareUrl`, `schedule`, timers
+are never written; `wind` and `windSpeed` were not written until #111, and
+since then only in the four breeze bodies, never mixed with another
+group's fields, V31).
 
 ### 3.2 The call
 
@@ -566,7 +612,9 @@ verdict kept without probing again. Nothing else is ever sent there.
 | `direction` | `fanDirection` "forward"/"reverse" | direction | `DIRECTION` FORWARD/REVERSE |
 | `light_on` | `lightOn` | light | `LIGHT_BRIGHTNESS_CHANGED` = `level` when on, 0 when off |
 | `level` | `lightBrightness` 1–100 (kept while off, M0) | light | |
-| read only | `wind`, `windSpeed`, `awayModeEnabled`, `adaptiveLearning`, `schedule` (as set/empty), `fanTimer`/`lightTimer` (Gen 3, seconds left), `fanSleepTimer`/`lightSleepTimer` (Gen 1/2), `userData` (Gen 3), `clientId` | — | rows only (V22) |
+| `wind` | `wind` (boolean; since #111, V31) | breeze | none on the proxies: "Breeze blows" (`wind` and `fan_on`) drives the `Breeze` variable, the events, link 311's LED and the companion's tile |
+| `wind_speed` | `windSpeed` 1–3 (since #111) | breeze | `Status` only (S5) |
+| read only | `awayModeEnabled`, `adaptiveLearning`, `schedule` (as set/empty), `fanTimer`/`lightTimer` (Gen 3, seconds left), `fanSleepTimer`/`lightSleepTimer` (Gen 1/2), `userData` (Gen 3), `clientId`; `wind` and `windSpeed` until #111 | — | rows only (V22) |
 
 Per field the model keeps: **confirmed** (the last value the fan reported,
 nil while unknown), **in flight** (the value in the request now on the
@@ -577,7 +625,10 @@ flight, else confirmed: what LEDs and Toggle/Cycle work from. A group is
 
 Generation: `fanTimer` or `lightTimer` in the dynamic shadow → "3";
 `fanSleepTimer` or `lightSleepTimer` → "1/2"; else unknown (VERIFIED: AIO
-`_infer_generation()`, MFR §1). Breeze: the `wind` key exists. Light kit:
+`_infer_generation()`, MFR §1). Breeze: the `wind` key exists; since #111
+the group `breeze` is accepted only then (`want` refuses it with
+`no_breeze`, and a strength outside 1 to 3 with `breeze_range`, V31).
+Light kit:
 `lightType` not empty (VERIFIED: HA `light.py`, MFR §2.4); without one the
 light fields are ignored and the light is "not present" (ECM H4).
 
@@ -601,6 +652,9 @@ When the transport is idle (after the gap), the model sends, in this order:
    - fan: wanted on at N → `{"fanOn":true,"fanSpeed":N}`; wanted off →
      `{"fanOn":false}`;
    - direction: `{"fanDirection":...}`;
+   - breeze (since #111, V31): `{"wind":...}`, `{"windSpeed":N}` or both,
+     always after the fan group, so Breeze On from off is the fan's body,
+     then `{"wind":true}` 250 ms after its answer;
    - light: wanted off → `{"lightOn":false}`. Wanted on at N: if the
      light shows on, `{"lightBrightness":N}`; if it shows off,
      `{"lightBrightness":N}` first, unless N is already its kept level or a
@@ -661,6 +715,16 @@ whether or not its value changed (the light closes its `CHANGING` there).
 | R7 offline | [section 6](#6-offline-online-rebooting-and-the-wrong-fan); never `CURRENT_SPEED 0` for offline |
 | R8 back online | the contact's differences reported with why "online" |
 | R9 no `ON`/`OFF` notifications | `fanproxy` sends `CURRENT_SPEED` only (the proxy would assume the preset on `ON`, FAN `42/_4-ON.md`) |
+
+**Since #111 (V31; [`breeze-design.md`](breeze-design.md#1-decisions) BZ8,
+BZ9):** the gust guard: while the confirmed `wind` is true, a read whose
+only change is `fanSpeed` is not told to the proxy or the links, is not
+"outside" and opens no fast window (a debug line); the speed is told again
+from the first read after `wind` goes false. A speed Control4 commands
+during Breeze is sent and reported from its own answer. And an answer
+counts as "command" for every group it changed, not only the group that
+was sent, so a Breeze command that starts the fan or turns it forward is
+not "outside".
 
 ### 4.6 The fan: commands and intents
 
@@ -754,13 +818,14 @@ Several keypads on one link share it (ECC C6).
 | 301–306 Fan Speed M | on at M | on at M | tried once | refused | fan on at speed M, or at the speed `Speed M Link Also Lit At` names (V26) |
 | 307 Fan Toggle | on at the preset | off | tried once | refused | fan on |
 | 308 Fan Cycle | on at 1 | N+1, at 6 nothing (V11, #77) | tried once, from the shown speed | refused | fan on |
+| 311 Fan Breeze (since #111, V31) | Breeze On: the fan on at the preset first, then Breeze | blowing (shown): Breeze Off; else Breeze On | tried once | refused (L35) | Breeze blows (shown `wind` and shown `fan_on`); a fan without Breeze refuses the press (L33), the LED dark |
 
 "Tried once" is ECM P8: sent as the reachability check, dropped if it
 fails, never replayed.
 
 **LEDs.** On every `shown` change, `MATCH_LED_STATE {STATE = true|false}` as
 a COMMAND (the default below 1000, API `25_proxy/_6-SendToProxy.md`) goes to
-each fan link whose lit state changed; all nine after the first contact, on
+each fan link whose lit state changed; all nine (ten since #111) after the first contact, on
 `REQUEST_BUTTON_COLORS` (that link only) and when a keypad is bound to a
 link (that link). While the fan state is unknown nothing is sent, except
 `STATE` false to a link just bound (ECC C14). While offline the LEDs keep
@@ -778,7 +843,7 @@ speed s, or is asked with `REQUEST_BUTTON_COLORS` while lit at s,
 Color, CURRENT_COLOR = the colour now meant}` (6-digit hex, the form
 `common/device.lua` sends after Snap One's template) goes on that link just
 before its `MATCH_LED_STATE`; a dark link and the Off, Toggle and Cycle
-links get none. Whether a keypad takes them is K6. A `SET_BUTTON_COLOR`
+links (and Fan Breeze since #111) get none. Whether a keypad takes them is K6. A `SET_BUTTON_COLOR`
 arriving on a fan link (KP `62/_1` documents the command without saying who
 sends it or what its `BUTTON ID` means there) is logged at debug and
 ignored.
@@ -807,6 +872,8 @@ inverted state instead (Lua only, the common agent's, if K6 says so).
 these) is wrapped by `dev.binding_changed`, so calls before late init wait
 for it (as the Hue drivers). For 200–202 it calls `dev.update_leds(true)`,
 for 300–308 the link's LED; for all twelve the `Keypad Links` bookkeeping.
+Since #111 (V31) 311 is handled as 300–308 (thirteen links in the
+bookkeeping), and binding 400 goes to `fan/breeze.lua` instead (§9.15).
 At late init each link is read with `C4:GetBoundConsumerDevices(C4:GetDeviceID(),
 id)` (API `32_serial_network_device/_3-GetBoundConsumerDevices.md`); a link
 answering nil is read once more 5 s later (one nil is "unknown", ECC C15).
@@ -856,7 +923,8 @@ keeps the record and [its phases](migration-design.md#3-phases) the order):
   *Up Button Link* and a *Down Button Link* row (K19, 2026-11-04, VERIFIED-house),
   so both bind to the light's Top and Bottom links, with no LED.
 - Fan Toggle (307), Fan Cycle (308) and Light Toggle (202) stay unbound on
-  this house: M0 found no programming that toggles or cycles the fan.
+  this house: M0 found no programming that toggles or cycles the fan. Fan
+  Breeze (311, #111) stays unbound too: the keypad has no free button.
 
 ## 6. Offline, online, rebooting and the wrong fan
 
@@ -877,11 +945,19 @@ also what arms the follower (V29, §9.14); a follow shows as offline-like,
 then waiting at the new address, then online, so programming sees one Fan
 Offline / Fan Online pair and nothing else.
 
+Since #111 (V31): the `Breeze` variable keeps its last value through every
+phase (offline reports no change, ECB BC20), and a change made meanwhile is
+reported once at the contact that ends it; a Breeze command follows the
+Commands column (L35 for a refusal); a Breeze switch is available
+(`AVAILABLE` "1") only while the phase is online, waiting or rebooting and
+the fan has Breeze, and greyed out otherwise (§9.15).
+
 ### 6.2 Offline (#6 decision 10)
 
 The proxies keep their last values; nothing is sent to the fan proxy (it
 has no online notion, FPR §1.4); the light's controls go grey through
-`ONLINE_CHANGED` false; LEDs keep the last state; Status S7, S8 or S9 names
+`ONLINE_CHANGED` false, and since #111 so does a Breeze switch (V31); LEDs
+keep the last state; Status S7, S8 or S9 names
 the time it went quiet. The driver cannot tell a power cut from a stuck
 Wi-Fi module while the blades turn (ECM P3, P4), which is why the state is
 kept, not turned off.
@@ -921,7 +997,7 @@ spec asserts them verbatim.
 | S2 | unset, the search working (V30) | `Not set up: pick a fan in Found Fans, or enter Fan Address` (since #102; until then, with Find Fans, `Not set up: Find Fans, or enter the fan's address in Fan Address`) |
 | S3 | `Fan Address` not IPv4 (the typed text cut to 24 characters) | `Fan Address "fan.local" is not an IPv4 address` |
 | S4 | waiting | `Waiting for the fan at 10.0.2.151` |
-| S5 | online | `Online: fan speed 3, light 40 %`; the grammar: `Online: fan ` + (`off` or `speed N`, then ` reverse` when reversed, ` Breeze` when `wind` is on) + `, ` + (`light off`, `light N %` or `no light kit`). For example `Online: fan off, light off`, `Online: fan speed 6 reverse Breeze, light 100 %` |
+| S5 | online | `Online: fan speed 3, light 40 %`; the grammar: `Online: fan ` + (`off` or `speed N`, then ` reverse` when reversed, ` Breeze` when `wind` is on) + `, ` + (`light off`, `light N %` or `no light kit`). For example `Online: fan off, light off`, `Online: fan speed 6 reverse Breeze, light 100 %`. **Since #111 (V31):** ` Breeze 2` while the fan runs with Breeze (`wind` and `fanOn`; the number is the strength, ` Breeze` alone when it is unknown), ` Breeze set` while `wind` is true and the fan is off; for example `Online: fan speed 3 Breeze 2, light 40 %`, `Online: fan off Breeze set, light off` |
 | S6 | online, a needed field missing (ECM F3) | `Online, but the fan reports no fanSpeed; speed control paused` (the key: `fanOn`, `fanSpeed` → speed; `fanDirection` → direction; `lightOn`, `lightBrightness` → light) |
 | S7 | offline after timeouts or refusals, a state known | `Not answering at 10.0.2.151 since 14:02; showing last state` |
 | S8 | the same, no state known in this run | `Not answering at 10.0.2.151 since 14:02; state unknown` |
@@ -972,6 +1048,14 @@ The longest, S9 with a 15-character address and a date, stays under 75.
 | L30 | the follower moved the device to the pinned fan's new address (V29) | `Followed fan MF_00005E005301 to 10.0.2.152 (was 10.0.2.151)` |
 | L31 | the flap guard refused a fourth follow within an hour, written once (V29) | `Fan MF_00005E005301 moved 3 times in an hour; not following` |
 | L32 | a different fan picked in `Found Fans` on a pinned device: nothing read, the pick kept for Use Selected Fan (V30) | `Picked MF_Fan_005302: click Use Selected Fan to switch to it` (the instance cut at its start so the line stays at or under 70) |
+| L33 | a Breeze command, a 311 press or a Breeze switch's tap, and the fan has no Breeze (V31) | `Breeze not available: this fan reports no Breeze` |
+| L34 | Set Breeze Strength with a strength that is not 1 to 3 (V31) | `Breeze strength 5 refused: use 1, 2 or 3` |
+| L35 | a Breeze command refused for another reason (V31) | the contract's rule: the refusal line a proxy command writes for that reason, with "Breeze" as the command; no proxy command writes one, so the line is `Breeze not sent: ` and the reason in the words of the rows that name it, for example `Breeze not sent: another fan answers at Fan Address` |
+| L36 | Add Breeze Switch added and bound the switch (V31) | `Breeze switch added: Aviator 5 Breeze` |
+| L37 | Add Breeze Switch, a switch already bound on 400 (V31) | `A Breeze switch is already connected: Aviator 5 Breeze` |
+| L38 | Add Breeze Switch, the fan has no Breeze (V31) | `No Breeze switch added: this fan reports no Breeze` |
+| L39 | Add Breeze Switch, no fan pinned (V31) | `No Breeze switch added: set up the fan first` |
+| L40 | Add Breeze Switch, Composer refused the device or the binding (V31) | `No Breeze switch added: install modernforms_breeze.c4z first` |
 
 L30 and L31 are V29's
 ([`address-follow-design.md`](address-follow-design.md#24-fantextslua-changed-after-37s-l22-to-l29),
@@ -979,6 +1063,11 @@ L30 and L31 are V29's
 15-character addresses (exactly 70 with a `WAC_` id). The follower writes no
 Last Action for a window that found nothing, and no new Status text: the
 owner reads S7 (or S11 to S13), then S4 at the new address, then S5.
+
+L33 to L40 are V31's ([`breeze-design.md`](breeze-design.md#5-texts-fantextslua-piece-c),
+section 5): at most 70 characters with the placeholders; L36 and L37 name
+the switch as the fan item's name plus " Breeze", cut to fit. A Breeze
+command that succeeds writes nothing, as every proxy command.
 
 L32 and the new L21 are V30's ([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions),
 section 5; texts key `picked_wait`). A pick that takes a fan writes Use
@@ -1015,7 +1104,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | Last Seen | `2026-10-27 18:02:10, answered in 0.31 s`, written at most every 10 s |
 | Last Change By | `<who> at 14:05`, written on each change Control4 did not make. `<who>` from `userData`: `ble` → `Remote or wall control`; `local_wifi` → `Modern Forms app or another local client`; `cloud` → `Modern Forms cloud (app away, voice assistant)`; `sleep_timer` → `The fan's sleep timer`; `away_mode` → `The fan's away mode`; `schedule` → `A schedule in the Modern Forms app`; anything else, `none` or absent (Gen 1/2) → `Outside Control4 (source not reported)` (VERIFIED values: AIO `const.py`, MFR §2.2; what an RF remote reports is K16) |
 | Fan Automations | `None`, or `Active: ` and the items joined by `, `: `schedule`, `away mode`, `adaptive learning`, `fan timer 25 min`, `light timer 10 min` (Gen 3, minutes rounded up), `fan timer set`, `light timer set` (Gen 1/2). Written when the text changes. `schedule` counts when the field is a non-empty string (ASSUMED: empty means none; one read-only VM read of the house fan's value, while the app shows no schedule, settles it, §16) |
-| Keypad Links | items: `5 of 12 links bound`, then one per bound keypad, `Fan Speed 3: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id) |
+| Keypad Links | items: `5 of 12 links bound` (since #111 `5 of 13 links bound`, V31), then one per bound keypad, `Fan Speed 3: Example Keypad (456)` or `Fan Breeze: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id) |
 | Found Fans | since #102 (V30): the first item, and the value while no pick waits, is a summary of the searches (`Looking for Modern Forms fans on the network...`, `2 fans found: pick one and click Set to use it`, `This device's fan answered; no other fan found` and the others of the contract's section 3.1); then the items `MF_Fan_005302 at 10.0.2.152`, the pinned fan first with ` (this device: Aviator 5)`, or ` (this device's fan)` without a product name; at most 16 item rows, the 16th `... and 3 more: enter the address in Fan Address` when there are more. Until #102: the items only, with ` (this device's fan)`, at most 16, filled by Find Fans |
 | Speed N Link Also Lit At | the dealer's choice among `No other speed`, `Speed 1` … `Speed 6`; no driver text |
 | Speed LED Colors (V27) | the dealer's choice among `Keypad's own`, `Per speed`; no driver text |
@@ -1028,6 +1117,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | `mf_info` | `{ fan_type, light_type, motor_type, firmware, mcu_firmware, firmware_since = "2026-10-27", firmware_was }` | when it changes | late init |
 | `mf_wind` | `true` once a state answer of the pinned fan has shown Breeze (`wind`); `false` when Use Selected Fan re-points the device to another fan (#69) | when it changes | late init (only with a stored `mf_identity`), so Fan Model shows Breeze before the first answer |
 | `mf_online` | `true`/`false` | when the Online variable changes | `OnDriverInit`, D9's comparison |
+| `mf_breeze` | since #111 (V31): whether Breeze blew, the value of the `Breeze` variable | when the variable changes | `OnDriverInit`, to seed the variable, so a restart alone fires nothing and the first contact fires an event only on a difference (ECB BC22) |
 | `mf_preset_speed` | 1–6 | `DESIGNATE_PRESET` | late init |
 | `mf_names` | `{ fan = "Aviator 5", light = "Aviator 5 Light", at = <epoch s> }`: the names the driver last wrote and Director confirmed (V28); an item is written only after the read-back matches, so one of the two may be missing | the rename job, per item | the next rename job's guard |
 | device.lua's `preset_level`, `hold_rate_up`, `hold_rate_down`, `button_<n>_<on/off>_color` | as device.lua | as device.lua | as device.lua |
@@ -1072,6 +1162,8 @@ src/modernforms_fan/
   fan/follow.lua      pure: following the pinned fan to a new address it announces (V29, section 9.14)
   fan/search.lua      pure: when the driver asks the query by itself (V30, section 9.10)
   fan/found.lua       pure: the Found Fans list fed by every window, and the kept pick (V30, section 9.10)
+  fan/breeze.lua      Breeze's Control4 face: the commands, link 311, the variable, events, condition, the companions (V31, section 9.15)
+src/modernforms_breeze/   the companion Breeze switch (V31, #111): driver.lua, driver.xml, www/ (section 9.15)
 src/common/           dispatch.lua (per-binding routing), device.lua (proxy binding option), log.lua, devloop.lua
 ```
 
@@ -1087,11 +1179,14 @@ without the others and without new fake-runtime calls.
 | `ReceivedFromProxy` | 5002 | `fan/light.lua` and device.lua's `BUTTON_ACTION`, `SET_BUTTON_COLOR`, `SET_PRESET_LEVEL`, `SET_HOLD_RATE_UP`/`DOWN` |
 | `ReceivedFromProxy` | 200–202 | device.lua's `DO_PUSH`, `DO_CLICK`, `DO_RELEASE`, `REQUEST_BUTTON_COLORS` |
 | `ReceivedFromProxy` | 300–308 | `fan/links.lua` |
+| `ReceivedFromProxy` | 311 (since #111) | `fan/links.lua`, its press to `fan/breeze.lua` (V31) |
 | `ReceivedFromProxy` | any other | dropped, one debug line |
-| `OnBindingChanged` | 200–202, 300–308 | §5.3 |
+| `OnBindingChanged` | 200–202, 300–308 (and 311 since #111) | §5.3 |
+| `OnBindingChanged` | 400 (since #111) | `fan/breeze.lua` (V31, §9.15) |
 | `ExecuteCommand` (LUA_ACTION) | — | `dispatch.commands` (the actions) |
+| `ExecuteCommand` | — | since #111: the four Breeze commands and the companion's `MF_BREEZE_*` messages to `fan/breeze.lua` (V31, §2.9, §9.15) |
 | `OnPropertyChanged` | — | `dispatch.properties` |
-| `TestCondition` | — | `driver.lua` (§2.7) |
+| `TestCondition` | — | `driver.lua` (§2.7); since #111 `BOOL_BREEZE` to `fan/breeze.lua` |
 | `ReceivedFromNetwork` | 6001 | `fan/discovery.lua`; the scheduler's windows (V30) and the follower's (V29) share the one binding and its window (until #102, Find Fans and the follower), and every closed window feeds `fan/found.lua` |
 
 ### 9.2 `common/dispatch.lua` and `common/device.lua` (changes)
@@ -1179,6 +1274,7 @@ m:set_poll_interval(seconds)     -- clamped to 10..120
 m:want(fields) -> true | false, why
   -- fields: { fan_on, speed } | { direction } | { light_on, level } (any of the three groups at once)
   -- why: "unset"|"invalid address"|"foreign"|"gen4"|"notfan"|"rebooting"|"no light kit"|"no <key>"|"range"
+  -- since #111 (V31) also { wind, wind_speed } (the group breeze), refused with "no_breeze" or "breeze_range"
 m:use_fan(address, mac12_or_nil, cb)   -- Use Selected Fan; cb(result_key, args) for texts.result
 m:follow(address, mac12, cb)     -- V29, address-follow-design 2.2: use_fan restricted to the pinned fan. One
   -- queryStaticShadowData to address; cb("followed", { address, was, client_id }) after the adoption of the
@@ -1239,6 +1335,10 @@ texts.suffix(id) -> "...5302" ; texts.mac(mac12) -> "00:00:5e:00:53:01" ; texts.
 and `find_failed` (L8 to L10) go and `picked_wait` (L32) comes;
 `texts.found_rows(view) -> summary, items` replaces `texts.found_fans`.
 
+**Since #111** (V31; [`breeze-design.md`](breeze-design.md#5-texts-fantextslua-piece-c), section 5): S5's Breeze
+flag (` Breeze 2`, ` Breeze set`), one key for each of L33 to L40, and
+`texts.keypad_links` counting 13.
+
 ### 9.7 `fan/fanproxy.lua`
 
 ```lua
@@ -1260,7 +1360,8 @@ fp:debug() -> { told_fan, told_dir, notify_fan, notify_dir, preset }
 
 ```lua
 links.LINKS = { [300] = "Fan Off", [301] = "Fan Speed 1", ..., [306] = "Fan Speed 6", [307] = "Fan Toggle",
-                [308] = "Fan Cycle" }
+                [308] = "Fan Cycle" }   -- since #111 also [311] = "Fan Breeze" (V31): its press calls
+                                        -- opts.breeze_toggle(), its LED is opts.breeze_blows()
 links.LIGHT_LINKS = { [200] = "Light Top", [201] = "Light Bottom", [202] = "Light Toggle" }   -- bookkeeping only
 local lk = links.new({ model = m, fan = fp, on = fn, send = fn(binding, command, params), now = fn_ms,
                        timer = fn, bound = fn(link) -> C4:GetBoundConsumerDevices table|nil,
@@ -1592,6 +1693,60 @@ replay; the follower built after the model and discovery; the model's
 `model_spec`, `texts_spec`, `devcmds_spec` and `fan_driver_spec`
 (address-follow-design section 4).
 
+### 9.15 `fan/breeze.lua` and the companion `modernforms_breeze.c4z` (V31, #111)
+
+Added by #111 (2026-11-07) and numbered after 9.14 so that no earlier
+section moves. The contract is [`breeze-design.md`](breeze-design.md#3-the-control4-face-in-the-fan-driver-fanbreezelua-new-piece-b),
+sections 2 to 4 (where the two differ, that file wins); the cases behind it
+are [`edge-cases-breeze.md`](edge-cases-breeze.md) BC1 to BC36. In short:
+
+- **The model** (`fan/model.lua`, `fan/wire.lua`, breeze-design section 2):
+  the fourth group `breeze` (`wind`, `wind_speed`), the four bodies of
+  §3.1, `validate`'s `no_breeze` and `breeze_range`, the gust guard and the
+  attribution of §4.5; `settled("breeze", …)`, `idle("breeze", …)` and
+  `shown()` with `wind` and `wind_speed`, like the other groups.
+- **`fan/breeze.lua`** (new) is the Control4 face: the four commands of
+  §2.9 (`b:command`), link 311's press and LED (`b:toggle`,
+  `b:blows_shown`, handed to `fan/links.lua` as `breeze_toggle` and
+  `breeze_blows`), the `Breeze` variable, events 4 and 5 and `mf_breeze`
+  on every change of "Breeze blows" (`b:settled`), `BOOL_BREEZE`
+  (`b:test_condition`), the action Add Breeze Switch (`b:add_switch`:
+  `C4:AddDevice("modernforms_breeze.c4z", …)` into the fan item's room,
+  then `C4:Bind` on 400, L36 to L40), and the messages to and from the
+  companions (`b:companion`, `b:binding_changed`, `b:shown`, `b:phase`,
+  `b:late_init`). Director's calls are handed in, as every module here
+  takes them (§9.1).
+- **The companion** `src/modernforms_breeze/` (new package): one `light_v2`
+  proxy on 5001 ("Modern Forms Breeze"), `dimmer` False, `on_off` True, no
+  LEDs and no Button Links of its own, its own icons; a consumer control
+  binding 1 of class `MODERNFORMS_BREEZE`; the rows `Driver Version`,
+  `Status` and `Debug Mode`; no actions; its own Documentation tab; the
+  fan driver's minimum OS. Built on `src/common/device.lua` where it fits.
+- **Messages** (`C4:SendToDevice`, arriving in `ExecuteCommand`):
+
+| Direction | Command | Parameters | When |
+| --- | --- | --- | --- |
+| fan → companion | `MF_BREEZE_STATE` | `BLOWS` "1"/"0", `AVAILABLE` "1"/"0" ("0" without Breeze or while the phase is not online, waiting or rebooting), `FAN` (the fan item's name) | after every change, on a binding change of 400, on `MF_BREEZE_HELLO`, at late init |
+| companion → fan | `MF_BREEZE_SET` | `ON` "1"/"0" | the tile's `ON`, `OFF`, a level, `TOGGLE` (from its last state) |
+| companion → fan | `MF_BREEZE_TOGGLE` | — | as `Toggle_Breeze` |
+| companion → fan | `MF_BREEZE_HELLO` | — | the companion's late init and its binding's change |
+
+The tile reports `LIGHT_BRIGHTNESS_CHANGED` 100 while `BLOWS` is "1" and 0
+otherwise, only from a state message, and `ONLINE_CHANGED` false while
+unbound or while `AVAILABLE` is "0". The companion's `Status`: `Breeze on
+Aviator 5`, `Breeze off on Aviator 5`, `Aviator 5 has no Breeze`, `Waiting
+for Aviator 5`, `Not connected to a Modern Forms Fan`.
+
+**Wiring** (`driver.lua`, `driver.xml`; breeze-design section 7): the
+`Breeze` variable after `Online` in `OnDriverInit` from `mf_breeze`; the
+breeze face built after the model; the model's `settled`, `shown` and
+`phase` forwarded; the four commands and `MF_BREEZE_*` from
+`ExecuteCommand`; `TestCondition`; binding 400's changes; `OnDriverDestroyed`
+stops it. `fan/devcmds.lua`'s `Dev Request` accepts the four breeze
+bodies. The specs are `breeze_spec`, `breeze_driver_spec` and additions to
+`model_spec`, `wire_spec`, `links_spec`, `texts_spec`, `devcmds_spec` and
+`fan_driver_spec` (breeze-design section 8).
+
 ## 10. Tests: fixtures and the fake runtime
 
 ### 10.1 Fixtures (`tests/fixtures/`, loaded as `require("fixtures.mf_gen3")`)
@@ -1864,8 +2019,14 @@ text as section 7 has it:
 4. The fan from Control4: Navigators, ON and Toggle at the preset (Designate
    Preset), Cycle's rules, direction (or that it is the remote's), the
    proxy's events and variables, `Online`, Fan Offline and Fan Online, the
-   conditional.
-5. Keypad buttons: the twelve links, binding one in Connections (Follow
+   conditional. Since #111 (V31) also Breeze: what "Breeze is on" means,
+   the commands, the variable, the events and the condition, what a speed,
+   Off or Toggle does to it (the fan decides, BZ5), the gust guard, a fan
+   without Breeze, the loop warning, L33 to L35; and the Breeze switch: why
+   (the fan tile cannot show it), Add Breeze Switch and L36 to L40, Refresh
+   Navigators, where it shows, when it is greyed out, keeping it out of
+   "all lights" groups.
+5. Keypad buttons: the twelve links (thirteen since #111, Fan Breeze), binding one in Connections (Follow
    Connection follows by itself and is not undone by a disconnect), LEDs
    lit at once and corrected, keypad colours for the fan links (or, with
    V27, a colour per speed), double taps as programming on the keypad's own
@@ -1888,13 +2049,16 @@ text as section 7 has it:
    names alone.
 9. The fan's own automations: `Fan Automations`, `Last Change By`, the two
    Turn Off actions; schedules and timers are cleared in the app.
-10. Properties and actions, row by row.
+10. Properties and actions, row by row; since #111 also the commands, and
+    the Breeze events, variable and condition.
 11. Moving from the stock WAC driver: a short note on doing it by hand (the
     new device beside the stock one, the fan found and used, each binding
     and programming line moved, a check, the stock device deleted), with a
     link to the house's record on GitHub (V16).
 12. Troubleshooting: a stuck Wi-Fi module (Reboot Fan, else 10 s off at the
-    wall), `Poll Interval (s)`, the vendor app open on a phone.
+    wall), `Poll Interval (s)`, the vendor app open on a phone; since #111
+    the Breeze switch missing (Refresh Navigators) or greyed out (no Breeze,
+    the fan away), L40, a programming loop.
 13. Privacy: what the driver reads and drops, and the multicast DNS question
     it asks on the local network (by itself since #102 to fill `Found
     Fans`, V30, and for V29's follower; Find Fans until then).
@@ -1920,11 +2084,16 @@ text as section 7 has it:
   contact of a typed address; naming them after the app's `deviceName`; a
   number, room or suffix for two fans of one model; fuzzy or family-number
   matching of `fanType` (V28).
-- Breeze on and off; UV-C; setting or clearing schedules and sleep timers;
-  turning away mode or adaptive learning on; any destructive command (ECM §9).
+- Breeze on and off (**in since #111**, V31: the commands, link 311, the
+  companion switch; still out: Breeze on the fan tile, which the fan proxy
+  cannot show, gust speeds as speeds, a Breeze strength variable or event,
+  an Extras page on the light, a UI Button companion, History entries, ECB
+  3.3); UV-C; setting or clearing schedules and sleep timers; turning away
+  mode or adaptive learning on; any destructive command (ECM §9).
 - Fades and ramp rates on targets (the light has none); colour temperature.
 - A "Changed Outside Control4" event (id 3 reserved); programming commands of
-  the driver's own; History entries (ECC U11); detecting a second device on
+  the driver's own (since #111 the four Breeze commands, V31, and no
+  others); History entries (ECC U11); detecting a second device on
   the same fan (ECC D17); several fans managed together.
 - Restoring the light's keypad settings after a restore onto a new
   controller; `OnBindingValidate`.

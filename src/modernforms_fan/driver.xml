@@ -334,7 +334,51 @@
 				<sort_order>6</sort_order>
 				<params/>
 			</action>
+			<!-- breeze-design BZ2, BZ11 (#111): adds the companion Breeze switch
+			     (modernforms_breeze.c4z) for the Navigators; only on this click. -->
+			<action>
+				<name>Add Breeze Switch</name>
+				<command>Add Breeze Switch</command>
+				<sort_order>7</sort_order>
+				<params/>
+			</action>
 		</actions>
+		<!-- breeze-design BZ3 (#111): Device Specific Commands for programming
+		     [XML 35_commands_xml/]. Names and the STRENGTH list are fixed forever
+		     (BC26): programming refers to them. -->
+		<commands>
+			<command>
+				<name>Breeze On</name>
+				<description>Turn Breeze on for NAME</description>
+				<sort_order>0</sort_order>
+			</command>
+			<command>
+				<name>Breeze Off</name>
+				<description>Turn Breeze off for NAME</description>
+				<sort_order>1</sort_order>
+			</command>
+			<command>
+				<name>Toggle Breeze</name>
+				<description>Toggle Breeze for NAME</description>
+				<sort_order>2</sort_order>
+			</command>
+			<command>
+				<name>Set Breeze Strength</name>
+				<description>Set the Breeze strength of NAME to PARAM1</description>
+				<sort_order>3</sort_order>
+				<params>
+					<param>
+						<name>STRENGTH</name>
+						<type>LIST</type>
+						<items>
+							<item>1</item>
+							<item>2</item>
+							<item>3</item>
+						</items>
+					</param>
+				</params>
+			</command>
+		</commands>
 	</config>
 	<!-- Section 2.2: the fan is declared first and primary (the first-declared
 	     proxy is the parent item, K2 and K4), the light second. No images (V24). -->
@@ -379,7 +423,7 @@
 		<buttons_are_virtual>True</buttons_are_virtual>
 	</capabilities>
 	<!-- Section 2.7: ids are fixed forever (ECC F24); id 3 is reserved. The fan's
-	     and the light's own events are the proxies'. -->
+	     and the light's own events are the proxies'. 4 and 5: Breeze (#111, BZ3). -->
 	<events>
 		<event>
 			<id>1</id>
@@ -393,6 +437,18 @@
 			<description>When NAME answers on the network again</description>
 			<sort_order>2</sort_order>
 		</event>
+		<event>
+			<id>4</id>
+			<name>Breeze Started</name>
+			<description>When NAME starts blowing a Breeze</description>
+			<sort_order>3</sort_order>
+		</event>
+		<event>
+			<id>5</id>
+			<name>Breeze Stopped</name>
+			<description>When NAME stops blowing a Breeze</description>
+			<sort_order>4</sort_order>
+		</event>
 	</events>
 	<conditionals>
 		<conditional>
@@ -404,10 +460,22 @@
 			<true_text>True</true_text>
 			<false_text>False</false_text>
 		</conditional>
+		<!-- breeze-design BZ1, BZ3 (#111): the fan runs with Breeze. -->
+		<conditional>
+			<id>1</id>
+			<name>BOOL_BREEZE</name>
+			<type>BOOL</type>
+			<condition_statement>Breeze is on</condition_statement>
+			<description>NAME Breeze is on is STRING</description>
+			<true_text>True</true_text>
+			<false_text>False</false_text>
+		</conditional>
 	</conditionals>
 	<!-- Section 2.4: every link is a provider control binding of class
 	     BUTTON_LINK with no proxybindingid (hardware K4: the attribute buys no
-	     placement). Reserved, never declared in v1: 203 to 209, 309 to 319. -->
+	     placement). Reserved, never declared in v1: 203 to 209, 309 to 319;
+	     311 is Fan Breeze since #111 (BZ4). 400: the companion Breeze switch's
+	     binding (BZ2), a provider control binding of class MODERNFORMS_BREEZE. -->
 	<connections>
 		<connection>
 			<id>5001</id>
@@ -616,6 +684,36 @@
 			<classes>
 				<class>
 					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>311</id>
+			<facing>6</facing>
+			<connectionname>Fan Breeze Button Link</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>True</linelevel>
+			<classes>
+				<class>
+					<classname>BUTTON_LINK</classname>
+				</class>
+			</classes>
+		</connection>
+		<connection>
+			<id>400</id>
+			<facing>6</facing>
+			<connectionname>Breeze Switch</connectionname>
+			<type>1</type>
+			<consumer>False</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>MODERNFORMS_BREEZE</classname>
 				</class>
 			</classes>
 		</connection>

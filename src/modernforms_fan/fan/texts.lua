@@ -21,7 +21,9 @@
 --     (a list property is one comma-separated string), as the Hue drivers
 --     write it. What the owner typed into Fan Address, and the instance name
 --     another fan announces (Found Fans, L32), are echoed cut, with every byte
---     outside printable ASCII shown as "?".
+--     outside printable ASCII shown as "?"; so is the Breeze strength given
+--     (L34). Item names Director gives (L22, L23, L36, L37) are printed as
+--     they are, cut only between characters.
 --   * Rows stay under about 70 characters (Composer clips near 75, ECC F29).
 --     Two texts can pass that: Fan Automations with every item active (84
 --     characters; the contract gives no shorter form) and S9 with a
@@ -38,9 +40,10 @@ local texts = {}
 -- The oldest controller OS the light is known to work on (V3, section 2.1).
 texts.MIN_OS = "3.3.0"
 
--- Links the driver declares: nine fan links (300 to 308) and three light
--- links (200 to 202), section 2.4. "5 of 12 links bound" counts against it.
-texts.LINK_COUNT = 12
+-- Links the driver declares: ten fan links (300 to 308, and 311 Fan Breeze
+-- of breeze-design BZ4) and three light links (200 to 202), section 2.4. "5
+-- of 13 links bound" counts against it.
+texts.LINK_COUNT = 13
 
 -- Found Fans shows at most this many item rows under its summary; with more
 -- fans the last of them is the overflow row (auto-discovery-design 3).
@@ -55,13 +58,16 @@ texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign"
 -- L8 to L10, which went with the Find Fans action: auto-discovery-design 5),
 -- then the eight answers of the rename job, L22 to L29 (fan-name-design 2.3),
 -- then the address follower's two, L30 and L31 (address-follow-design 2.4),
--- then the waiting pick, L32 (auto-discovery-design 5).
+-- then the waiting pick, L32 (auto-discovery-design 5), then Breeze's eight,
+-- L33 to L40 (breeze-design section 5).
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 	"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
 	"away_off", "away_already", "learning_off", "learning_already", "not_answering", "not_taken", "not_picked",
 	"name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin",
 	"name_busy", "followed", "follow_refused", "picked_wait",
+	"breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added", "breeze_switch_exists",
+	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -558,7 +564,21 @@ local MISSING_PART = {
 	lightBrightness = "light",
 }
 
--- S5's fan part: "speed 3", "off", then " reverse" and " Breeze" when they apply.
+-- Breeze's strength as S5 shows it: "1" to "3", nil for anything else (the
+-- fan's windSpeed, read by the wire with the range handling of the speed).
+local function strength_of(x)
+	local n = tonumber(x)
+	if n and n == math.floor(n) and n >= 1 and n <= 3 then
+		return string.format("%d", n)
+	end
+	return nil
+end
+
+-- S5's fan part: "speed 3", "off", then " reverse" and the Breeze flag when
+-- they apply. The flag is the raw `wind` (breeze-design BZ1): " Breeze 2"
+-- while it blows (`wind` and `fan_on`, at strength 2; " Breeze" when the
+-- strength is unknown), " Breeze set" while `wind` is set and the fan is off,
+-- and " Breeze" while the fan's on/off is unknown.
 local function fan_part(st)
 	local out = "unknown"
 	if st.fan_on == true then
@@ -571,7 +591,14 @@ local function fan_part(st)
 		out = out .. " reverse"
 	end
 	if st.wind == true then
-		out = out .. " Breeze"
+		if st.fan_on == true then
+			local strength = strength_of(st.wind_speed)
+			out = out .. " Breeze" .. (strength and (" " .. strength) or "")
+		elseif st.fan_on == false then
+			out = out .. " Breeze set"
+		else
+			out = out .. " Breeze"
+		end
 	end
 	return out
 end
@@ -679,9 +706,10 @@ end
 --   failure    "data" for S9; anything else is S7 or S8
 --   known      a state is known in this run (S7, S9: "showing last state")
 --   other      the other fan's client id or MAC (S11)
---   st         the state record (S5): fan_on, speed, direction, wind, light_on, level
+--   st         the state record (S5): fan_on, speed, direction, wind, wind_speed,
+--              light_on, level
 --   has_light  false for "no light kit"
---   has_wind   accepted and unused: Breeze is shown from st.wind, being on
+--   has_wind   accepted and unused: Breeze is shown from st.wind and st.fan_on
 --   missing    the key a needed field is missing as (S6): "fanSpeed" and so on
 --   os         the controller's version, text or C4:GetVersionInfo()'s table (S14)
 --   failing    the Found Fans list is failing (S1 against S2, auto-discovery-design 5)
@@ -713,6 +741,10 @@ end
 --   fan, light                       the two item names the rename job set or
 --                                    found (L22, L23); never read from a pin
 --   fan_type                         the model the name table lacks (L24)
+--   strength                         the Breeze strength as given (L34)
+--   why                              the model's refusal reason (L35)
+--   name                             the Breeze switch's item name (L36, L37)
+-- The last three are never read from a pin.
 local function fields(args)
 	local a = type(args) == "table" and args or {}
 	local pin = type(a.pin) == "table" and a.pin or {}
@@ -738,6 +770,9 @@ local function fields(args)
 		fan = scalar(a.fan),
 		light = scalar(a.light),
 		fan_type = scalar(a.fan_type),
+		strength = a.strength,
+		why = a.why,
+		name = a.name,
 	}
 end
 
@@ -917,6 +952,133 @@ function RESULTS.name_busy()
 	return "Naming in progress; try again in a moment"
 end
 
+-- L33 to L40: Breeze (breeze-design section 5, BZ10, BZ11).
+
+-- L34 shows the strength it was given cut to this many characters; L35 the
+-- key a "no <key>" refusal names cut to this many.
+local STRENGTH_CUT = 8
+local KEY_CUT = 16
+
+-- What a command was given (L34): a string with its control characters
+-- dropped, every other byte outside printable ASCII shown as "?" and blanks
+-- trimmed; a number as written, whole or not, below 1e15 (which "%.15g"
+-- writes without an exponent); cut to `cut` characters with no marker. ""
+-- for anything else.
+local function given(x, cut)
+	local text = ""
+	if type(x) == "string" then
+		text = trim(ascii((x:gsub("%c", ""))))
+	elseif type(x) == "number" and x == x and x > -1e15 and x < 1e15 then
+		text = string.format("%.15g", x)
+	end
+	return text:sub(1, cut)
+end
+
+-- An item name as Director gives it (L36, L37): control characters dropped,
+-- blanks trimmed, and past `cut` bytes cut with no marker, never inside a
+-- UTF-8 character (a name may hold any, and L22 prints names as they are).
+-- "?" for none.
+local function item_name(x, cut)
+	local text = trim((scalar(x):gsub("%c", "")))
+	if #text > cut then
+		text = text:sub(1, cut)
+		-- A lead byte whose character the cut left short goes, with what follows it.
+		local lead = text:find("[\192-\255][\128-\191]*$")
+		if lead then
+			local byte = text:byte(lead)
+			local need = (byte >= 240 and 4) or (byte >= 224 and 3) or 2
+			if #text - lead + 1 < need then
+				text = text:sub(1, lead - 1)
+			end
+		end
+		text = trim(text)
+	end
+	if text == "" then
+		return "?"
+	end
+	return text
+end
+
+-- L33: a Breeze command or a press on link 311, and the fan reports no Breeze.
+function RESULTS.breeze_unavailable()
+	return "Breeze not available: this fan reports no Breeze"
+end
+
+-- L34: Set Breeze Strength with a value that is not 1, 2 or 3.
+function RESULTS.breeze_strength(f)
+	local shown = given(f.strength, STRENGTH_CUT)
+	if shown == "" then
+		shown = "?"
+	end
+	return "Breeze strength " .. shown .. " refused: use 1, 2 or 3"
+end
+
+-- L35: a Breeze command the model refused for another reason. No proxy
+-- command writes a Last Action line for its refusals (they are logged), so
+-- there is no line to reuse: these are the model's reasons (model.lua's
+-- refusal() and validate(), breeze-design section 2) in words, with the
+-- wording of the rows that already name them (L28, S3, S11 to S13, S10, S6).
+-- The model's own Breeze reasons give L33 and L34; any other reason is the
+-- bare "Breeze not sent".
+local BREEZE_REFUSALS = {
+	unset = "no fan is set up yet",
+	["invalid address"] = "Fan Address is not an IPv4 address",
+	foreign = "another fan answers at Fan Address",
+	gen4 = "a Gen 4 fan answers at Fan Address",
+	notfan = "Fan Address answers, but not as a fan",
+	rebooting = "the fan's Wi-Fi module is rebooting",
+	range = "the value is out of range",
+}
+
+function RESULTS.breeze_refused(f)
+	local why = type(f.why) == "string" and f.why or ""
+	if why == "no_breeze" then
+		return RESULTS.breeze_unavailable(f)
+	elseif why == "breeze_range" then
+		return RESULTS.breeze_strength(f)
+	end
+	local words = BREEZE_REFUSALS[why]
+	local key = why:match("^no (%a+)$")
+	if not words and key then
+		words = "the fan reports no " .. key:sub(1, KEY_CUT)
+	end
+	if not words then
+		return "Breeze not sent"
+	end
+	return "Breeze not sent: " .. words
+end
+
+-- L36 and L37 name the switch after a fixed start, the name cut so the line
+-- stays at ROW_MAX: 49 characters of it for L36, 32 for L37.
+local SWITCH_ADDED = "Breeze switch added: "
+local SWITCH_EXISTS = "A Breeze switch is already connected: "
+
+-- L36: Add Breeze Switch added and bound the switch (BZ11).
+function RESULTS.breeze_switch_added(f)
+	return SWITCH_ADDED .. item_name(f.name, ROW_MAX - #SWITCH_ADDED)
+end
+
+-- L37: a switch is already bound to this fan device; named.
+function RESULTS.breeze_switch_exists(f)
+	return SWITCH_EXISTS .. item_name(f.name, ROW_MAX - #SWITCH_EXISTS)
+end
+
+-- L38: the fan reports no Breeze (BZ10).
+function RESULTS.breeze_switch_no_breeze()
+	return "No Breeze switch added: this fan reports no Breeze"
+end
+
+-- L39: no fan is pinned yet.
+function RESULTS.breeze_switch_no_fan()
+	return "No Breeze switch added: set up the fan first"
+end
+
+-- L40: Composer refused the new device or its binding (the package is not
+-- installed, most likely).
+function RESULTS.breeze_switch_failed()
+	return "No Breeze switch added: install modernforms_breeze.c4z first"
+end
+
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see
 -- `fields`). "" for a key it does not know.
 function texts.result(key, args)
@@ -963,7 +1125,7 @@ local function link_label(name)
 	return label
 end
 
--- Keypad Links items (section 7.3): "5 of 12 links bound", then one per
+-- Keypad Links items (section 7.3): "5 of 13 links bound", then one per
 -- bound keypad, "Fan Speed 3: Example Keypad (456)". `rows` is one record per
 -- link and keypad, { link_name, keypad_name, device_id } (or that order as an
 -- array), in the order to show; several keypads on one link are several rows

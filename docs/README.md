@@ -7,7 +7,8 @@ later, and where a note and `status.md` disagree about the present,
 `status.md` and the code win. The owner's manual itself is not here but in
 the driver: [`src/modernforms_fan/www/documentation.html`](../src/modernforms_fan/www/documentation.html)
 (the driver's Documentation tab in Composer; until the v1 contract it says
-that the driver is not ready). What each release changed is in
+that the driver is not ready), and since #111 the Breeze switch's own tab,
+`src/modernforms_breeze/www/documentation.html`. What each release changed is in
 [`CHANGELOG.md`](../CHANGELOG.md); the working rules of the AI sessions that
 build the driver are in [`CLAUDE.md`](../CLAUDE.md).
 
@@ -28,7 +29,7 @@ specification, and `status.md` says what of them is live.
   every speed, Off, Toggle and Cycle and the light's Top, Bottom and Toggle
   with keypad LEDs, the transport to the fan and the report rules, the
   properties, actions, events and texts, the module interfaces and the
-  build split.
+  build split; since #111 (V31) also Breeze and the companion package.
 - [`migration-design.md`](migration-design.md): retired by #45, kept as
   the record of the house's cutover from the stock WAC driver: the new
   device beside the old one, the keypad moved button by button with a way
@@ -49,6 +50,12 @@ specification, and `status.md` says what of them is live.
   current with a summary as its first item; a pick that takes the fan at
   once (another fan on a device that has its fan waits for Use Selected
   Fan); the Find Fans action removed; the checks on the house.
+- [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
+  "Breeze is on" means (the fan runs with Breeze), the programming
+  commands, variable, events and condition, the Fan Breeze link (311), the
+  companion package `modernforms_breeze.c4z` with its on/off switch for
+  the Navigators, added by the action Add Breeze Switch, the messages
+  between the two drivers, the texts, and the checks on the house.
 - [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
   throwaway Composer package built outside `src/` so no release carries it,
   and the Windows session's brief for each check K4–K10 and K14 of
@@ -107,6 +114,16 @@ Read-only research written before a feature's contract, in the same style.
   driver's bridge detection did and learned on this house, what exists here,
   and the proposed mechanism: the schedule, sharing the network binding with
   the follower, the list, the pick and removing Find Fans (#102).
+- [`breeze-research.md`](breeze-research.md): the fan's side of Breeze
+  (#111): the fields `wind` and `windSpeed`, what the fan is known to do and
+  report, how other integrations expose it, the bodies to send, the risks
+  for the settle window and the poll, and the checks only the house fan can
+  answer.
+- [`edge-cases-breeze.md`](edge-cases-breeze.md): the Control4 side of
+  Breeze (#111): every way it can reach a Navigator, ranked (the fan proxy
+  has no place for it), the programming, keypad and Composer surfaces, the
+  recommended companion switch, and the lifecycle cases BC1 to BC36 with
+  what is automatic, offered or forbidden without a click.
 
 ## Start here
 
