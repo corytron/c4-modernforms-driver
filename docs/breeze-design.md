@@ -115,8 +115,11 @@ breeze.EVENT_STARTED, breeze.EVENT_STOPPED, breeze.CONDITION   -- 4, 5, "BOOL_BR
   `Status`, `Debug Mode`; no actions; the minimum OS of the fan driver.
 - **Messages** with `C4:SendToDevice` (they land in `ExecuteCommand`):
   - fan → companion `MF_BREEZE_STATE` `{ BLOWS = "1" | "0", AVAILABLE = "1"
-    | "0", FAN = <fan item name> }` (AVAILABLE is "0" without Breeze or while
-    the fan device's phase is not online, waiting or rebooting);
+    | "0", HAS_BREEZE = "1" | "0", FAN = <fan item name> }` (AVAILABLE is
+    "0" without Breeze or while the fan device's phase is not online, waiting
+    or rebooting; HAS_BREEZE is "0" only when the phase allows Breeze but the
+    fan has none, so the companion can say "has no Breeze" instead of
+    "Waiting"; added at integration on piece D's proposal);
   - companion → fan (its provider, `C4:GetBoundProviderDevice(own id, 1)`):
     `MF_BREEZE_SET` `{ ON = "1" | "0" }`, `MF_BREEZE_TOGGLE` `{}`,
     `MF_BREEZE_HELLO` `{}` (at late init and on its binding's change).

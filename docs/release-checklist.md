@@ -39,7 +39,11 @@ hardware.
   release stage that still has one). Each dev package has the dev loop,
   carries the dev key as `common/devkey.lua` and is written 0600. The v1
   contract adds the number of actions each build shows (`unzip -p
-  build/modernforms_fan.c4z driver.xml | grep -c '<action>'`).
+  build/modernforms_fan.c4z driver.xml | grep -c '<action>'`: 6 since #111,
+  Add Breeze Switch last; the Breeze switch's package has none). Since #111
+  every build makes two packages, `modernforms_fan.c4z` and
+  `modernforms_breeze.c4z` (one per `src/*/driver.xml`), and the manifest
+  names both.
   `build/manifest.json` names the build, the commit, `"dev": false` or
   `true`, and each package's checksum and size.
 - `unzip -l build/<driver>.c4z` lists `LICENSE` and `NOTICE` in every package
@@ -103,8 +107,8 @@ says (`CLAUDE.md`, Scope); the house's own cutover of 2026-11-04 is recorded
 in [`migration-design.md`](migration-design.md). Every later install is an
 update in place. Read:
 
-1. `Driver Version` on every Modern Forms Fan device = the build; `Debug
-   Mode` reads Off on every device (a dev-loop session often leaves it On,
+1. `Driver Version` on every Modern Forms Fan device and every Modern
+   Forms Breeze switch = the build; `Debug Mode` reads Off on every device (a dev-loop session often leaves it On,
    and Director keeps the value through the release install).
 2. The Properties page: no development-only rows (those between the
    `DEV-ONLY` markers of `driver.xml`); the rows and texts the v1 contract
@@ -116,7 +120,13 @@ update in place. Read:
 6. Connections: the fan's speed links (the fan proxy's per-speed
    connections), the light's links and every keypad binding are still there
    after the update in place ([`composer-checklist.md`](composer-checklist.md),
-   sections D to F).
+   sections D to F), and each Breeze switch is still connected to its fan's
+   `Breeze Switch` output.
+7. The first install of a release with Breeze (#111): the programming
+   items read back, **Add Breeze Switch** clicked once on each fan that has
+   Breeze, and File ▸ Refresh Navigators
+   ([`composer-checklist.md`](composer-checklist.md), section J). No
+   controller reboot: no capability of the fan device changes.
 
 ## 3. The owner, on the phone, the keypads and the fan
 
@@ -130,6 +140,9 @@ update in place. Read:
    with the app reaches the tile.
 4. Keypad taps and holds on every bound button do what the v1 contract says
    (press, click and release each handled).
+5. Breeze (#111), under a minute: the Breeze switch on the phone and on one
+   touch screen shows the fan's Breeze, and one tap each way switches it
+   ([`composer-checklist.md`](composer-checklist.md), step 53).
 
 ## 4. After a controller OS upgrade
 
@@ -187,7 +200,8 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
    what the build job handed over, signs the provenance and attaches to the
    release of the tag, creating it when missing, with the title and notes
    written from `CHANGELOG.md` (step 4): every package of `manifest.json`
-   (today `modernforms_fan.c4z`), `SHA256SUMS.txt`, `manifest.json` (tag,
+   (`modernforms_fan.c4z` and, since #111, `modernforms_breeze.c4z`; 1.0
+   and 1.1 carry the first alone), `SHA256SUMS.txt`, `manifest.json` (tag,
    version, build, commit, build time, each package's sha256 and size),
    `attestations.sigstore.json`, the signed build provenance, and
    `mf-drivers.intoto.jsonl`, the same provenance as in-toto JSON lines. A
@@ -202,7 +216,8 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
    [`.github/release-notes.md`](../.github/release-notes.md) against the
    driver and the v1 contract (the scaffold wrote them before either
    existed) and add the OS and Composer versions section 2 passed on. Check
-   the release page: the assets (five with one package), the title
+   the release page: the assets (six with the two packages since #111, five
+   with one before), the title
    `<version> "<codename>"`, the notes' first heading with this build. After
    the release, the desired-state PR also runs `python3 tools/changelog.py
    stamp --version X.Y --build N --date YYYY-MM-DD`, so `CHANGELOG.md` names
@@ -267,7 +282,7 @@ issue. After a release exists:
    note, and the standing-approval sentence. It carries no LAN address, MAC
    address or client id.
 5. **What the Windows session reads back.** Every device's `Driver Version`
-   equals the build; `Debug Mode` and the other properties the v1 contract
+   equals the build (the Breeze switches included, since #111); `Debug Mode` and the other properties the v1 contract
    names match `deploy/house.yaml`; no `[ERROR]` line in a device's Lua tab
    during the install; and whether Composer asked "Restart Director?". If it
    did, the build changed capabilities: answering Yes loads nothing, the
@@ -275,7 +290,8 @@ issue. After a release exists:
    the Windows session cannot operate it), and the session reads `Driver
    Version` again afterwards.
 6. **Record the result.** `python3 tools/deploy.py done --devices <count>`
-   (with `--note` for anything worth keeping) re-reads the release's
+   (every device read back, a Breeze switch counting as one; with `--note`
+   for anything worth keeping) re-reads the release's
    manifest, refuses when its assets changed since `start`, sets the
    deployment to `success` and closes the deploy issue with a comment
    naming the deployment; `python3 tools/deploy.py failed --note "<what the
