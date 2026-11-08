@@ -4,8 +4,21 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.1 "Jamis" is the latest release and runs on the house; the stock
-driver is gone.** Build 97 of v1.1 was released on 2026-11-05 and
+**1.2 "Thumper" is the latest release and runs on the house; the stock
+driver is gone.** Build 115 of v1.2 was released and installed in place on
+2026-11-07 (deploy issue #117, the round in Discussion #119, the
+announcement in Discussion #118), with two packages from now on:
+`modernforms_fan.c4z` and the Breeze switch, `modernforms_breeze.c4z`.
+Found Fans fills by itself and the Find Fans action is gone (#102,
+[`auto-discovery-design.md`](auto-discovery-design.md)); Breeze in Control4
+(#111, [`breeze-design.md`](breeze-design.md)): the commands, the `Breeze`
+variable, the events, the condition, keypad link 311, and the Breeze switch
+for the Navigators, which Add Breeze Switch added to the fan's room and
+bound to the fan. The fan's Breeze behaviour was not measured on the house:
+the owner chose to assume the results (BZ5). The owner's look at the switch
+on the phone and a touch screen is still to come.
+
+Before it, build 97 of v1.1 "Jamis" was released on 2026-11-05 and
 installed in place on 2026-11-07 (deploy issue #98, the round in Discussion
 #100, the announcement in Discussion #99): Keypad Links keeps a keypad on a
 link while another of its buttons is still bound there (#92). Before it,
@@ -31,20 +44,17 @@ keeps such tooling out of the driver). v1.0-beta.2 (build 29) was published
 but never installed. The owner tested beta.3 on 2026-11-05 and every test
 passed, the follow to a new address included (#58).
 
-**Built on `main`, not released yet (for 1.2 "Thumper"):** Found Fans fills
-by itself and the Find Fans action is gone (#102, PR #109, build 110,
-[`auto-discovery-design.md`](auto-discovery-design.md)); Breeze in Control4
-(#111, PR #114, [`breeze-design.md`](breeze-design.md)): the commands, the
-`Breeze` variable, the events, the condition, keypad link 311, and the
-second package `modernforms_breeze.c4z`, a switch for the Navigators that
-the fan's action Add Breeze Switch adds. The fan's Breeze behaviour was not
-measured on the house: the owner chose to assume the results (BZ5).
 
 ## What runs on the house
 
-- **v1.1, build 97**, one device: `deploy/house.yaml` and the environment
-  `house` agree (deployment success, 2026-11-07; Keypad Links reads `7 of 12
-  links bound` with all seven rows). Debug Mode Off; `Follow
+- **v1.2, build 115**, two devices, the fan and its Breeze switch:
+  `deploy/house.yaml` and the environment `house` agree (deployment
+  success, 2026-11-07; Keypad Links reads `7 of 13 links bound` with all
+  seven rows; Found Fans `This device's fan answered; no other fan found`).
+  The Breeze switch, "Aviator 5 Breeze", was added by Add Breeze Switch in
+  the fan's room and is bound to the fan's Breeze Switch output; its Status
+  read `Breeze off on Aviator 5`, and the Navigators were refreshed. Debug
+  Mode Off on both; on the fan `Follow
   Address Changes` On; Fan Model reads `Gen 3, Aviator 5 (1811-5-54),
   light kit F4IN-120V-R1-30, Breeze`, and the update did not rewrite it
   (Breeze stored since build 73, #69). The device was re-created from 1.1
