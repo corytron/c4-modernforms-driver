@@ -14,6 +14,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.2 "Thumper", build 115 (2026-11-07)
+
 ### Added
 
 - The driver finds Modern Forms fans on the network by itself: a few seconds after it starts or is updated, and, while the device has no fan yet, again after 30 seconds, 1, 2, 5 and 10 minutes and then every 15 minutes. Found Fans fills by itself, its first line says what was found, and this device's fan is listed first. The search is one multicast DNS question on the controller's own network segment: it never takes a fan by itself and never writes Last Action (#102).
