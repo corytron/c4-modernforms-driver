@@ -19,15 +19,18 @@
 --     texts.suffix for the log lines).
 --   * ASCII only, except U+201A, which stands for a comma inside a list item
 --     (a list property is one comma-separated string), as the Hue drivers
---     write it. What the owner typed into Fan Address is echoed cut, with
---     every byte outside printable ASCII shown as "?".
+--     write it. What the owner typed into Fan Address, and the instance name
+--     another fan announces (Found Fans, L32), are echoed cut, with every byte
+--     outside printable ASCII shown as "?".
 --   * Rows stay under about 70 characters (Composer clips near 75, ECC F29).
 --     Two texts can pass that: Fan Automations with every item active (84
 --     characters; the contract gives no shorter form) and S9 with a
 --     15-character address and a date, which reaches exactly 75 where section
---     7.1 says it stays under 75.
+--     7.1 says it stays under 75. A Found Fans item may reach 72, the limit
+--     auto-discovery-design 5 sets for items.
 
--- Fan Model is the only text that reads the name table (fan-name-design N3).
+-- Fan Model (fan-name-design N3) and the Found Fans item of this device's fan
+-- (auto-discovery-design 3.2) are the only texts that read the name table.
 local names = require("fan.names")
 
 local texts = {}
@@ -39,7 +42,8 @@ texts.MIN_OS = "3.3.0"
 -- links (200 to 202), section 2.4. "5 of 12 links bound" counts against it.
 texts.LINK_COUNT = 12
 
--- Found Fans lists at most this many fans (section 7.3).
+-- Found Fans shows at most this many item rows under its summary; with more
+-- fans the last of them is the overflow row (auto-discovery-design 3).
 texts.MAX_FOUND = 16
 
 -- Phases texts.status understands (section 6.1; the names are the ones
@@ -47,15 +51,17 @@ texts.MAX_FOUND = 16
 -- the S3 case spelt out, for a model that keeps it apart from "unset".
 texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign", "gen4", "notfan" }
 
--- Keys texts.result understands, in the contract's order (section 9.6), then
--- the eight answers of the rename job, L22 to L29 (fan-name-design 2.3), then
--- the address follower's two, L30 and L31 (address-follow-design 2.4).
+-- Keys texts.result understands, in the contract's order (section 9.6, less
+-- L8 to L10, which went with the Find Fans action: auto-discovery-design 5),
+-- then the eight answers of the rename job, L22 to L29 (fan-name-design 2.3),
+-- then the address follower's two, L30 and L31 (address-follow-design 2.4),
+-- then the waiting pick, L32 (auto-discovery-design 5).
 texts.RESULT_KEYS = {
-	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use", "found",
-	"found_none", "find_failed", "reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
+	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
+	"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
 	"away_off", "away_already", "learning_off", "learning_already", "not_answering", "not_taken", "not_picked",
 	"name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin",
-	"name_busy", "followed", "follow_refused",
+	"name_busy", "followed", "follow_refused", "picked_wait",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -64,6 +70,16 @@ local TYPED_CUT = 24
 -- L24 shows the fan type cut to this many characters (ECR 5.5), so the line
 -- stays at 60 whatever the fan sent.
 local TYPE_CUT = 14
+
+-- A Found Fans item shows the instance cut at its start to this many
+-- characters, so the last six MAC digits it ends in stay (auto-discovery-design
+-- 3.2); an item stays at or under ITEM_MAX, past which the product name goes.
+local INSTANCE_CUT = 25
+local ITEM_MAX = 72
+
+-- Last Action rows stay at or under this many characters (section 7, ECC F29);
+-- L32 cuts the instance at its start to fit.
+local ROW_MAX = 70
 
 -- A time is shown with its date once it is older than this (section 7).
 local DAY_S = 86400
@@ -187,6 +203,22 @@ end
 -- Printable ASCII only; used on text the owner typed.
 local function ascii(s)
 	return (s:gsub("[^ -~]", "?"))
+end
+
+-- Text a fan's multicast DNS answer carries (its instance name, its address),
+-- as Found Fans and L32 show it: control characters dropped (as
+-- texts.list_item drops them), every other byte outside printable ASCII shown
+-- as "?", blanks trimmed, then, given `cut`, cut at its START to that many
+-- characters with no marker, so the end of an instance that carries the last
+-- six MAC digits stays (auto-discovery-design 3.2), and trimmed again when
+-- the cut left a blank in front. Every byte is one character by then, so the
+-- cut never splits one. "" for none.
+local function announced(x, cut)
+	local text = trim(ascii((scalar(x):gsub("%c", ""))))
+	if cut and #text > cut then
+		text = trim(text:sub(-cut))
+	end
+	return text
 end
 
 -- A list item (a DYNAMIC_LIST is one comma-separated string,
@@ -560,16 +592,18 @@ end
 
 local STATUS = {}
 
--- S1, S2, S3: no usable address. The text the owner typed is S3's.
+-- S1, S2, S3: no usable address. The text the owner typed is S3's; S1 when
+-- the Found Fans list is failing (no search possible on this controller), S2
+-- otherwise (auto-discovery-design 5: the list fills by itself).
 function STATUS.unset(v)
 	local typed = ascii(trim(scalar(v.typed)))
 	if typed ~= "" then
 		return string.format('Fan Address "%s" is not an IPv4 address', typed:sub(1, TYPED_CUT))
 	end
-	if v.find_fans == true then
-		return "Not set up: Find Fans, or enter the fan's address in Fan Address"
+	if v.failing == true then
+		return "Not set up: enter the fan's address in Fan Address"
 	end
-	return "Not set up: enter the fan's address in Fan Address"
+	return "Not set up: pick a fan in Found Fans, or enter Fan Address"
 end
 STATUS.invalid = STATUS.unset
 STATUS["invalid address"] = STATUS.unset
@@ -650,7 +684,7 @@ end
 --   has_wind   accepted and unused: Breeze is shown from st.wind, being on
 --   missing    the key a needed field is missing as (S6): "fanSpeed" and so on
 --   os         the controller's version, text or C4:GetVersionInfo()'s table (S14)
---   find_fans  the build has Find Fans (S1 against S2)
+--   failing    the Found Fans list is failing (S1 against S2, auto-discovery-design 5)
 -- Priority when several apply is section 7.1's: S3/S1/S2, S11 to S13, S10,
 -- S7 to S9, S14, then S4 to S6. The phase is one value, so it settles most of
 -- that by itself; what is left is S3 against S1/S2 (the typed text), and S14
@@ -672,8 +706,8 @@ end
 --   client_id, generation, address   the fan (L1 to L4, L21, ...)
 --   was                              the previous client id, or a pin (L3);
 --                                    the previous address (L30)
---   count, or list                   fans found (L8)
---   find_fans                        the build has Find Fans (L7)
+--   instance                         the picked fan's announced name (L32);
+--                                    never read from a pin
 --   at, now                          seconds: when the reboot was sent (L11, L20)
 --   which                            "away" or "learning" (L19)
 --   fan, light                       the two item names the rename job set or
@@ -692,17 +726,12 @@ local function fields(args)
 	if type(was) == "table" then
 		was = was.client_id
 	end
-	local count = a.count
-	if count == nil and type(a.list) == "table" then
-		count = #a.list
-	end
 	return {
 		client_id = scalar(pick("client_id")),
 		generation = pick("generation"),
 		address = scalar(pick("address")),
 		was = scalar(was),
-		count = whole(count),
-		find_fans = a.find_fans == true,
+		instance = a.instance,
 		at = a.at,
 		now = a.now,
 		which = a.which,
@@ -760,33 +789,10 @@ function RESULTS.not_a_fan(f)
 	return string.format("%s is not a Gen 1 to 3 Modern Forms fan; nothing changed", val(f.address))
 end
 
--- L7: with Find Fans, the pick is a way too.
-function RESULTS.nothing_to_use(f)
-	if f.find_fans then
-		return "Nothing to use: pick a fan in Found Fans, or enter Fan Address"
-	end
-	return "Nothing to use: enter the fan's address in Fan Address"
-end
-
--- L9: also what "found" says for none.
-function RESULTS.found_none()
-	return "No Modern Forms fan answered on this network"
-end
-
--- L8: one fan or several.
-function RESULTS.found(f)
-	local count = tonumber(f.count)
-	if not count or count < 1 then
-		return RESULTS.found_none()
-	elseif count == 1 then
-		return "Found 1 fan: pick it in Found Fans, then Use Selected Fan"
-	end
-	return string.format("Found %d fans: pick one in Found Fans, then Use Selected Fan", count)
-end
-
--- L10.
-function RESULTS.find_failed()
-	return "Find Fans could not send its query on this controller"
+-- L7: the pick is a way too (the list fills by itself, auto-discovery-design
+-- 5). L8 to L10, the Find Fans action's answers, went with the action.
+function RESULTS.nothing_to_use()
+	return "Nothing to use: pick a fan in Found Fans, or enter Fan Address"
 end
 
 -- L11.
@@ -841,9 +847,23 @@ function RESULTS.not_taken(f)
 	return "The fan did not take it; it still reports " .. (automation[f.which] or "it") .. " on"
 end
 
--- L21.
+-- L21: the driver searches again by itself (auto-discovery-design 4, step 6).
 function RESULTS.not_picked(f)
-	return string.format("The fan at %s is not the one picked; Find Fans again", val(f.address))
+	return string.format("The fan at %s is not the one picked; searching again", val(f.address))
+end
+
+-- L32: a pick of another fan on a device that has one waits for Use Selected
+-- Fan (auto-discovery-design 4, step 4). The instance is cut at its start so
+-- the line stays at or under ROW_MAX characters: 23 of a 25-character one.
+local PICKED_TAIL = ": click Use Selected Fan to switch to it"
+
+function RESULTS.picked_wait(f)
+	local room = ROW_MAX - #"Picked " - #PICKED_TAIL
+	local shown = announced(f.instance, room)
+	if shown == "" then
+		shown = "?"
+	end
+	return "Picked " .. shown .. PICKED_TAIL
 end
 
 -- L22 to L29: what Name Items After Fan answers (fan-name-design 2.3, ECR
@@ -972,35 +992,117 @@ function texts.keypad_links(rows, total)
 	return items
 end
 
--- Found Fans items (section 7.3): "MF_Fan_005301 at 10.0.2.151", with
--- " (this device's fan)" for the one whose MAC is the pinned fan's; at most
--- texts.MAX_FOUND. `list` is discovery's, { instance, address, mac, ... }
--- each; `pin` the pinned identity ({ mac } or { client_id }), or nil.
-function texts.found_fans(list, pin)
+-- Found Fans (auto-discovery-design 3) ------------------------------------------
+
+-- The summary of section 3.1, the list's first item and its value while no
+-- pick waits. `count` is every entry (also those past the overflow row),
+-- `own` whether one of them is this device's fan. A state this does not know
+-- reads as "listed".
+local function found_summary(state, pinned, count, own)
+	if state == "looking" then
+		return "Looking for Modern Forms fans on the network..."
+	elseif state == "failing" then
+		return "No search possible on this controller: enter Fan Address"
+	elseif state == "stopped" then
+		return "Not searching while Fan Address is empty"
+	end
+	if not pinned then
+		if count == 0 then
+			return "No fan found yet: enter its address in Fan Address"
+		elseif count == 1 then
+			return "1 fan found: pick it and click Set to use it"
+		end
+		return string.format("%d fans found: pick one and click Set to use it", count)
+	end
+	if own then
+		if count == 1 then
+			return "This device's fan answered; no other fan found"
+		end
+		return string.format("%d fans found; this device's fan is listed first", count)
+	elseif count == 0 then
+		return "No fan answered the last search"
+	elseif count == 1 then
+		return "1 fan found; this device's fan did not answer"
+	end
+	return string.format("%d fans found; this device's fan did not answer", count)
+end
+
+-- One item of section 3.2, from an entry of found:entries ({ instance,
+-- address, mac, own }; nothing else is read) and the product name of this
+-- device's fan ("" for none):
+--   <instance> at <address>      the instance cut at its start to 25
+--   + " ...5302"                 after an instance that does not end in the
+--                                last six hex digits of its MAC (an unknown
+--                                layout): the last four, as S11 names a fan
+--   + " (this device: Aviator 5)" for this device's fan when the name is
+--                                known and the item stays at or under 72,
+--     " (this device's fan)"     otherwise
+-- What the answer lacked is left out: "fan" for no instance, no " at " part
+-- for no address. With a 15-character address the longest item without the
+-- name is 72 (25 + 8 + 4 + 15 + 20). Commas go through texts.list_item last,
+-- so the length is counted in characters as Composer shows them.
+local function found_item(entry, name)
+	local text = announced(entry.instance, INSTANCE_CUT)
+	if text == "" then
+		text = "fan"
+	end
+	local key = mac_key(entry.mac)
+	if key and text:lower():sub(-6) ~= key:sub(-6) then
+		text = text .. " " .. texts.suffix(key)
+	end
+	local address = announced(entry.address)
+	if address ~= "" then
+		text = text .. " at " .. address
+	end
+	if entry.own == true then
+		local mark = " (this device: " .. name .. ")"
+		if name == "" or #text + #mark > ITEM_MAX then
+			mark = " (this device's fan)"
+		end
+		text = text .. mark
+	end
+	return texts.list_item(text)
+end
+
+-- Found Fans rows (auto-discovery-design 3.1 and 3.2): the summary, and the
+-- item rows that follow it (the summary is not repeated in them). `view`:
+--   state    "looking" | "failing" | "stopped" | "listed" (the summary's row)
+--   pinned   true when a fan is pinned on this device
+--   entries  found:entries(pin): { key, instance, address, mac, own } each,
+--            in display order (this device's fan first)
+--   info     model:info() or nil; only info.fan_type is read, for the name
+-- items[i] is the row of entries[i], at most texts.MAX_FOUND rows: with more
+-- entries the last row is "... and 3 more: enter the address in Fan Address"
+-- in place of entries[MAX_FOUND] and after. An entry that is not a table
+-- still takes its row ("fan"), so the rows and the entries stay aligned.
+-- The items read the entries whatever the state says.
+function texts.found_rows(view)
+	local v = type(view) == "table" and view or {}
+	local entries = type(v.entries) == "table" and v.entries or {}
+	local count, own = 0, false
+	for _, entry in ipairs(entries) do
+		count = count + 1
+		if type(entry) == "table" and entry.own == true then
+			own = true
+		end
+	end
+	local name = ""
+	if own and type(v.info) == "table" then
+		name = maker_name(trim(scalar(v.info.fan_type)))
+	end
+	local shown = count
+	if count > texts.MAX_FOUND then
+		shown = texts.MAX_FOUND - 1
+	end
 	local items = {}
-	if type(list) ~= "table" then
-		return items
+	for i = 1, shown do
+		local entry = entries[i]
+		items[i] = found_item(type(entry) == "table" and entry or {}, name)
 	end
-	local pinned = type(pin) == "table" and (mac_key(pin.mac) or mac_key(pin.client_id)) or nil
-	for _, fan in ipairs(list) do
-		if #items >= texts.MAX_FOUND then
-			break
-		end
-		if type(fan) == "table" then
-			local text = scalar(fan.instance)
-			if text == "" then
-				text = "fan"
-			end
-			if scalar(fan.address) ~= "" then
-				text = text .. " at " .. scalar(fan.address)
-			end
-			if pinned and mac_key(fan.mac) == pinned then
-				text = text .. " (this device's fan)"
-			end
-			items[#items + 1] = texts.list_item(text)
-		end
+	if count > shown then
+		items[#items + 1] = string.format("... and %d more: enter the address in Fan Address", count - shown)
 	end
-	return items
+	return found_summary(v.state, v.pinned == true, count, own), items
 end
 
 return texts

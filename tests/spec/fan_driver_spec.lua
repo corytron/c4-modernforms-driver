@@ -1,7 +1,7 @@
 -- The Modern Forms Fan driver as a whole (docs/v1-design.md): its driver.xml,
 -- its startup, the dev loop's hook, and the round trips of section 9.11 on the
 -- fake runtime (a press to a request to an answer to the notifications and
--- LEDs; Find Fans). The modules have their own specs; this one pins the wiring
+-- LEDs; the fan search and Found Fans). The modules have their own specs; this one pins the wiring
 -- in driver.lua. The checks every driver passes are in drivers_spec.lua.
 
 local fake = require("helpers.fake_c4")
@@ -205,12 +205,13 @@ describe("Modern Forms Fan driver", function()
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
 			end)
 
-		it("declares the six actions with sort_order, the two events and the one condition", function()
+		it("declares the five actions with sort_order (Find Fans went with #102), the two events and the one condition",
+			function()
 			local actions = {}
 			for body in bare:gmatch("<action>(.-)</action>") do
 				actions[#actions + 1] = field(body, "sort_order") .. ":" .. field(body, "command")
 			end
-			assert.same({ "1:Find Fans", "2:Use Selected Fan", "3:Name Items After Fan", "4:Reboot Fan",
+			assert.same({ "2:Use Selected Fan", "3:Name Items After Fan", "4:Reboot Fan",
 				"5:Turn Off Away Mode", "6:Turn Off Adaptive Learning" }, actions)
 			local events = {}
 			for body in bare:gmatch("<event>(.-)</event>") do
@@ -236,7 +237,7 @@ describe("Modern Forms Fan driver", function()
 			env.OnDriverInit("DIT_ADDING")
 			env.OnDriverLateInit("DIT_ADDING")
 			assert.equal("1", env.Properties["Driver Version"])
-			assert.equal("Not set up: Find Fans, or enter the fan's address in Fan Address", env.Properties["Status"])
+			assert.equal("Not set up: pick a fan in Found Fans, or enter Fan Address", env.Properties["Status"])
 			assert.is_false(log.enabled("debug"))
 			assert.same({}, c4.transfers)
 		end)
@@ -451,36 +452,167 @@ describe("Modern Forms Fan driver", function()
 		end)
 	end)
 
-	describe("Find Fans", function()
-		it("sends the query on the mDNS group, collects the answers and fills Found Fans", function()
+	describe("Found Fans fills by itself (auto-discovery-design, #102)", function()
+		-- The fake's device id is 15: slot 7, so the window at load opens 27.5 to
+		-- 28 s after late init (3 s + 7 x 3.5 s + 0 to 0.5 s).
+		local LOAD_MS = 3000 + 7 * 3500 + 600
+		local SECOND = "10.0.2.152"
+
+		local function set(env, name, value)
+			env.Properties[name] = value
+			env.OnPropertyChanged(name)
+		end
+
+		-- The last Found Fans list written: its rows (comma-joined) and its value.
+		local function found(c4)
+			local lists = c4.calls_to("UpdatePropertyList")
+			for i = #lists, 1, -1 do
+				if lists[i][1] == "Found Fans" then
+					return lists[i][2], lists[i][3]
+				end
+			end
+		end
+
+		local function sends(c4)
+			return #c4.calls_to("SendToNetwork")
+		end
+
+		-- Runs the clock 100 ms at a time for `ms`: the fan at FAN answers every
+		-- request (requests elsewhere wait), and each new query is answered by
+		-- `announce`, a list of { message, address }.
+		local function serve(env, c4, ms, announce)
+			local seen = sends(c4)
+			for _ = 1, ms / 100 do
+				for _, t in ipairs(c4.open_transfers()) do
+					if t.url:find("//" .. FAN .. "/", 1, true) then
+						if t.data == '{"queryStaticShadowData":1}' then
+							t:respond(200, mf.INFO)
+						else
+							t:respond(200, mf.state({ fanOn = true, fanSpeed = 3 }))
+						end
+					end
+				end
+				if sends(c4) > seen then
+					seen = sends(c4)
+					for _, a in ipairs(announce or {}) do
+						fake.network_receive(env, 6001, 5353, a[1], a[2])
+					end
+				end
+				c4.advance(100)
+			end
+		end
+
+		it("asks on the mDNS group at load after the device's slot and lists the answers, never in Last Action",
+			function()
+				local env, c4 = fake.load_driver(DRIVER, {})
+				env.OnDriverInit("DIT_ADDING")
+				env.OnDriverLateInit("DIT_ADDING")
+				assert.equal("Looking for Modern Forms fans on the network...", select(2, found(c4)))
+				local before = env.Properties["Last Action"]
+				c4.advance(3000)
+				assert.equal(0, sends(c4), "not before 3 s plus the slot")
+				c4.advance(LOAD_MS - 3000)
+				assert.equal(1, sends(c4))
+				local created = c4.calls_to("CreateNetworkConnection")[1]
+				assert.same({ 6001, "224.0.0.251" }, { created[1], created[2] })
+				local connected = c4.calls_to("NetConnect")[1]
+				assert.same({ 6001, 5353, "MULTICAST" }, { connected[1], connected[2], connected[3] })
+				fake.network_receive(env, 6001, 5353, mdns.K10_FIRST, FAN)
+				c4.advance(3100)
+				local rows, value = found(c4)
+				assert.truthy(rows:find("MF_Fan_005301 at " .. FAN, 1, true), rows)
+				assert.equal("1 fan found: pick it and click Set to use it", value)
+				assert.equal(before, env.Properties["Last Action"])
+				assert.equal("Not set up: pick a fan in Found Fans, or enter Fan Address", env.Properties["Status"])
+				assert.equal(1, #c4.calls_to("NetDisconnect"))
+			end)
+
+		it("asks again on the seek ladder while no fan is pinned", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
-			env.OnDriverInit("DIT_STARTUP")
-			env.OnDriverLateInit("DIT_STARTUP")
-			env.ExecuteCommand("LUA_ACTION", { ACTION = "Find Fans" })
-			local created = c4.calls_to("CreateNetworkConnection")[1]
-			assert.same({ 6001, "224.0.0.251" }, { created[1], created[2] })
-			local connected = c4.calls_to("NetConnect")[1]
-			assert.same({ 6001, 5353, "MULTICAST" }, { connected[1], connected[2], connected[3] })
-			assert.equal(1, #c4.calls_to("SendToNetwork"))
+			env.OnDriverLateInit("DIT_ADDING")
+			c4.advance(LOAD_MS + 3100)
+			local after_load = sends(c4)
+			assert.equal(2, after_load, "the query and its repeat")
+			c4.advance(40000)
+			assert.is_true(sends(c4) > after_load, "30 s (+-20 %) after the window closed")
+			assert.equal("No fan found yet: enter its address in Fan Address", select(2, found(c4)))
+		end)
+
+		it("a pick on an unpinned device takes that fan at once", function()
+			local env, c4 = fake.load_driver(DRIVER, {})
+			env.OnDriverInit("DIT_ADDING")
+			env.OnDriverLateInit("DIT_ADDING")
+			c4.advance(LOAD_MS)
 			fake.network_receive(env, 6001, 5353, mdns.K10_FIRST, FAN)
 			c4.advance(3100)
-			assert.truthy(env.Properties["Last Action"]:find("^Found 1 fan"), env.Properties["Last Action"])
-			local lists = c4.calls_to("UpdatePropertyList")
-			local last = lists[#lists]
-			assert.equal("Found Fans", last[1])
-			assert.truthy(last[2]:find("MF_Fan_005301 at " .. FAN, 1, true), last[2])
-			assert.equal(1, #c4.calls_to("NetDisconnect"))
+			local item = found(c4):match("(MF_Fan_005301 at [%d%.]+)")
+			set(env, "Found Fans", item)
+			assert.equal('{"queryStaticShadowData":1}', last_sent(c4))
+			answer(c4, mf.INFO)
+			assert.equal(FAN, env.Properties["Fan Address"])
+			assert.truthy(env.Properties["Last Action"]:find("^Now using fan MF_00005E005301 at " .. FAN),
+				env.Properties["Last Action"])
+			assert.equal(select(1, found(c4)):match("^[^,]*"), select(2, found(c4)), "the row snaps back to the summary")
 		end)
 
-		it("says so when no fan answers", function()
+		it("a pinned device asks only at load, lists its own fan first, and a pick of it changes nothing", function()
+			local env, c4 = online_driver()
+			serve(env, c4, 35000, { { mdns.K10_FIRST, FAN }, { mdns.FAN_TWO_ALONE, SECOND } })
+			local rows, value = found(c4)
+			assert.equal("2 fans found; this device's fan is listed first", value)
+			assert.truthy(rows:find("^[^,]*,MF_Fan_005301 at " .. FAN .. " %(this device"), rows)
+			local after_load = sends(c4)
+			serve(env, c4, 600000)
+			assert.equal(after_load, sends(c4), "no more windows while the fan answers")
+			set(env, "Found Fans", rows:match("(MF_Fan_005301 at [^,]+)"))
+			serve(env, c4, 1000)
+			assert.truthy(env.Properties["Last Action"]:find("^Already using fan MF_00005E005301"),
+				env.Properties["Last Action"])
+			assert.equal(FAN, env.Properties["Fan Address"])
+		end)
+
+		it("a pick of another fan on a pinned device waits (L32); Use Selected Fan then switches", function()
+			local env, c4 = online_driver()
+			serve(env, c4, 35000, { { mdns.K10_FIRST, FAN }, { mdns.FAN_TWO_ALONE, SECOND } })
+			local item = found(c4):match("(MF_Fan_005302 at [%d%.]+)")
+			local transfers = #c4.transfers
+			set(env, "Found Fans", item)
+			assert.equal("Picked MF_Fan_005302: click Use Selected Fan to switch to it", env.Properties["Last Action"])
+			for i = transfers + 1, #c4.transfers do
+				assert.is_nil(c4.transfers[i].url:find("//" .. SECOND .. "/", 1, true), "nothing is read yet")
+			end
+			assert.equal(item, select(2, found(c4)), "the row keeps the waiting pick")
+			env.ExecuteCommand("LUA_ACTION", { ACTION = "Use Selected Fan" })
+			local t = c4.last_transfer()
+			assert.truthy(t.url:find("//" .. SECOND .. "/", 1, true), t.url)
+			t:respond(200, (mf.INFO:gsub("00005E005301", "00005E005302"):gsub("00:00:5e:00:53:01", "00:00:5e:00:53:02")))
+			c4.advance(300)
+			assert.equal(SECOND, env.Properties["Fan Address"])
+			assert.truthy(env.Properties["Last Action"]:find("^Now using fan MF_00005E005302 %(was MF_00005E005301%)"),
+				env.Properties["Last Action"])
+		end)
+
+		it("a pinned device with an empty Fan Address asks nothing, not even at load", function()
+			local env, c4 = online_driver()
+			set(env, "Fan Address", "")
+			c4.advance(120000)
+			assert.equal(0, sends(c4))
+			assert.equal("Not searching while Fan Address is empty", select(2, found(c4)))
+		end)
+
+		it("a second late init (an update in place) asks again", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
-			env.OnDriverLateInit("DIT_STARTUP")
-			env.ExecuteCommand("LUA_ACTION", { ACTION = "Find Fans" })
-			c4.advance(3100)
-			assert.equal("No Modern Forms fan answered on this network", env.Properties["Last Action"])
+			env.OnDriverLateInit("DIT_ADDING")
+			c4.advance(LOAD_MS + 3100)
+			local first = sends(c4)
+			env.OnDriverDestroyed("DIT_UPDATING")
+			assert.same({}, c4.active_timers())
+			env.OnDriverLateInit("DIT_UPDATING")
+			c4.advance(40000) -- the slot, and the 30 s floor after the last window closed
+			assert.is_true(sends(c4) > first)
 		end)
 
-		it("ignores a datagram outside a Find Fans window", function()
+		it("ignores a datagram outside a search window", function()
 			local env = fake.load_driver(DRIVER, {})
 			env.OnDriverLateInit("DIT_STARTUP")
 			assert.has_no.errors(function() fake.network_receive(env, 6001, 5353, mdns.K10_FIRST, FAN) end)
@@ -671,7 +803,7 @@ describe("Modern Forms Fan driver", function()
 
 		-- Runs the fake clock 100 ms at a time for `ms`. The fan answers at `o.at`
 		-- (MOVED unless given; false: nowhere): a request there gets its answers,
-		-- every other request fails. Each Find Fans query is answered from o.at by
+		-- every other request fails. Each search query is answered from o.at by
 		-- the fan's announcement there (o.message, K10_MOVED unless given), unless
 		-- o.announce is false or the fan is nowhere.
 		local function run(env, c4, ms, o)
@@ -723,8 +855,9 @@ describe("Modern Forms Fan driver", function()
 				env.Properties["Last Action"])
 		end)
 
-		it("does not look while the fan answers", function()
+		it("does not look while the fan answers (after the search's one window at load)", function()
 			local env, c4 = online_driver()
+			run(env, c4, 35000, { at = FAN, message = mdns.K10_FIRST })
 			local before = queries(c4)
 			run(env, c4, 600000, { at = FAN, message = mdns.K10_FIRST })
 			assert.equal(before, queries(c4))
@@ -734,6 +867,7 @@ describe("Modern Forms Fan driver", function()
 
 		it("an address the owner types wins until the fan answers there; the next loss after that is followed", function()
 			local env, c4 = online_driver()
+			run(env, c4, 35000, { at = FAN, message = mdns.K10_FIRST }) -- the window at load
 			set(env, "Fan Address", MOVED)
 			local before = queries(c4)
 			run(env, c4, 3600 * 1000, { at = false })
@@ -791,11 +925,11 @@ describe("Modern Forms Fan driver", function()
 			assert.equal(MOVED, env2.Properties["Fan Address"])
 		end)
 
-		it("stays at the typed address with Follow Address Changes Off", function()
+		it("stays at the typed address with Follow Address Changes Off: only the search's window at load", function()
 			local env, c4 = online_driver({ ["Follow Address Changes"] = "Off" })
 			run(env, c4, 120000)
 			assert.equal(FAN, env.Properties["Fan Address"])
-			assert.equal(0, #c4.calls_to("SendToNetwork"))
+			assert.equal(2, #c4.calls_to("SendToNetwork"), "the query and its repeat, at load")
 		end)
 
 		it("does not follow a fan whose answer at the new address is another fan", function()

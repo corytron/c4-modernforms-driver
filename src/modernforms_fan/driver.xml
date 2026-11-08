@@ -53,8 +53,11 @@
 				<type>STRING</type>
 				<readonly>false</readonly>
 			</property>
-			<!-- V5a, Find Fans (hardware check K10 passed): the list of the last Find
-			     Fans; a pick waits for Use Selected Fan. -->
+			<!-- V5a, V30 (#102, auto-discovery-design): the driver fills this list by
+			     itself from its multicast DNS searches (at load, and on a schedule
+			     while it seeks a fan); a pick takes that fan at once, except a
+			     different fan on a device already pinned, which waits for Use
+			     Selected Fan. -->
 			<property>
 				<name>Found Fans</name>
 				<type>DYNAMIC_LIST</type>
@@ -296,14 +299,9 @@
 			<!-- DEV-ONLY END -->
 		</properties>
 		<!-- Section 2.6: sort_order on every action (without it Composer lists them
-		     in reverse, ECC F29); name and command are the same text. -->
+		     in reverse, ECC F29); name and command are the same text. Find Fans
+		     (sort_order 1) went with #102; the other numbers stay. -->
 		<actions>
-			<action>
-				<name>Find Fans</name>
-				<command>Find Fans</command>
-				<sort_order>1</sort_order>
-				<params/>
-			</action>
 			<action>
 				<name>Use Selected Fan</name>
 				<command>Use Selected Fan</command>

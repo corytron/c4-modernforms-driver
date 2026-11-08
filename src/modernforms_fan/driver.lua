@@ -1,6 +1,7 @@
 -- Modern Forms Fan driver (docs/v1-design.md): the coordinator. It builds the
 -- modules of fan/ and common/ (the wire and the transport, the state model,
--- the fan proxy, the fan links, the light, Find Fans, the item names),
+-- the fan proxy, the fan links, the light, the fan search and its list, the
+-- item names),
 -- hands each what touches Director as arguments, and wires the DriverWorks
 -- entry points, the properties, the actions, the events and the Online
 -- variable to them. Nothing here decides what the fan does: the model does
@@ -36,12 +37,14 @@ local discovery_mod = require("fan.discovery")
 local names = require("fan.names")
 local rename_mod = require("fan.rename")
 local follow_mod = require("fan.follow")
+local search_mod = require("fan.search")
+local found_mod = require("fan.found")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
 log.set_prefix(LOG_PREFIX)
 
--- Section 2.2 and 2.4: the proxies' bindings, Find Fans' dynamic binding (V5a),
+-- Section 2.2 and 2.4: the proxies' bindings, the search's dynamic binding (V5a),
 -- the two events (section 2.7) and the light's and the fan's links.
 local FAN_BINDING, LIGHT_BINDING = 5001, 5002
 local FIND_BINDING, MDNS_PORT, MDNS_GROUP = 6001, 5353, "224.0.0.251"
@@ -51,7 +54,6 @@ local FAN_LINKS = {}
 for id = 300, 308 do
 	FAN_LINKS[id] = true
 end
-local PICK_ROW = "Pick a fan" -- the first row of Found Fans: no pick (section 3.5)
 
 -- Dev builds only (tools/build.sh --dev ships common/devloop.lua and
 -- fan/devcmds.lua): the driver fetches its code from a server on the LAN and
@@ -174,16 +176,22 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower
+local model, fan, links, light, discovery, names_job, follower, search, found_list
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
-local found = { items = {}, list = {} } -- the last Find Fans, row by row
+-- Found Fans as last written (auto-discovery-design 3): the rows, the entry
+-- behind each item row, and the text the row was written with.
+local found_shown = { items = {}, entries = {}, key = nil }
+local draw_found -- writes Found Fans; set once the list and the scheduler exist
 
 local function refresh_status()
 	if not model then
 		return
 	end
 	local view = model:status_view()
-	view.find_fans = true
+	-- S1 rather than S2 when no search can help: the list is failing, or a pinned
+	-- device's empty Fan Address stops the search (auto-discovery-design AD5).
+	view.failing = (found_list ~= nil and found_list:failing())
+		or (model:identity() ~= nil and trimmed(Properties["Fan Address"]) == "")
 	view.os = os_info
 	set_row("Status", texts.status(view))
 end
@@ -237,6 +245,10 @@ function listener.phase(phase, detail, old)
 		end
 		follower:phase_changed(phase)
 	end
+	-- The search's mode follows the phase and the follower (auto-discovery-design 2).
+	if search and started then
+		search:changed()
+	end
 	light:phase(phase, detail)
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
@@ -252,6 +264,9 @@ end
 
 function listener.info(pin, info)
 	show_identity(pin, info)
+	if started and draw_found then
+		draw_found()
+	end
 	refresh_status()
 end
 
@@ -348,7 +363,10 @@ light = light_mod.new({
 	log = log,
 })
 
--- Find Fans (V5a, K10): a dynamic binding to the mDNS group, created once.
+-- The search (V5a, K10, auto-discovery-design): a dynamic binding to the mDNS
+-- group, created once. Every closed window, the scheduler's or the follower's,
+-- feeds the list (on_window).
+local on_window -- set below, once the list exists
 local find_connection = false
 discovery = discovery_mod.new({
 	open = function()
@@ -362,7 +380,7 @@ discovery = discovery_mod.new({
 			C4:NetConnect(FIND_BINDING, MDNS_PORT, "MULTICAST")
 		end)
 		if not ok then
-			log.warn("Find Fans could not open its connection: %s", tostring(err))
+			log.debug("Search: could not open the connection: %s", tostring(err)) -- warned once per streak by the list
 		end
 		return ok
 	end,
@@ -373,11 +391,17 @@ discovery = discovery_mod.new({
 		pcall(C4.NetDisconnect, C4, FIND_BINDING, MDNS_PORT)
 	end,
 	timer = timer,
+	now = now_ms,
+	on_window = function(list, err, heard)
+		if on_window then
+			on_window(list, err, heard)
+		end
+	end,
 	log = log,
 })
 
 -- Following the pinned fan to a new address (address-follow-design, #39):
--- Find Fans windows for the pinned MAC while the fan is not at Fan Address,
+-- search windows for the pinned MAC while the fan is not at Fan Address,
 -- one read-only check of what answers, then the model moves.
 follower = follow_mod.new({
 	find = function(cb)
@@ -417,6 +441,99 @@ follower = follow_mod.new({
 	log = log,
 })
 
+-- The fans heard, kept across windows (auto-discovery-design 3).
+found_list = found_mod.new({
+	usable = discovery_mod.usable,
+	now = function()
+		return now_ms() / 1000
+	end,
+	log = log,
+})
+
+-- The scheduler's mode (auto-discovery-design 2), in the contract's order. A
+-- pinned fan that is away is the follower's (standby) or, with following Off or
+-- a typed address waiting, nobody's (quiet: Off keeps meaning no windows, F7).
+local function search_mode()
+	local pin = model:identity()
+	if pin and trimmed(Properties["Fan Address"]) == "" then
+		return "stopped"
+	end
+	local state = follower:state()
+	if type(state) == "string" and state:find("^armed") then
+		return "standby"
+	end
+	if not pin or model:phase() == "unset" then
+		return "seek"
+	end
+	return "quiet"
+end
+
+-- Writes Found Fans when its text changed, or always with force (a pick snaps
+-- back: Composer then shows the picked row, whatever was written last). The
+-- value is the waiting pick's row, else the summary.
+draw_found = function(force)
+	if not found_list then
+		return
+	end
+	local pin = model:identity()
+	local state = "listed"
+	if search_mode() == "stopped" then
+		state = "stopped"
+	elseif not found_list:heard_once() then
+		state = "looking"
+	elseif found_list:failing() then
+		state = "failing"
+	end
+	local entries = found_list:entries(pin and pin.mac or nil)
+	local summary, items = texts.found_rows({
+		state = state, pinned = pin ~= nil, entries = entries, info = model:info(),
+	})
+	items = items or {}
+	local shown = { summary }
+	local behind = {}
+	local overflow = #entries > texts.MAX_FOUND
+	local kept = found_list:kept()
+	local value = summary
+	for index, item in ipairs(items) do
+		shown[#shown + 1] = item
+		local entry = entries[index]
+		if entry and not (overflow and index == #items) then
+			behind[item] = entry
+			if kept and entry.key == kept.key then
+				value = item
+			end
+		end
+	end
+	local key = table.concat(shown, "\n") .. "\n=" .. value
+	if force or key ~= found_shown.key then
+		prop_list("Found Fans", shown, value)
+		found_shown = { items = shown, entries = behind, key = key }
+	end
+end
+
+on_window = function(_, err, heard)
+	found_list:window(heard, err)
+	draw_found()
+	refresh_status()
+end
+
+search = search_mod.new({
+	find = function(cb)
+		return discovery:find(cb)
+	end,
+	last_closed = function()
+		return discovery:last_closed()
+	end,
+	mode = search_mode,
+	timer = timer,
+	now = now_ms,
+	-- Read at the first plan, after late init: never at load (API 22/_11).
+	seed = function()
+		return C4:GetDeviceID()
+	end,
+	log = log,
+})
+
 -- Properties ---------------------------------------------------------------------
 
 -- Fan Address: a new epoch and a contact, or S1 and S3 (section 3.5). Late init
@@ -438,12 +555,17 @@ dispatch.properties["Fan_Address"] = function(value)
 		follower:address_edited()
 	end
 	model:set_address(value)
+	search:changed()
+	draw_found()
 	refresh_status()
 end
 
 -- Follow Address Changes (F7): On by default; Off stops every window.
 dispatch.properties["Follow_Address_Changes"] = function(value)
 	follower:switch(value ~= "Off")
+	if started then
+		search:changed()
+	end
 end
 
 dispatch.properties["Poll_Interval_(s)"] = function(value)
@@ -506,7 +628,6 @@ dispatch.properties["Keypad_Links"] = function()
 	end
 end
 
--- Found Fans: a pick waits for Use Selected Fan; nothing to do here.
 
 -- Dev loop -----------------------------------------------------------------------
 
@@ -609,6 +730,7 @@ if devloop and devcmds then
 		model = model,
 		names = names_job,
 		follow = follower,
+		search = search,
 		fan = fan,
 		links = links,
 		light = light,
@@ -630,78 +752,28 @@ end
 
 -- Actions ------------------------------------------------------------------------
 
--- Find Fans: one mDNS query, 3 s of answers, the list into Found Fans.
-dispatch.commands["Find_Fans"] = function()
-	discovery:find(function(list, err)
-		if err then
-			result("find_failed")
-			return
-		end
-		list = list or {}
-		local items = texts.found_fans(list, model:identity())
-		found = { items = items, list = list }
-		local shown = { PICK_ROW }
-		for _, item in ipairs(items) do
-			shown[#shown + 1] = item
-		end
-		prop_list("Found Fans", shown, PICK_ROW)
-		if #list == 0 then
-			result("found_none")
-		else
-			result("found", { count = #list, list = list })
-		end
-	end)
-end
-
--- The fan the owner picked in Found Fans, or nil (the placeholder row, a pick
--- from an older list).
-local function picked_fan()
-	local pick = Properties["Found Fans"]
-	for index, item in ipairs(found.items) do
-		if item == pick then
-			return found.list[index]
-		end
-	end
-	return nil
-end
-
--- The pick is cleared after any outcome; the found fans stay listed.
-local function clear_pick()
-	local shown = { PICK_ROW }
-	for _, item in ipairs(found.items) do
-		shown[#shown + 1] = item
-	end
-	prop_list("Found Fans", shown, PICK_ROW)
-end
-
--- Use Selected Fan: the pick, else Fan Address (section 3.5).
-dispatch.commands["Use_Selected_Fan"] = function()
+-- Takes the fan at `address` (mac: the one picked, or nil for Fan Address):
+-- Use Selected Fan's path (section 3.5), also for a pick in Found Fans
+-- (auto-discovery-design 4). A stale list answers not_picked or no_answer and
+-- asks once more at once.
+local function take_fan(address, mac)
 	-- A window open now drops its candidates (address-follow-design F4).
 	follower:clicked()
-	local pick = picked_fan()
-	local address, mac
-	if pick then
-		address, mac = pick.address, pick.mac
-	else
-		address = trimmed(Properties["Fan Address"])
-		if address == "" then
-			address = nil
-		end
-	end
-	if not address then
-		result("nothing_to_use", { find_fans = true })
-		return
-	end
 	model:use_fan(address, mac, function(key, args)
-		clear_pick()
+		found_list:drop()
+		draw_found(true)
 		if key == "nothing_to_use" then
-			args = { find_fans = true }
+			args = nil
 		end
 		if key == "moved" or key == "now_using" then
 			prop("Fan Address", address)
 		end
 		result(key, args)
 		refresh_status()
+		search:changed()
+		if key == "not_picked" or key == "no_answer" then
+			search:poke("stale")
+		end
 		local shown = shown_count
 		-- A fan pinned by the click: the guarded rename, then the same line again
 		-- with its suffix (fan-name-design N4), unless something else wrote Last
@@ -720,6 +792,49 @@ dispatch.commands["Use_Selected_Fan"] = function()
 			end)
 		end
 	end)
+end
+
+-- Found Fans, after Set (auto-discovery-design 4): a fan's row takes it at
+-- once; a different fan on a device already pinned waits for Use Selected Fan
+-- (L32); the summary, the overflow row or a row of an older list do nothing.
+-- The late-init replay comes before `started` and is ignored.
+dispatch.properties["Found_Fans"] = function(value)
+	if not started then
+		return
+	end
+	local entry = found_shown.entries[value]
+	if not entry then
+		draw_found(true)
+		return
+	end
+	if model:identity() and not entry.own then
+		found_list:keep(entry.key)
+		result("picked_wait", { instance = entry.instance })
+		draw_found(true)
+		return
+	end
+	found_list:drop()
+	take_fan(entry.address, entry.mac)
+end
+
+-- Use Selected Fan: the waiting pick, else Fan Address (section 3.5).
+dispatch.commands["Use_Selected_Fan"] = function()
+	local kept = found_list:kept()
+	local address, mac
+	if kept then
+		address, mac = kept.address, kept.mac
+	else
+		address = trimmed(Properties["Fan Address"])
+		if address == "" then
+			address = nil
+		end
+	end
+	if not address then
+		follower:clicked()
+		result("nothing_to_use")
+		return
+	end
+	take_fan(address, mac)
 end
 
 -- Name Items After Fan: the forced rename (fan-name-design N5).
@@ -773,10 +888,10 @@ function OnDriverLateInit()
 	dev.load_settings()
 	dev.load_colors()
 	-- The Migration Report's verdict, persisted by v1.0-beta.1 and beta.2, goes
-	-- with the report (#45). Found Fans starts with no pick (lists are not
-	-- persisted, FUND 15/_2).
+	-- with the report (#45). Found Fans starts empty (lists are not persisted,
+	-- FUND 15/_2); the search refills it (auto-discovery-design 2).
 	pcall(C4.PersistDeleteValue, C4, "mf_migration") -- API 26.5_persistence/_2
-	prop_list("Found Fans", { PICK_ROW }, PICK_ROW)
+	found_list:clear()
 	dispatch.replay_properties(Properties)
 	dev.show_driver_version(1)
 	os_info = C4:GetVersionInfo()
@@ -785,11 +900,14 @@ function OnDriverLateInit()
 	model:start(trimmed(Properties["Fan Address"]), texts.parse_fan_id(Properties["Fan ID"]))
 	started = true
 	show_restored()
+	draw_found(true)
 	refresh_status()
 	-- Buffered proxy messages (GET_CURRENT_STATE at the add), then the links'
 	-- reads of their keypads, before the binding changes that came early.
 	dev.late_init()
 	links:late_init()
+	-- The load window, then the mode's schedule (auto-discovery-design 2).
+	search:start()
 	-- Dev builds: the dev loop starts last, so a reload pushed through it sees
 	-- a fully initialised driver.
 	if devloop then
@@ -832,7 +950,7 @@ function TestCondition(name, params)
 	return equal
 end
 
--- Find Fans' answers: the dynamic binding's datagrams.
+-- The search's answers: the dynamic binding's datagrams (the Finder's window).
 function ReceivedFromNetwork(binding, port, data, from)
 	if binding == FIND_BINDING then
 		discovery:received(binding, port, data, from)
@@ -855,6 +973,7 @@ function OnDriverDestroyed()
 		stop_devcmds()
 	end
 	follower:stop()
+	search:stop()
 	discovery:stop()
 	names_job:stop()
 	links:stop()

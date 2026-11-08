@@ -1,8 +1,9 @@
 -- fan.texts: every owner-visible string of the driver, verbatim from the v1
--- contract's section 7 (docs/v1-design.md) and, for the fan's name and the
--- rename job's answers, from docs/fan-name-design.md 2.3. The module is pure,
--- so nothing here needs the fake runtime. Times are built from local-time
--- fields, so the specs hold in any time zone.
+-- contract's section 7 (docs/v1-design.md), for the fan's name and the rename
+-- job's answers from docs/fan-name-design.md 2.3, and for the Found Fans rows,
+-- S2, L7, L21 and L32 from docs/auto-discovery-design.md sections 3 and 5. The
+-- module is pure, so nothing here needs the fake runtime. Times are built from
+-- local-time fields, so the specs hold in any time zone.
 --
 -- texts.lua requires fan.names, the table of fan types and their names. This
 -- spec is about wording, not about the table (names_spec.lua owns that), so
@@ -79,20 +80,36 @@ describe("fan.texts", function()
 	describe("the interface of section 9.6 and fan-name-design 2.3", function()
 		it("offers every function the contract lists", function()
 			for _, name in ipairs({ "status", "result", "fan_id", "fan_model", "firmware", "last_seen", "change_by",
-				"automations", "keypad_links", "found_fans", "suffix", "mac", "clock", "rename_suffix" }) do
+				"automations", "keypad_links", "found_rows", "suffix", "mac", "clock", "rename_suffix" }) do
 				assert.is_function(texts[name], name)
 			end
 		end)
 
-		it("lists the 21 result keys of section 9.6, the 8 of fan-name-design 2.3 and the 2 of address-follow-design 2.4,"
-			.. " each with a text of its own", function()
-			assert.equal(31, #texts.RESULT_KEYS)
+		-- auto-discovery-design 5 and 6.4: the Find Fans action went, and with it
+		-- its texts and the find_fans fields.
+		it("has no Find Fans function or result any more", function()
+			assert.is_nil(texts.found_fans)
+			for _, key in ipairs({ "found", "found_none", "find_failed" }) do
+				assert.equal("", texts.result(key, { count = 2, list = { {} }, address = ADDR }), key)
+				for _, listed in ipairs(texts.RESULT_KEYS) do
+					assert.not_equal(key, listed)
+				end
+			end
+		end)
+
+		it("lists the 18 result keys of section 9.6 left after L8 to L10, the 8 of fan-name-design 2.3, the 2 of"
+			.. " address-follow-design 2.4 and L32 of auto-discovery-design 5, each with a text of its own", function()
+			assert.equal(29, #texts.RESULT_KEYS)
+			assert.same({ "learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
+				"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending", "away_off", "away_already",
+				"learning_off", "learning_already", "not_answering", "not_taken", "not_picked" },
+				{ unpack(texts.RESULT_KEYS, 1, 18) })
 			assert.same({ "name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed",
-				"name_no_pin", "name_busy", "followed", "follow_refused" }, { unpack(texts.RESULT_KEYS, 22) })
+				"name_no_pin", "name_busy", "followed", "follow_refused", "picked_wait" }, { unpack(texts.RESULT_KEYS, 19) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
-				local text = texts.result(key, { client_id = ID1, address = ADDR, count = 2, which = "away", at = T,
-					fan = "Sample", light = "Sample Light", fan_type = "1811-5-54" })
+				local text = texts.result(key, { client_id = ID1, address = ADDR, which = "away", at = T,
+					fan = "Sample", light = "Sample Light", fan_type = "1811-5-54", instance = "MF_Fan_005302" })
 				assert.is_true(#text > 0, key)
 				assert.is_nil(seen[text], key .. " repeats another key's text")
 				seen[text] = true
@@ -165,23 +182,41 @@ describe("fan.texts", function()
 	end)
 
 	describe("status (section 7.1)", function()
+		-- auto-discovery-design 5: S2 points at the list that fills by itself; S1
+		-- is for a list that is failing (no search possible on this controller).
 		describe("S1 to S3: no usable address", function()
-			it("S1 not set up, in a build without Find Fans", function()
-				assert.equal("Not set up: enter the fan's address in Fan Address", texts.status({ phase = "unset" }))
+			local S1 = "Not set up: enter the fan's address in Fan Address"
+			local S2 = "Not set up: pick a fan in Found Fans, or enter Fan Address"
+
+			it("S2 not set up: the contract's text, 58 characters", function()
+				assert.equal(S2, texts.status({ phase = "unset" }))
+				assert.equal(58, #S2)
+				assert.equal(S2, texts.status({ phase = "unset", failing = false }))
 			end)
 
-			it("S2 not set up, with Find Fans", function()
-				assert.equal("Not set up: Find Fans, or enter the fan's address in Fan Address",
-					texts.status({ phase = "unset", find_fans = true }))
-				assert.equal("Not set up: enter the fan's address in Fan Address",
-					texts.status({ phase = "unset", find_fans = false }), "a build without Find Fans says so with false")
+			it("S1 not set up, while the Found Fans list is failing", function()
+				assert.equal(S1, texts.status({ phase = "unset", failing = true }))
+			end)
+
+			it("only failing = true picks S1; anything else is S2", function()
+				for _, other in ipairs({ false, "yes", 1, {}, "true" }) do
+					assert.equal(S2, texts.status({ phase = "unset", failing = other }), tostring(other))
+				end
+			end)
+
+			it("no longer reads find_fans", function()
+				assert.equal(S2, texts.status({ phase = "unset", find_fans = true }))
+				assert.equal(S2, texts.status({ phase = "unset", find_fans = false }))
+				assert.equal(S1, texts.status({ phase = "unset", find_fans = true, failing = true }))
 			end)
 
 			it("S3 names what was typed", function()
 				assert.equal('Fan Address "fan.local" is not an IPv4 address',
 					texts.status({ phase = "unset", typed = "fan.local" }))
 				assert.equal('Fan Address "10.0.2" is not an IPv4 address',
-					texts.status({ phase = "unset", typed = "10.0.2", find_fans = true }), "S3 over S2")
+					texts.status({ phase = "unset", typed = "10.0.2" }), "S3 over S2")
+				assert.equal('Fan Address "10.0.2" is not an IPv4 address',
+					texts.status({ phase = "unset", typed = "10.0.2", failing = true }), "S3 over S1")
 			end)
 
 			it("S3 cuts the typed text to 24 characters, no marker", function()
@@ -195,10 +230,9 @@ describe("fan.texts", function()
 			it("S3 trims what was typed, and an empty or blank text is S1 or S2", function()
 				assert.equal('Fan Address "fan.local" is not an IPv4 address',
 					texts.status({ phase = "unset", typed = "  fan.local \t" }))
-				assert.equal("Not set up: enter the fan's address in Fan Address",
-					texts.status({ phase = "unset", typed = "   " }))
-				assert.equal("Not set up: Find Fans, or enter the fan's address in Fan Address",
-					texts.status({ phase = "unset", typed = "", find_fans = true }))
+				assert.equal(S1, texts.status({ phase = "unset", typed = "   ", failing = true }))
+				assert.equal(S2, texts.status({ phase = "unset", typed = "" }))
+				assert.equal(S2, texts.status({ phase = "unset", typed = "   " }))
 			end)
 
 			it("S3 shows every byte outside printable ASCII as ?", function()
@@ -459,7 +493,7 @@ describe("fan.texts", function()
 				return {
 					phase = phase, address = ADDR, typed = "fan.local", since = T, sent = T, now = SOON,
 					failure = "data", known = true, other = ID2, st = state(), has_light = true,
-					missing = "fanSpeed", os = "3.2.1", find_fans = true,
+					missing = "fanSpeed", os = "3.2.1", failing = true,
 				}
 			end
 
@@ -470,7 +504,9 @@ describe("fan.texts", function()
 			it("S1 and S2 outrank the old controller", function()
 				local v = everything("unset")
 				v.typed = nil
-				assert.equal("Not set up: Find Fans, or enter the fan's address in Fan Address", texts.status(v))
+				assert.equal("Not set up: enter the fan's address in Fan Address", texts.status(v))
+				v.failing = nil
+				assert.equal("Not set up: pick a fan in Found Fans, or enter Fan Address", texts.status(v))
 			end)
 
 			it("another fan, Gen 4 and not a fan outrank the old controller: S11 to S13", function()
@@ -583,35 +619,20 @@ describe("fan.texts", function()
 			assert.equal("10.0.2.151 is not a Gen 1 to 3 Modern Forms fan; nothing changed", r("not_a_fan", { address = ADDR }))
 		end)
 
-		it("L7 nothing to use, without and with Find Fans", function()
-			assert.equal("Nothing to use: enter the fan's address in Fan Address", r("nothing_to_use", {}))
-			assert.equal("Nothing to use: enter the fan's address in Fan Address", r("nothing_to_use"))
-			assert.equal("Nothing to use: pick a fan in Found Fans, or enter Fan Address",
-				r("nothing_to_use", { find_fans = true }))
+		-- auto-discovery-design 5: one text now, whatever the args say.
+		it("L7 nothing to use: pick a fan in Found Fans, or enter Fan Address", function()
+			local L7 = "Nothing to use: pick a fan in Found Fans, or enter Fan Address"
+			assert.equal(L7, r("nothing_to_use", {}))
+			assert.equal(L7, r("nothing_to_use"))
+			assert.equal(L7, r("nothing_to_use", { find_fans = true }))
+			assert.equal(L7, r("nothing_to_use", { find_fans = false, address = ADDR }))
+			assert.equal(62, #L7)
 		end)
 
-		it("L8 found some: plural", function()
-			assert.equal("Found 2 fans: pick one in Found Fans, then Use Selected Fan", r("found", { count = 2 }))
-			assert.equal("Found 16 fans: pick one in Found Fans, then Use Selected Fan", r("found", { count = 16 }))
-		end)
-
-		it("L8 found one: singular", function()
-			assert.equal("Found 1 fan: pick it in Found Fans, then Use Selected Fan", r("found", { count = 1 }))
-		end)
-
-		it("L8 counts a list it is handed, and says L9 for none", function()
-			assert.equal("Found 3 fans: pick one in Found Fans, then Use Selected Fan", r("found", { list = { {}, {}, {} } }))
-			assert.equal("Found 1 fan: pick it in Found Fans, then Use Selected Fan", r("found", { list = { {} } }))
-			assert.equal("No Modern Forms fan answered on this network", r("found", { count = 0 }))
-			assert.equal("No Modern Forms fan answered on this network", r("found", {}))
-		end)
-
-		it("L9 found none", function()
-			assert.equal("No Modern Forms fan answered on this network", r("found_none"))
-		end)
-
-		it("L10 Find Fans could not send", function()
-			assert.equal("Find Fans could not send its query on this controller", r("find_failed"))
+		it("L8 to L10 went with the Find Fans action", function()
+			for _, key in ipairs({ "found", "found_none", "find_failed" }) do
+				assert.equal("", r(key, { count = 2 }), key)
+			end
 		end)
 
 		it("L11 reboot sent, with the time", function()
@@ -633,8 +654,67 @@ describe("fan.texts", function()
 			assert.equal("Reboot already sent; waiting for the fan", r("reboot_pending", {}))
 		end)
 
-		it("L21 the picked fan is not at its address any more", function()
-			assert.equal("The fan at 10.0.2.151 is not the one picked; Find Fans again", r("not_picked", { address = ADDR }))
+		it("L21 the picked fan is not at its address any more: the driver searches again", function()
+			assert.equal("The fan at 10.0.2.151 is not the one picked; searching again", r("not_picked", { address = ADDR }))
+			local long = r("not_picked", { address = "192.168.100.200" })
+			assert.equal("The fan at 192.168.100.200 is not the one picked; searching again", long)
+			assert.equal(65, #long)
+		end)
+
+		-- L32 (auto-discovery-design 4 step 4 and 5): a pick of another fan on a
+		-- device that has one reads nothing and waits for Use Selected Fan.
+		describe("L32, the waiting pick", function()
+			local TAIL = ": click Use Selected Fan to switch to it"
+
+			it("names the picked fan by its instance: the contract's text", function()
+				local text = r("picked_wait", { instance = "MF_Fan_005302" })
+				assert.equal("Picked MF_Fan_005302: click Use Selected Fan to switch to it", text)
+				assert.equal(60, #text)
+			end)
+
+			it("cuts the instance at its START so the line stays at 70: 23 of a 25-character instance", function()
+				local text = r("picked_wait", { instance = "WAC Windermier Fan#005302" })
+				assert.equal(25, #"WAC Windermier Fan#005302")
+				assert.equal("Picked C Windermier Fan#005302" .. TAIL, text)
+				assert.equal(70, #text)
+			end)
+
+			it("leaves no blank in front when the cut lands on one", function()
+				local tail22 = "Kitchen Island #005302" -- the 22 characters after the blank
+				assert.equal(22, #tail22)
+				assert.equal("Picked " .. tail22 .. TAIL, r("picked_wait", { instance = "WAC " .. tail22 }))
+				assert.equal(69, #r("picked_wait", { instance = "WAC " .. tail22 }))
+			end)
+
+			it("keeps an instance of 23 whole and cuts one of 24 by its first character", function()
+				local i23 = "ABCDEFGHIJKLMNOPQ005302"
+				assert.equal(23, #i23)
+				assert.equal("Picked " .. i23 .. TAIL, r("picked_wait", { instance = i23 }))
+				assert.equal("Picked " .. i23 .. TAIL, r("picked_wait", { instance = "Z" .. i23 }))
+				assert.equal(70, #r("picked_wait", { instance = "Z" .. i23 }))
+			end)
+
+			it("stays at 70 whatever the instance, and the last six MAC digits stay", function()
+				local text = r("picked_wait", { instance = string.rep("x", 200) .. "_005302" })
+				assert.equal(70, #text)
+				assert.truthy(text:find("x_005302: click", 1, true))
+			end)
+
+			it("trims the instance, drops control characters and shows bytes outside printable ASCII as ?", function()
+				assert.equal("Picked MF_Fan_005302" .. TAIL, r("picked_wait", { instance = "  MF_Fan_005302\t\n" }))
+				assert.equal("Picked caf??_005302" .. TAIL, r("picked_wait", { instance = "caf\195\169_005302" }))
+				assert.equal("Picked Hall, Fan" .. TAIL, r("picked_wait", { instance = "Hall, Fan" }), "a row, not a list item")
+			end)
+
+			it("says ? for no instance, and reads it from the args only, never from a pin", function()
+				for _, none in ipairs({ "", "   ", false, true, {}, 0 / 0 }) do
+					assert.equal("Picked ?" .. TAIL, r("picked_wait", { instance = none }), tostring(none))
+				end
+				assert.equal("Picked ?" .. TAIL, r("picked_wait", {}))
+				assert.equal("Picked ?" .. TAIL, r("picked_wait"))
+				assert.equal("Picked ?" .. TAIL, r("picked_wait", { pin = { instance = "MF_Fan_005302" } }))
+				assert.equal("Picked ?" .. TAIL, r("picked_wait", { client_id = ID2, address = ADDR2, mac = "00005E005302" }))
+			end)
 		end)
 
 		it("L14 and L15 away mode", function()
@@ -786,7 +866,7 @@ describe("fan.texts", function()
 			assert.equal("Same fan ?, now at ?", r("moved", nil))
 			assert.equal("Now using fan ? at ?", r("now_using", {}))
 			assert.equal("No fan answers at ?; nothing changed", r("no_answer", {}))
-			assert.equal("The fan at ? is not the one picked; Find Fans again", r("not_picked", {}))
+			assert.equal("The fan at ? is not the one picked; searching again", r("not_picked", {}))
 		end)
 
 		it("an unknown key is an empty text", function()
@@ -1381,64 +1461,365 @@ describe("fan.texts", function()
 			end)
 		end)
 
+		-- auto-discovery-design 3.1 and 3.2: texts.found_rows(view) gives the
+		-- summary (the first item, and the value while no pick waits) and the item
+		-- rows under it; the summary is not repeated in the items.
 		describe("Found Fans", function()
-			local fan1 = { instance = "MF_Fan_005301", address = ADDR, port = 80, mac = MAC1, firmware = "02.00.0052" }
-			local fan2 = { instance = "MF_Fan_005302", address = ADDR2, port = 80, mac = "00005E005302" }
-
-			it("one item per fan: the instance and the address", function()
-				assert.same({ "MF_Fan_005301 at 10.0.2.151", "MF_Fan_005302 at 10.0.2.152" }, texts.found_fans({ fan1, fan2 }))
-			end)
-
-			it("marks this device's fan by its MAC", function()
-				assert.same({ "MF_Fan_005301 at 10.0.2.151 (this device's fan)", "MF_Fan_005302 at 10.0.2.152" },
-					texts.found_fans({ fan1, fan2 }, { client_id = ID1, mac = MAC1, generation = "3" }))
-			end)
-
-			it("marks it whatever the spelling of the MACs", function()
-				local colon = { instance = "MF_Fan_005301", address = ADDR, mac = "00:00:5e:00:53:01" }
-				assert.same({ "MF_Fan_005301 at 10.0.2.151 (this device's fan)" }, texts.found_fans({ colon }, { mac = MAC1 }))
-				assert.same({ "MF_Fan_005301 at 10.0.2.151 (this device's fan)" }, texts.found_fans({ fan1 }, { client_id = ID1 }))
-				assert.same({ "MF_Fan_005301 at 10.0.2.151 (this device's fan)" },
-					texts.found_fans({ fan1 }, { mac = "00:00:5E:00:53:01" }))
-			end)
-
-			it("marks nothing when no fan is pinned or the pin has no MAC", function()
-				assert.same({ "MF_Fan_005301 at 10.0.2.151" }, texts.found_fans({ fan1 }, nil))
-				assert.same({ "MF_Fan_005301 at 10.0.2.151" }, texts.found_fans({ fan1 }, {}))
-				assert.same({ "MF_Fan_005301 at 10.0.2.151" }, texts.found_fans({ fan1 }, { mac = "0000" }))
-			end)
-
-			it("a fan that answered without a MAC is never this device's", function()
-				local no_mac = { instance = "MF_Fan_005301", address = ADDR }
-				assert.same({ "MF_Fan_005301 at 10.0.2.151" }, texts.found_fans({ no_mac }, { mac = MAC1 }))
-			end)
-
-			it("at most 16 fans", function()
-				local list = {}
-				for i = 1, 20 do
-					list[i] = { instance = "MF_Fan_" .. i, address = "192.0.2." .. i, mac = "00005E00" .. string.format("%04X", i) }
+			-- An entry as found:entries gives it (auto-discovery-design 6.2):
+			-- entry(1) is MF_Fan_005301 at 10.0.2.151, entry(2) MF_Fan_005302 at
+			-- 10.0.2.152 (the placeholder fans), entry(3) and on MF_Fan_0053NN at
+			-- 192.0.2.(150 + NN) (TEST-NET-1: the scan refuses any other address).
+			local function entry(n, over)
+				local tail = string.format("%04d", 5300 + n)
+				local net = n <= 2 and "10.0.2." or "192.0.2."
+				local e = { key = "00005e00" .. tail, instance = "MF_Fan_00" .. tail, address = net .. (150 + n),
+					mac = "00005e00" .. tail }
+				for key, value in pairs(over or {}) do
+					e[key] = value
 				end
-				local items = texts.found_fans(list)
-				assert.equal(16, #items)
-				assert.equal(16, texts.MAX_FOUND)
-				assert.equal("MF_Fan_1 at 192.0.2.1", items[1])
-				assert.equal("MF_Fan_16 at 192.0.2.16", items[16])
+				return e
+			end
+			local function entries(n, first)
+				local list = {}
+				for i = 1, n do
+					list[i] = entry(i, i == 1 and first or nil)
+				end
+				return list
+			end
+			local function rows(view)
+				local summary, items = texts.found_rows(view)
+				return summary, items
+			end
+			local AVIATOR = { fan_type = "1811-5-54" }
+
+			describe("the summary (section 3.1)", function()
+				-- { what, view, the text verbatim, its length }
+				local cases = {
+					{ "from load until the first window closed", { state = "looking", entries = {} },
+						"Looking for Modern Forms fans on the network...", 47 },
+					{ "the last window could not open or send", { state = "failing", entries = {} },
+						"No search possible on this controller: enter Fan Address", 56 },
+					{ "unpinned, two fans", { state = "listed", entries = entries(2) },
+						"2 fans found: pick one and click Set to use it", 46 },
+					{ "unpinned, one fan: singular", { state = "listed", entries = entries(1) },
+						"1 fan found: pick it and click Set to use it", 44 },
+					{ "unpinned, none", { state = "listed", entries = {} },
+						"No fan found yet: enter its address in Fan Address", 50 },
+					{ "pinned, its fan heard, alone", { state = "listed", pinned = true, entries = entries(1, { own = true }) },
+						"This device's fan answered; no other fan found", 46 },
+					{ "pinned, its fan heard, others too", { state = "listed", pinned = true,
+						entries = entries(3, { own = true }) }, "3 fans found; this device's fan is listed first", 47 },
+					{ "pinned, its fan not heard, two others", { state = "listed", pinned = true, entries = entries(2) },
+						"2 fans found; this device's fan did not answer", 46 },
+					{ "pinned, its fan not heard, one other: singular", { state = "listed", pinned = true,
+						entries = entries(1) }, "1 fan found; this device's fan did not answer", 45 },
+					{ "pinned, none heard", { state = "listed", pinned = true, entries = {} },
+						"No fan answered the last search", 31 },
+					{ "stopped", { state = "stopped", pinned = true, entries = {} },
+						"Not searching while Fan Address is empty", 40 },
+				}
+				for _, case in ipairs(cases) do
+					it(case[1] .. ": '" .. case[3] .. "' (" .. case[4] .. " characters)", function()
+						local summary = rows(case[2])
+						assert.equal(case[3], summary)
+						assert.equal(case[4], #summary)
+						assert.is_true(#summary <= 70)
+					end)
+				end
+
+				it("two fans with this device's fan is the smallest 'listed first' count", function()
+					assert.equal("2 fans found; this device's fan is listed first",
+						rows({ state = "listed", pinned = true, entries = entries(2, { own = true }) }))
+				end)
+
+				it("counts every entry, also those past the overflow row", function()
+					assert.equal("40 fans found: pick one and click Set to use it", rows({ state = "listed", entries = entries(40) }))
+					assert.equal("40 fans found; this device's fan is listed first",
+						rows({ state = "listed", pinned = true, entries = entries(40, { own = true }) }))
+					assert.equal("40 fans found; this device's fan did not answer",
+						rows({ state = "listed", pinned = true, entries = entries(40) }))
+				end)
+
+				it("looking, failing and stopped say so whatever the entries are", function()
+					for _, list in ipairs({ {}, entries(1), entries(3, { own = true }) }) do
+						assert.equal("Looking for Modern Forms fans on the network...", rows({ state = "looking", entries = list }))
+						assert.equal("No search possible on this controller: enter Fan Address",
+							rows({ state = "failing", pinned = true, entries = list }))
+						assert.equal("Not searching while Fan Address is empty", rows({ state = "stopped", entries = list }))
+					end
+				end)
+
+				it("a missing or unknown state reads as listed", function()
+					assert.equal("2 fans found: pick one and click Set to use it", rows({ entries = entries(2) }))
+					assert.equal("2 fans found: pick one and click Set to use it", rows({ state = "bogus", entries = entries(2) }))
+					assert.equal("No fan found yet: enter its address in Fan Address", rows({}))
+					assert.equal("No fan found yet: enter its address in Fan Address", rows(nil))
+				end)
+
+				it("only pinned = true picks the pinned rows; this device's entry picks among them", function()
+					assert.equal("1 fan found: pick it and click Set to use it",
+						rows({ state = "listed", pinned = "yes", entries = entries(1, { own = true }) }))
+					assert.equal("1 fan found; this device's fan did not answer",
+						rows({ state = "listed", pinned = true, entries = entries(1, { own = "yes" }) }))
+				end)
+
+				it("the summary is never one of the items", function()
+					local summary, items = rows({ state = "listed", pinned = true, entries = entries(3, { own = true }) })
+					assert.equal(3, #items)
+					for _, item in ipairs(items) do
+						assert.not_equal(summary, item)
+					end
+				end)
 			end)
 
-			it("commas become U+201A and control characters go", function()
-				local items = texts.found_fans({ { instance = "Hall, fan\n", address = ADDR } })
-				assert.equal("Hall\226\128\154 fan at 10.0.2.151", items[1])
+			describe("an item (section 3.2)", function()
+				it("one per entry, in the order given: the instance and the address", function()
+					local _, items = rows({ state = "listed", entries = { entry(1), entry(2) } })
+					assert.same({ "MF_Fan_005301 at 10.0.2.151", "MF_Fan_005302 at 10.0.2.152" }, items)
+					_, items = rows({ state = "listed", entries = { entry(2), entry(1) } })
+					assert.same({ "MF_Fan_005302 at 10.0.2.152", "MF_Fan_005301 at 10.0.2.151" }, items)
+				end)
+
+				it("this device's fan with the name fan.names knows: the contract's text, 52 characters", function()
+					KNOWN["1811-5-54"] = "Aviator 5"
+					local _, items = rows({ state = "listed", pinned = true, entries = { entry(1, { own = true }), entry(2) },
+						info = AVIATOR })
+					assert.same({ "MF_Fan_005301 at 10.0.2.151 (this device: Aviator 5)", "MF_Fan_005302 at 10.0.2.152" }, items)
+					assert.equal(52, #items[1])
+				end)
+
+				it("looks the type up trimmed, as Fan Model does", function()
+					KNOWN["1811-5-54"] = "Aviator 5"
+					local _, items = rows({ pinned = true, entries = { entry(1, { own = true }) },
+						info = { fan_type = " 1811-5-54\t" } })
+					assert.equal("MF_Fan_005301 at 10.0.2.151 (this device: Aviator 5)", items[1])
+				end)
+
+				it("this device's fan without a known name: (this device's fan)", function()
+					local plain = "MF_Fan_005301 at 10.0.2.151 (this device's fan)"
+					local own = { entry(1, { own = true }) }
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own, info = AVIATOR }))[1], "a type the table lacks")
+					KNOWN["1811-5-54"] = "Aviator 5"
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own }))[1], "no info")
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own, info = {} }))[1], "no fan type")
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own, info = "1811-5-54" }))[1], "info not a table")
+					fake_names.lookup = function()
+						error("broken table")
+					end
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own, info = AVIATOR }))[1], "a lookup that raises")
+					fake_names.lookup = function()
+						return "   "
+					end
+					assert.equal(plain, select(2, rows({ pinned = true, entries = own, info = AVIATOR }))[1], "a blank name")
+				end)
+
+				it("marks only an entry whose own is true, and reads no name for the others", function()
+					KNOWN["1811-5-54"] = "Aviator 5"
+					local _, items = rows({ pinned = true, entries = { entry(1, { own = "yes" }), entry(2, { own = 1 }) },
+						info = AVIATOR })
+					assert.same({ "MF_Fan_005301 at 10.0.2.151", "MF_Fan_005302 at 10.0.2.152" }, items)
+					local asked = 0
+					fake_names.lookup = function()
+						asked = asked + 1
+						return "Aviator 5"
+					end
+					rows({ pinned = true, entries = entries(3), info = AVIATOR })
+					assert.equal(0, asked, "no entry of this device: no lookup")
+				end)
+
+				it("cuts the instance at its START to 25 characters, no marker, so the MAC digits stay", function()
+					local i25 = "WAC Windermier Fan#005302"
+					assert.equal(25, #i25)
+					local _, items = rows({ entries = { entry(2, { instance = i25 }) } })
+					assert.equal("WAC Windermier Fan#005302 at 10.0.2.152", items[1], "25 stay whole")
+					_, items = rows({ entries = { entry(2, { instance = "Ceiling " .. i25 }) } })
+					assert.equal("WAC Windermier Fan#005302 at 10.0.2.152", items[1])
+					_, items = rows({ entries = { entry(2, { instance = string.rep("x", 100) .. "_005302" }) } })
+					assert.equal(string.rep("x", 18) .. "_005302 at 10.0.2.152", items[1])
+				end)
+
+				it("leaves no blank in front when the cut lands on one", function()
+					local instance = "Big Kitchen Island Fn 005302"
+					assert.equal(" ", instance:sub(-25, -25))
+					local _, items = rows({ entries = { entry(2, { instance = instance }) } })
+					assert.equal("Kitchen Island Fn 005302 at 10.0.2.152", items[1])
+				end)
+
+				it("adds ...5302 to an instance that does not end in the last six hex digits of its MAC", function()
+					local _, items = rows({ entries = { entry(2, { instance = "Hall Fan" }) } })
+					assert.equal("Hall Fan ...5302 at 10.0.2.152", items[1])
+					_, items = rows({ entries = { entry(2, { instance = "005302 Hall Fan" }) } })
+					assert.equal("005302 Hall Fan ...5302 at 10.0.2.152", items[1], "the digits must end it")
+					_, items = rows({ entries = { entry(2, { instance = "MF_Fan_005301" }) } })
+					assert.equal("MF_Fan_005301 ...5302 at 10.0.2.152", items[1], "another fan's digits")
+				end)
+
+				it("compares the digits case-blind, whatever the spelling of the MAC", function()
+					local _, items = rows({ entries = {
+						{ instance = "MF_Fan_0053AB", address = ADDR, mac = "00005e0053ab" },
+						{ instance = "MF_Fan_0053ab", address = ADDR, mac = "00:00:5E:00:53:AB" },
+						{ instance = "Hall Fan", address = ADDR, mac = "00:00:5e:00:53:ab" },
+					} })
+					assert.same({ "MF_Fan_0053AB at 10.0.2.151", "MF_Fan_0053ab at 10.0.2.151", "Hall Fan ...53AB at 10.0.2.151" },
+						items)
+				end)
+
+				it("adds nothing when the entry has no MAC to compare with", function()
+					local _, items = rows({ entries = {
+						{ key = "i:hall fan", instance = "Hall Fan", address = ADDR },
+						{ instance = "Hall Fan", address = ADDR, mac = "0000" },
+					} })
+					assert.same({ "Hall Fan at 10.0.2.151", "Hall Fan at 10.0.2.151" }, items)
+				end)
+
+				it("a cut instance keeps its digits, so the cut alone never adds the mark", function()
+					local _, items = rows({ entries = { entry(2, { instance = "Living Room Ceiling Fan MF_Fan_005302" }) } })
+					assert.equal("Ceiling Fan MF_Fan_005302 at 10.0.2.152", items[1])
+				end)
+
+				it("this device's mark comes after the address, the MAC digits after the instance", function()
+					KNOWN["1811-5-54"] = "Aviator 5"
+					local _, items = rows({ pinned = true, entries = { entry(1, { own = true, instance = "Bedroom" }) },
+						info = AVIATOR })
+					assert.equal("Bedroom ...5301 at 10.0.2.151 (this device: Aviator 5)", items[1])
+				end)
+
+				it("commas become U+201A, control characters go, other bytes outside printable ASCII show as ?", function()
+					local _, items = rows({ entries = {
+						{ instance = "Hall, fan\n", address = ADDR },
+						{ instance = "caf\195\169", address = ADDR2 },
+					} })
+					assert.same({ "Hall\226\128\154 fan at 10.0.2.151", "caf?? at 10.0.2.152" }, items)
+				end)
+
+				it("leaves out what the answer lacked", function()
+					local _, items = rows({ entries = {
+						{ address = ADDR }, { instance = "MF_Fan_005301" }, { address = ADDR2, mac = "00005e005302" }, {},
+					} })
+					assert.same({ "fan at 10.0.2.151", "MF_Fan_005301", "fan ...5302 at 10.0.2.152", "fan" }, items)
+				end)
+
+				it("an entry that is not a table keeps its row, so items[i] stays the row of entries[i]", function()
+					local _, items = rows({ entries = { "x", entry(2), 5 } })
+					assert.same({ "fan", "MF_Fan_005302 at 10.0.2.152", "fan" }, items)
+				end)
+
+				it("reads the entries whatever the state says", function()
+					for _, list_state in ipairs({ "looking", "failing", "stopped", "listed" }) do
+						local _, items = rows({ state = list_state, entries = { entry(1) } })
+						assert.same({ "MF_Fan_005301 at 10.0.2.151" }, items, list_state)
+					end
+				end)
+
+				it("no entry, or no entries table, is no item", function()
+					assert.same({}, select(2, rows({ state = "listed", entries = {} })))
+					assert.same({}, select(2, rows({ state = "listed" })))
+					assert.same({}, select(2, rows({ entries = "x" })))
+					assert.same({}, select(2, rows(nil)))
+				end)
 			end)
 
-			it("leaves out what the answer lacked", function()
-				assert.same({ "fan at 10.0.2.151", "MF_Fan_005301" },
-					texts.found_fans({ { address = ADDR }, { instance = "MF_Fan_005301" } }))
+			describe("at most 16 item rows (section 3)", function()
+				local OVERFLOW = "... and 3 more: enter the address in Fan Address"
+
+				it("16 entries: 16 items, no overflow row", function()
+					assert.equal(16, texts.MAX_FOUND)
+					local _, items = rows({ entries = entries(16) })
+					assert.equal(16, #items)
+					assert.equal("MF_Fan_005316 at 192.0.2.166", items[16])
+				end)
+
+				it("18 entries: 15 items, then the contract's overflow row as the 16th", function()
+					local _, items = rows({ entries = entries(18) })
+					assert.equal(16, #items)
+					assert.equal("MF_Fan_005301 at 10.0.2.151", items[1])
+					assert.equal("MF_Fan_005315 at 192.0.2.165", items[15])
+					assert.equal(OVERFLOW, items[16])
+					assert.equal(48, #OVERFLOW)
+				end)
+
+				it("17 entries: the overflow row counts the two not shown", function()
+					local _, items = rows({ entries = entries(17) })
+					assert.equal(16, #items)
+					assert.equal("MF_Fan_005315 at 192.0.2.165", items[15])
+					assert.equal("... and 2 more: enter the address in Fan Address", items[16])
+				end)
+
+				it("many entries: still 16 rows, and the count of the rest", function()
+					local _, items = rows({ pinned = true, entries = entries(140, { own = true }) })
+					assert.equal(16, #items)
+					assert.equal("MF_Fan_005301 at 10.0.2.151 (this device's fan)", items[1])
+					assert.equal("... and 125 more: enter the address in Fan Address", items[16])
+					assert.is_true(#items[16] <= 70)
+				end)
 			end)
 
-			it("nothing found, or nothing usable, is an empty list", function()
-				assert.same({}, texts.found_fans({}))
-				assert.same({}, texts.found_fans(nil))
-				assert.same({}, texts.found_fans({ "x", 5 }))
+			describe("lengths (section 5: at most 72 with a 15-character address and a 25-character instance)", function()
+				local LONG_ADDR = "192.168.100.200"
+				local FULL_ADDR = "255.255.255.255"
+				local I25 = "ABCDEFGHIJKLMNOPQRSTUVWXY"
+				assert(#FULL_ADDR == 15 and #I25 == 25)
+
+				it("the longest item: a 25-character instance without its MAC digits, this device's, no name", function()
+					local _, items = rows({ pinned = true, entries = { { instance = I25, address = FULL_ADDR,
+						mac = "00005e005301", own = true } } })
+					assert.equal(I25 .. " ...5301 at 255.255.255.255 (this device's fan)", items[1])
+					assert.equal(72, #items[1])
+				end)
+
+				it("drops the product name when the item would pass 72", function()
+					KNOWN["1811-5-54"] = "Size Matters 65"
+					local own = { instance = "MF_Fan_005301", address = LONG_ADDR, mac = "00005e005301", own = true }
+					local _, items = rows({ pinned = true, entries = { own }, info = AVIATOR })
+					assert.equal("MF_Fan_005301 at 192.168.100.200 (this device: Size Matters 65)", items[1], "63: it fits")
+					own.instance = I25 .. "005301"
+					_, items = rows({ pinned = true, entries = { own }, info = AVIATOR })
+					assert.equal("GHIJKLMNOPQRSTUVWXY005301 at 192.168.100.200 (this device's fan)", items[1])
+					assert.equal(64, #items[1])
+				end)
+
+				it("keeps the name at exactly 72 and drops it at 73", function()
+					local own = { instance = I25 .. "005301", address = FULL_ADDR, mac = "00005e005301", own = true }
+					KNOWN["1811-5-54"] = "Twelve Chars"
+					local _, items = rows({ pinned = true, entries = { own }, info = AVIATOR })
+					assert.equal("GHIJKLMNOPQRSTUVWXY005301 at 255.255.255.255 (this device: Twelve Chars)", items[1])
+					assert.equal(72, #items[1])
+					KNOWN["1811-5-54"] = "Thirteen Char"
+					_, items = rows({ pinned = true, entries = { own }, info = AVIATOR })
+					assert.equal("GHIJKLMNOPQRSTUVWXY005301 at 255.255.255.255 (this device's fan)", items[1])
+				end)
+
+				it("counts a comma as the one character Composer shows", function()
+					KNOWN["1811-5-54"] = "Twelve Chars"
+					local own = { instance = "ABCDEFGHIJKLMNOPQR,005301", address = FULL_ADDR, mac = "00005e005301", own = true }
+					local _, items = rows({ pinned = true, entries = { own }, info = AVIATOR })
+					assert.equal("ABCDEFGHIJKLMNOPQR\226\128\154005301 at 255.255.255.255 (this device: Twelve Chars)", items[1])
+				end)
+
+				it("every item of every shape stays at or under 72, every summary at or under 70", function()
+					KNOWN["1811-5-54"] = "Size Matters 65"
+					for _, address in ipairs({ ADDR, LONG_ADDR, FULL_ADDR }) do
+						for _, instance in ipairs({ "MF_Fan_005301", I25, I25 .. "005301", "", string.rep("y", 300) }) do
+							for _, own in ipairs({ true, false }) do
+								local e = { instance = instance, address = address, mac = "00005e005301", own = own }
+								for _, info in ipairs({ AVIATOR, {} }) do
+									local _, items = rows({ pinned = true, entries = { e }, info = info })
+									assert.is_true(#items[1] <= 72, #items[1] .. ": " .. items[1])
+								end
+							end
+						end
+					end
+					for _, list_state in ipairs({ "looking", "failing", "stopped", "listed" }) do
+						for _, pinned in ipairs({ true, false }) do
+							for _, n in ipairs({ 0, 1, 2, 16, 17, 999 }) do
+								local summary = rows({ state = list_state, pinned = pinned, entries = entries(n, { own = pinned }) })
+								assert.is_true(#summary <= 70, #summary .. ": " .. summary)
+								summary = rows({ state = list_state, pinned = pinned, entries = entries(n) })
+								assert.is_true(#summary <= 70, #summary .. ": " .. summary)
+							end
+						end
+					end
+				end)
 			end)
 		end)
 	end)
@@ -1565,7 +1946,16 @@ describe("fan.texts", function()
 				assert_clean(texts.result(key, with({ client_id = ID1, address = ADDR })))
 			end
 			assert_clean(texts.change_by(blob.owner, T, SOON))
-			assert_clean(table.concat(texts.found_fans({ with({ instance = "MF_Fan_005301", address = ADDR }) }), "|"))
+			for _, list_state in ipairs({ "looking", "failing", "stopped", "listed" }) do
+				local summary, items = texts.found_rows(with({ state = list_state, pinned = true,
+					info = with({ fan_type = "1811-5-54" }),
+					entries = { with({ key = "00005e005301", instance = "MF_Fan_005301", address = ADDR, mac = "00005e005301",
+						own = true }), with({ key = "00005e005302", instance = "MF_Fan_005302", address = ADDR2,
+						mac = "00005e005302" }) } }))
+				assert_clean(summary)
+				assert_clean(table.concat(items, "|"))
+			end
+			assert_clean(texts.result("picked_wait", with({ instance = "MF_Fan_005302", client_id = ID2 })))
 			assert_clean(table.concat(texts.keypad_links({ with({ link_name = "Fan Off", keypad_name = "K", device_id = 1 }) }),
 				"|"))
 		end)
@@ -1606,7 +1996,7 @@ describe("fan.texts", function()
 				out[#out + 1] = { label, text }
 			end
 			local views = {
-				S1 = { phase = "unset" }, S2 = { phase = "unset", find_fans = true },
+				S1 = { phase = "unset", failing = true }, S2 = { phase = "unset" },
 				S3 = { phase = "unset", typed = string.rep("x", 40) }, S4 = { phase = "waiting", address = address },
 				S5 = online({ address = address, st = state({ speed = 6, direction = "reverse", wind = true, level = 100 }) }),
 				S6 = online({ address = address, missing = "lightBrightness" }),
@@ -1627,7 +2017,7 @@ describe("fan.texts", function()
 				for _, which in ipairs({ "away", "learning" }) do
 					-- L22 to L24 with the longest name of the research table and a type that gets cut.
 					add("L " .. key .. " " .. which, texts.result(key, { client_id = client, was = client, address = address,
-						generation = "1/2", count = 16, find_fans = true, at = T, now = now, which = which,
+						generation = "1/2", instance = "ABCDEFGHIJKLMNOPQRSTUVWXY", at = T, now = now, which = which,
 						fan = "Size Matters 65", light = "Size Matters 65 Light", fan_type = string.rep("x", 20) }))
 				end
 			end
@@ -1651,10 +2041,19 @@ describe("fan.texts", function()
 			for _, item in ipairs(texts.keypad_links({ { "Light Toggle Button Link", "Example Keypad", 123456 } })) do
 				add("Keypad Links", item)
 			end
-			for _, item in ipairs(texts.found_fans({ { instance = "MF_Fan_005301", address = address, mac = "00005E005301" } },
-				{ mac = "00005E005301" })) do
-				add("Found Fans", item)
+			-- Found Fans: this device's fan named, another fan, and the summary of
+			-- every state (its own section holds the 72-character items).
+			KNOWN["1811-5-54"] = "Aviator 5"
+			for _, list_state in ipairs({ "looking", "failing", "stopped", "listed" }) do
+				local summary, items = texts.found_rows({ state = list_state, pinned = true, info = { fan_type = "1811-5-54" },
+					entries = { { instance = "MF_Fan_005301", address = address, mac = "00005e005301", own = true },
+						{ instance = "MF_Fan_005302", address = address, mac = "00005e005302" } } })
+				add("Found Fans summary " .. list_state, summary)
+				for _, item in ipairs(items) do
+					add("Found Fans", item)
+				end
 			end
+			KNOWN["1811-5-54"] = nil
 			return out
 		end
 
@@ -1740,7 +2139,7 @@ describe("fan.texts", function()
 
 		it("status takes any value for the view and for each of its fields, in every phase", function()
 			local fields = { "phase", "address", "typed", "since", "sent", "now", "failure", "known", "other", "st",
-				"has_light", "missing", "os", "find_fans" }
+				"has_light", "missing", "os", "failing" }
 			local phases = { "bogus", "invalid" }
 			for _, phase in ipairs(texts.PHASES) do
 				phases[#phases + 1] = phase
@@ -1769,12 +2168,13 @@ describe("fan.texts", function()
 		end)
 
 		it("result takes any value for each field of its args, for every key", function()
-			local fields = { "client_id", "generation", "address", "was", "count", "list", "find_fans", "at", "now", "which",
+			local fields = { "client_id", "generation", "address", "was", "instance", "at", "now", "which",
 				"pin", "fan", "light", "fan_type" }
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				for _, field in ipairs(fields) do
 					for _, a in ipairs(WEIRD) do
-						local args = { client_id = ID1, address = ADDR, count = 2, at = T, now = SOON, which = "away" }
+						local args = { client_id = ID1, address = ADDR, instance = "MF_Fan_005302", at = T, now = SOON,
+							which = "away" }
 						args[field] = a
 						local ok, out = pcall(texts.result, key, args)
 						assert(ok, "result raised: " .. tostring(out))
@@ -1836,24 +2236,60 @@ describe("fan.texts", function()
 			end
 		end)
 
-		it("keypad_links and found_fans take any rows, any fields, any pin", function()
+		it("keypad_links takes any rows, any fields, any total", function()
 			for _, a in ipairs(WEIRD) do
 				items_plain(texts.keypad_links(a), "keypad_links rows")
 				items_plain(texts.keypad_links({ a }), "keypad_links row")
 				items_plain(texts.keypad_links({}, a), "keypad_links total")
-				items_plain(texts.found_fans(a), "found_fans list")
-				items_plain(texts.found_fans({ a }), "found_fans entry")
-				items_plain(texts.found_fans({ { instance = "MF_Fan_005301", address = ADDR, mac = MAC1 } }, a), "found_fans pin")
 				for _, field in ipairs({ "link_name", "keypad_name", "device_id" }) do
 					local row = { link_name = "Fan Off", keypad_name = "K", device_id = 1 }
 					row[field] = a
 					items_plain(texts.keypad_links({ row }), "keypad_links " .. field)
 				end
-				for _, field in ipairs({ "instance", "address", "mac" }) do
-					local fan = { instance = "MF_Fan_005301", address = ADDR, mac = MAC1 }
-					fan[field] = a
-					items_plain(texts.found_fans({ fan }, { mac = MAC1 }), "found_fans " .. field)
+			end
+		end)
+
+		-- found_rows: a string summary and a table of plain items, whatever it gets.
+		local function rows_plain(view, where)
+			local ok, summary, items = pcall(texts.found_rows, view)
+			assert(ok, "found_rows raised: " .. tostring(summary))
+			plain(summary, where)
+			assert.is_true(#summary > 0, where)
+			items_plain(items, where)
+		end
+
+		it("found_rows takes any view, any field of it, any entry and any field of an entry", function()
+			local function entry()
+				return { key = "00005e005301", instance = "MF_Fan_005301", address = ADDR, mac = "00005e005301", own = true }
+			end
+			KNOWN["1811-5-54"] = "Aviator 5"
+			for _, a in ipairs(WEIRD) do
+				rows_plain(a, "found_rows view")
+				rows_plain({ state = "listed", entries = { a } }, "found_rows entry")
+				rows_plain({ state = "listed", entries = { entry(), a, entry() } }, "found_rows entry among others")
+				for _, field in ipairs({ "state", "pinned", "entries", "info" }) do
+					local view = { state = "listed", pinned = true, entries = { entry() }, info = { fan_type = "1811-5-54" } }
+					view[field] = a
+					rows_plain(view, "found_rows " .. field)
 				end
+				for _, field in ipairs({ "key", "instance", "address", "mac", "own" }) do
+					local e = entry()
+					e[field] = a
+					rows_plain({ state = "listed", pinned = true, entries = { e }, info = { fan_type = "1811-5-54" } },
+						"found_rows entry " .. field)
+				end
+				rows_plain({ state = "listed", pinned = true, entries = { entry() }, info = { fan_type = a } }, "found_rows type")
+			end
+		end)
+
+		it("found_rows takes any answer from the name table: it shows a name only when the answer is text", function()
+			for _, a in ipairs(WEIRD) do
+				fake_names.lookup = function()
+					return a
+				end
+				rows_plain({ state = "listed", pinned = true, info = { fan_type = "1811-5-54" },
+					entries = { { instance = "MF_Fan_005301", address = ADDR, mac = "00005e005301", own = true } } },
+					"found_rows name")
 			end
 		end)
 	end)

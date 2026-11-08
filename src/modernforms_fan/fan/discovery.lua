@@ -1,19 +1,28 @@
--- fan.discovery: Find Fans, the mDNS side (docs/v1-design.md section 9.10, V5a; K10 in section 11.1).
+-- fan.discovery: the multicast DNS side of finding fans (docs/auto-discovery-design.md section 6.3; the wire in
+-- docs/v1-design.md section 9.10; K10 in section 11.1).
 --
--- Three parts, none of which touches Director, so a spec runs them as they are:
+-- Four parts, none of which touches Director, so a spec runs them as they are:
 --
 --   * discovery.query() and discovery.parse(): the one DNS question the driver asks and the reader of the answers.
 --     The wire format is RFC 1035 section 4 as multicast DNS (RFC 6762) uses it, written for the few records this
 --     driver needs. parse reads datagrams that anyone on the LAN may have sent (the MULTICAST binding hears every
 --     mDNS packet of the house, not only the fan's), so every read is bounds checked and nothing in it raises.
+--   * discovery.usable(): which answers are worth anything: SRV port 80 and a private or link-local IPv4 address.
+--     The list keeps only these (auto-discovery-design section 3), and a follow reads only these.
 --   * discovery.candidates(): which addresses of a window's answers a follow may read (docs/address-follow-design.md
---     F4, 2.1).
---   * discovery.new(): the Find Fans window over four functions the driver wires to a dynamic network binding
---     (C4:CreateNetworkConnection, C4:NetConnect(binding, 5353, "MULTICAST") to 224.0.0.251, C4:SendToNetwork,
---     K10) and to C4:SetTimer. Find Fans and the follower share it.
+--     F4, 2.1): the usable answers of the pinned MAC.
+--   * discovery.new(): the Finder, the one owner of the search window, over four functions the driver wires to a
+--     dynamic network binding (C4:CreateNetworkConnection, C4:NetConnect(binding, 5353, "MULTICAST") to
+--     224.0.0.251, C4:SendToNetwork, K10) and to C4:SetTimer. Two callers open windows through Finder:find: the
+--     scheduler (fan/search.lua: a search at every load and, while no fan is set up or the set-up fan is away and
+--     not followed, on a schedule) and the follower (fan/follow.lua: the pinned MAC, once the fan left Fan Address).
+--     A find while a window is open joins it, so they never hold two at once. Every closed window, whoever opened
+--     it, goes to on_window, which the driver wires to the list (fan/found.lua, the Found Fans property), and
+--     Finder:last_closed() tells the scheduler when the last one ended (its floor, auto-discovery-design section 2).
 --
--- What it does not do: adopt a fan. The list only offers fans; Use Selected Fan checks the identity (section 3.5),
--- and a follow reads the fan at a candidate address before anything moves (address-follow-design F4).
+-- What it does not do: adopt a fan. The list only offers fans; a pick or Use Selected Fan checks the identity
+-- (v1-design section 3.5), and a follow reads the fan at a candidate address before anything moves
+-- (address-follow-design F4).
 
 local discovery = {}
 
@@ -406,10 +415,24 @@ local function private(o)
 	return a == 10 or (a == 172 and b >= 16 and b <= 31) or (a == 192 and b == 168) or (a == 169 and b == 254)
 end
 
+-- discovery.usable(entry) -> bool: an answer worth anything, the filter of both the list (auto-discovery-design
+-- section 3) and candidates below: a record whose SRV port is the number 80 (a fan's /mf interface; MFR section 7)
+-- and whose address is a private or link-local IPv4 address in the one spelling parse writes. true or false, for
+-- anything at all; never raises.
+local function usable(entry)
+	if type(entry) ~= "table" or entry.port ~= HTTP_PORT then
+		return false
+	end
+	local o = octets(entry.address)
+	return o ~= nil and private(o)
+end
+
+discovery.usable = usable
+
 -- discovery.candidates(heard, mac12, current) -> { address, ... }: the addresses a follow reads after one window,
--- F4's first step (address-follow-design 2.1; ECA 3.4 step 1). From find's heard list, the entries whose TXT MAC
--- is the pinned MAC (12 hex digits, case aside; a MAC with ":" or "-" is read as parse reads one), whose SRV port
--- is 80 and whose address is a private or link-local IPv4 address other than `current` (the Fan Address in use):
+-- F4's first step (address-follow-design 2.1; ECA 3.4 step 1). From find's heard list, the usable entries (above:
+-- SRV port 80, a private or link-local IPv4 address) whose TXT MAC is the pinned MAC (12 hex digits, case aside;
+-- a MAC with ":" or "-" is read as parse reads one) and whose address is not `current` (the Fan Address in use):
 -- their distinct addresses, in the order heard, at most MAX_CANDIDATES. Pure: heard is left as it was and nothing
 -- is kept. A heard that is not a list, a pin without a MAC and entries that are not records give nothing; a nil
 -- or empty current takes nothing away (the follower does not search then, F5). Never raises.
@@ -427,10 +450,9 @@ function discovery.candidates(heard, pin_mac, current)
 		if #found >= MAX_CANDIDATES then
 			break
 		end
-		if type(entry) == "table" and entry.port == HTTP_PORT and mac12(entry.mac) == pin then
+		if usable(entry) and mac12(entry.mac) == pin then
 			local address = entry.address
-			local o = octets(address)
-			if o and private(o) and address ~= current and not taken[address] then
+			if address ~= current and not taken[address] then
 				taken[address] = true
 				found[#found + 1] = address
 			end
@@ -439,15 +461,16 @@ function discovery.candidates(heard, pin_mac, current)
 	return found
 end
 
--- The Find Fans window -------------------------------------------------------------------------------------------
+-- The window -----------------------------------------------------------------------------------------------------
 
 local Finder = {}
 Finder.__index = Finder
 
 -- opts: open() makes the binding (an error or false says it could not; anything else is success), send(bytes)
 -- sends one datagram to 224.0.0.251:5353 (false or an error: not sent), close() ends the binding, timer(ms, fn)
--- is C4:SetTimer (an object with :Cancel()), log is common.log. A missing or failing one lands on the same
--- paths as a refusal, so building a finder never raises.
+-- is C4:SetTimer (an object with :Cancel()), now() is the clock in milliseconds (for last_closed), on_window(list,
+-- err, heard) hears every closed window (see finish), log is common.log. A missing or failing one lands on the
+-- same paths as a refusal, so building a finder never raises.
 function discovery.new(opts)
 	opts = opts or {}
 	return setmetatable({
@@ -455,8 +478,12 @@ function discovery.new(opts)
 		send = opts.send,
 		close = opts.close,
 		timer = opts.timer,
+		now = opts.now,
+		on_window = opts.on_window,
 		log = opts.log,
 		window = nil,
+		closed_at = nil,                -- now() when the last window ended (last_closed)
+		notices = { draining = false }, -- closed windows waiting for on_window, in the order they closed (notify)
 	}, Finder)
 end
 
@@ -477,11 +504,29 @@ local function tail(mac)
 	return mac and ("..." .. mac:sub(-4)) or "...????"
 end
 
--- Is a window open? (Find Fans while one runs joins it.)
+-- now() as a number, or nil when there is no clock or it gives none.
+function Finder:clock()
+	local ok, ms = pcall(self.now)
+	if ok and type(ms) == "number" then
+		return ms
+	end
+	return nil
+end
+
+-- Is a window open? (A find while one runs joins it.)
 function Finder:busy()
 	return self.window ~= nil
 end
 
+-- last_closed() -> ms or nil: now() when the last window ended, whoever opened it, stop() included; nil before
+-- any window has ended, without now, or when now gave no number then. The scheduler's floor (auto-discovery-design
+-- section 2): no window of its own sooner than 30 s after any window of this device.
+function Finder:last_closed()
+	return self.closed_at
+end
+
+-- A window that could not open or send is logged here at debug only: the list warns once per streak, and the
+-- follower too (auto-discovery-design section 2, "Failures"; ECA FA17), and the windows go on by themselves.
 function Finder:send_query(w)
 	if self.window ~= w then
 		return
@@ -490,14 +535,37 @@ function Finder:send_query(w)
 	if ok and result ~= false then
 		w.sent = w.sent + 1
 	else
-		self:say("warn", "Find Fans: the query was not sent (%s)", ok and "refused" or tostring(result))
+		self:say("debug", "Search: the query was not sent (%s)", ok and "refused" or tostring(result))
 	end
 end
 
--- Closes the window: the binding once, the timers, then the callbacks with the list, an error word that is nil
--- unless nothing could be done: "open" (no binding), "timer" (no window possible) or "send" (no query went out and
--- no fan was heard), each a case for text L10 (section 7.2), and the heard list. Callbacks run after the window is
--- gone, so one may call find again.
+-- Hands the closed windows of `notices` to on_window, each once its callbacks are done and in the order they
+-- closed: a callback or a listener that opens a window that ends at once (open refused) queues it behind the one
+-- being told, rather than having it told first. stop() puts a new queue in place, so nothing queued before it
+-- reaches on_window afterwards, and a drain stops there. A listener that raises is logged; the next is told.
+function Finder:notify(notices)
+	if self.notices ~= notices or notices.draining then
+		return
+	end
+	notices.draining = true
+	while self.notices == notices and notices[1] and notices[1].ready do
+		local notice = table.remove(notices, 1)
+		if self.on_window ~= nil then
+			local ok, problem = pcall(self.on_window, notice.list, notice.err, notice.heard)
+			if not ok then
+				self:say("error", "Search: the window listener failed: %s", tostring(problem))
+			end
+		end
+	end
+	notices.draining = false
+end
+
+-- Closes the window: the binding once, the timers, the time it ended (last_closed), then the callbacks with the
+-- list, an error word that is nil unless nothing could be done: "open" (no binding), "timer" (no window possible)
+-- or "send" (no query went out and no fan was heard), each marking the list failing (auto-discovery-design
+-- section 3) and a step not done for the follower (ECA FA17), and the heard list. Callbacks run after the window
+-- is gone, so one may call find again. Then on_window, once for the window however many callers joined it, with
+-- the same three values (the same tables the callbacks were given), unless stop() came first (notify).
 function Finder:finish(w, err)
 	if self.window ~= w then
 		return
@@ -506,29 +574,36 @@ function Finder:finish(w, err)
 	cancel(w.again)
 	cancel(w.over)
 	pcall(self.close)
+	self.closed_at = self:clock()
 	if err == nil and w.sent == 0 and #w.list == 0 then
 		err = "send"
 	end
 	local tally = w.tally
-	self:say("debug", "Find Fans: window over: sent=%d answers=%d other=%d queries=%d unparsed=%d fans=%d%s",
+	self:say("debug", "Search: window over: sent=%d answers=%d other=%d queries=%d unparsed=%d fans=%d%s",
 		w.sent, tally.answer, tally.other, tally.query, tally.unparsed, #w.list, err and (" failed=" .. err) or "")
+	-- The window's turn with on_window is taken before the callbacks run (notify says why).
+	local notices = self.notices
+	local notice = { list = w.list, err = err, heard = w.heard, ready = false }
+	notices[#notices + 1] = notice
 	for _, callback in ipairs(w.callbacks) do
 		local ok, problem = pcall(callback, w.list, err, w.heard)
 		if not ok then
-			self:say("error", "Find Fans: the callback failed: %s", tostring(problem))
+			self:say("error", "Search: the callback failed: %s", tostring(problem))
 		end
 	end
+	notice.ready = true
+	self:notify(notices)
 end
 
 -- find(callback): opens the binding, sends the query at once and again REPEAT_MS later, collects answers for
 -- WINDOW_MS, closes the binding and calls callback(list, err, heard) once: the fans as parse describes them,
--- de-duplicated by instance (the first answer wins: what Find Fans shows), err as finish says, and heard, every
--- distinct (instance, address) pair of the window, up to MAX_HEARD, in the order heard, each { instance, address,
--- mac, port } (mac nil when the TXT record has none), for the follower (address-follow-design 2.1). Both lists
--- are empty when the window could not open. The callback also runs, at once, when the window cannot open. A find
--- while one runs adds its callback to that window: one binding, two queries, every callback told the same. Returns
--- false for a callback that is not a function. The first query goes out as soon as open returns; if a controller
--- drops it because the binding is not yet ONLINE (K10 saw 7 ms), the second one, a second later, answers that.
+-- de-duplicated by instance (the first answer wins), err as finish says, and heard, every distinct (instance,
+-- address) pair of the window, up to MAX_HEARD, in the order heard, each { instance, address, mac, port } (mac nil
+-- when the TXT record has none), for the follower (address-follow-design 2.1) and the list. Both lists are empty
+-- when the window could not open. The callback also runs, at once, when the window cannot open. A find while one
+-- runs adds its callback to that window: one binding, two queries, every callback told the same. Returns false
+-- for a callback that is not a function. The first query goes out as soon as open returns; if a controller drops
+-- it because the binding is not yet ONLINE (K10 saw 7 ms), the second one, a second later, answers that.
 function Finder:find(callback)
 	if type(callback) ~= "function" then
 		return false, "callback"
@@ -551,14 +626,14 @@ function Finder:find(callback)
 
 	local ok, result = pcall(self.open)
 	if not ok or result == false then
-		self:say("warn", "Find Fans: the network binding did not open (%s)", ok and "refused" or tostring(result))
+		self:say("debug", "Search: the network binding did not open (%s)", ok and "refused" or tostring(result))
 		self:finish(w, "open")
 		return true
 	end
 	-- The end of the window first, so that nothing below can leave it open.
 	local armed, over = pcall(self.timer, WINDOW_MS, function() self:finish(w) end)
 	if not armed then
-		self:say("warn", "Find Fans: no timer for the window (%s)", tostring(over))
+		self:say("debug", "Search: no timer for the window (%s)", tostring(over))
 		self:finish(w, "timer")
 		return true
 	end
@@ -571,8 +646,11 @@ function Finder:find(callback)
 	return true
 end
 
--- stop(): OnDriverDestroyed. Ends an open window without calling its callbacks (as transport.stop does).
+-- stop(): OnDriverDestroyed. Ends an open window without calling its callbacks (as transport.stop does), and
+-- nothing reaches on_window after it: not that window, nor one whose callbacks or listener are running now.
+-- A find after stop() starts afresh and is heard as usual.
 function Finder:stop()
+	self.notices = { draining = false }
 	local w = self.window
 	if not w then
 		return
@@ -581,6 +659,7 @@ function Finder:stop()
 	cancel(w.again)
 	cancel(w.over)
 	pcall(self.close)
+	self.closed_at = self:clock()
 end
 
 -- One answer's pair for the heard list: kept when the window has not heard this instance at this address before
@@ -596,7 +675,7 @@ local function hear(finder, w, key, fan, known)
 	w.heard_seen[pair] = true
 	w.heard[#w.heard + 1] = { instance = fan.instance, address = fan.address, mac = fan.mac, port = fan.port }
 	if known then
-		finder:say("debug", "Find Fans: %s also at %s", tail(fan.mac), fan.address)
+		finder:say("debug", "Search: %s also at %s", tail(fan.mac), fan.address)
 	end
 end
 
@@ -624,7 +703,7 @@ function Finder:received(_binding, _port, data, _from)
 			if not known and #w.list < MAX_FOUND then
 				w.seen[key] = true
 				w.list[#w.list + 1] = fan
-				self:say("debug", "Find Fans: %s at %s", tail(fan.mac), fan.address)
+				self:say("debug", "Search: %s at %s", tail(fan.mac), fan.address)
 			end
 			hear(self, w, key, fan, known)
 		end
