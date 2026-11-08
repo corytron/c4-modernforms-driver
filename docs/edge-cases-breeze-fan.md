@@ -18,6 +18,14 @@
 > Switch clicked again, Navigators refreshed. This note lists the corner
 > cases (BF1 to BF66), decides each, and says where it would do something
 > other than that plan.
+>
+> **Revised the same day with the owner's facts, verified on his fan:**
+> Breeze speeds are not fan speeds; the fan is either in fan mode or in
+> Breeze mode, never both; so two fan devices for one motor, one disabling
+> the other, and the Breeze device never has a light. The coordinator's
+> model and its corner cases (BF67 to BF106) are section 9; rows BF27,
+> BF29 to BF31, BF33, BF38, BF39, BF41, BF42, BF45, BF59 and BF60 were
+> changed to match it.
 
 **The short answer.**
 
@@ -55,6 +63,15 @@
    variable and condition), because everything written against the Breeze
    device is lost whenever that device is deleted and added again, as now
    (BF55, BF58).
+6. **Two devices, one motor (section 9).** One ordering rule covers every
+   two-request change: when the target stops the motor, `fanOn` goes first;
+   otherwise `wind` goes first (BF67); the model's fixed "fan before
+   breeze" order (BZ6) cannot do it. The second request waits for the first
+   to succeed (BF68). The main fan now fires turned_off and speed_changed
+   when Breeze starts (BF73, BF74). The released Breeze Off and Toggle Breeze
+   now stop the motor while Breeze blows, and link 311's double tap no
+   longer ends where it started (BF89, BF90). On the house keypad every fan
+   button is dark while the fan turns in Breeze (BF93).
 
 **Decisions:** **Automatic** (the driver does it by itself), **Offered**
 (a click, a Status or Last Action line telling the dealer or owner what to
@@ -70,7 +87,7 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
 | FAN | `~/c4-tools/reference/docs-driverworks-proxyprotocol-fan/source/includes/` (pages through OS 3.4.2 all say the fan proxy did not change; there is no 3.4.3 page and no OS 4 page) |
 | LV2 | `~/c4-tools/reference/docs-driverworks-proxyprotocol-lightv2/source/includes/` |
 | API, FUND, XML | `~/c4-tools/reference/docs-driverworks-api/`, `-fundamentals/`, `-xml/`, each `source/includes/` |
-| K1 to K19 | the hardware checks of [`v1-design.md`](v1-design.md) section 11 (K5, K8: what the fan proxy does on this house) |
+| K1 to K19, V1 to V31 | the hardware checks of [`v1-design.md`](v1-design.md) section 11 (K5, K8: what the fan proxy does on this house) and its decisions V1 to V31 (V8 the state model, V10 LEDs at once, V11 ON, Toggle and Cycle, V26, V27 speed LEDs) |
 | ECB, ECC | [`edge-cases-breeze.md`](edge-cases-breeze.md) (BE, BC rows), [`edge-cases-control4.md`](edge-cases-control4.md) (F facts, R1 to R9 report rules, U rows) |
 | BZ, BRR | [`breeze-design.md`](breeze-design.md) decisions BZ1 to BZ12; [`breeze-research.md`](breeze-research.md) (M0: the house fan keeps `windSpeed` while Breeze is off) |
 | CR | [`composer-remote.md`](composer-remote.md) rule 20 (a deleted device loses its connections and every programming line naming it); Hue `docs/composer-remote.md` rule 10 (a capability change needs a controller reboot) |
@@ -121,13 +138,13 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
 | BF24 | `proxy_fan_speed_connections` | From OS 3.4.2 the proxy would add its own links (Off, Breeze 1 to 3, Toggle Preset, Cycle Up and Down) and light keypad LEDs itself (seen on the house, K5); above the 3.3.0 minimum, and static | **Forbidden** now (not declared); a later release may add it at the cost of a reboot | FAN `43_…/_4.5-proxyfanspeedconnections.md`; house: K5 |
 | BF25 | The tile while the fan answers | `CURRENT_SPEED` = strength while Breeze blows, 0 otherwise; nothing before the first state (R6); only on a change (R1); never `ON` or `OFF` notifications (`ON` jumps the proxy to its preset, K8) | **Automatic** | FAN `42_…/_1-CURRENTSPEED.md`, `_4-ON.md`; house: K8; ECC R1, R6, R9 |
 | BF26 | No offline state | Unbound, fan offline and no Breeze cannot grey the tile. Fan offline: keep the last value (never 0 for offline, as R7). No Breeze: 0. Unbound: 0 (it controls nothing). Status says which | **Automatic** | FAN `42_fan_protocol_notifications/` (no online notification); ECC F8, R7 |
-| BF27 | `ON` (tile, voice, programming) and `TOGGLE` from off | Plan: Breeze at the companion's preset. The proxy page also allows "back to the most recent speed", and the house fan keeps `windSpeed` while Breeze is off, so the fan's own strength (what the remote resumes) is available. `ON` while Breeze blows changes nothing | **Automatic**; recommended: the fan's remembered strength, `can_set_preset` False (one strength, not two that drift); the preset only when the strength is unknown | FAN `41_…/_1-ON.md`, `_3-TOGGLE.md`; BRR M0; V11 |
+| BF27 | `ON` (tile, voice, programming) and `TOGGLE` when not blowing | Breeze at the fan's own last strength (the proxy page allows "back to the most recent speed"; the house fan keeps `windSpeed` while Breeze is off), so `ON` carries no strength and the fan uses its confirmed one. From off: `wind` first, then `fanOn`; from fan mode: `wind` only, which switches the mode (BF67). `ON` while Breeze blows changes nothing. No preset on this device (BF31) | **Automatic** (adopted in the two-device model) | FAN `41_…/_1-ON.md`, `_3-TOGGLE.md`; BRR M0; owner 2026-11-07 |
 | BF28 | `TOGGLE` | Today the companion sends SET from the *confirmed* state, so two quick taps both say "on"; the fan's own toggle (link 311) works from the *shown* state | **Automatic**: always send `MF_BREEZE_TOGGLE`, and the fan decides from the shown state, as BC11 and BC12 | code (`modernforms_breeze/driver.lua` `toggle`; `breeze.lua` `toggle`); V8 |
-| BF29 | `SET_SPEED` | 1 to 3: Breeze at that strength (the fan first if off); 0: Breeze off; anything else refused, logged, the tile re-sent. Parameters arrive as strings | **Automatic** | FAN `41_…/_5-SETSPEED.md`; house: K5, K8 |
-| BF30 | `CYCLE_SPEED_UP`/`_DOWN` | As the fan's tile: from 0 up goes to Breeze 1 (starting the fan if off), down does nothing; at 3 and 1 it stays (never wraps, never off by cycling); counted from the fan's shown strength, so a burst counts from its target | **Automatic**; the step travels to the fan (for example `MF_BREEZE_SET {STEP}`), which owns the shown state | FAN `41_…/_6-CYCLESPEEDUP.md`, `_7-CYCLESPEEDDOWN.md` (wrap is the driver's choice); V11; ECC R5 |
-| BF31 | `DESIGNATE_PRESET` | With `can_set_preset` True: 1 to 3 stored and answered with `PRESET_SPEED`, anything else answered with the kept value; `PRESET_SPEED` at late init (the proxy's variable started at 1 while its page said 3, K8). An unasked `DESIGNATE_PRESET {PRESET="3"}` reached a fan proxy on this house (K8) and would reset it. With BF27's recommendation: ignored and logged | **Automatic** | FAN `41_…/_4-DESIGNATEPRESET.md`, `42_…/_3-PRESETSPEED.md`, `43_…/_2-cansetpreset.md`, `_4-presetspeed.md`; house: K8 |
+| BF29 | `SET_SPEED` | 1 to 3: Breeze at that strength (`{"wind":true,"windSpeed":N}`, then `fanOn` if the motor was stopped; from fan mode it switches the mode); 0: as `OFF` (BF87, BF88); anything else refused, logged, the tile re-sent. Parameters arrive as strings | **Automatic** | FAN `41_…/_5-SETSPEED.md`; house: K5, K8 |
+| BF30 | `CYCLE_SPEED_UP`/`_DOWN` | From 0 (stopped or fan mode) up goes to Breeze 1, down does nothing; at 3 and 1 it stays (never wraps, never off by cycling); counted from the fan's shown strength, so a burst counts from its target | **Automatic**; the step travels to the fan (for example `MF_BREEZE_SET {STEP}`), which owns the shown state | FAN `41_…/_6-CYCLESPEEDUP.md`, `_7-CYCLESPEEDDOWN.md` (wrap is the driver's choice); V11; ECC R5 |
+| BF31 | `DESIGNATE_PRESET` | `can_set_preset` False: no preset on the Breeze device. An unasked `DESIGNATE_PRESET {PRESET="3"}` reached a fan proxy on this house once (K8), so one may still arrive: ignored and logged. `preset_speed` must still be declared (it defaults to the highest speed) but means nothing here | **Automatic** | FAN `41_…/_4-DESIGNATEPRESET.md`, `43_…/_2-cansetpreset.md`, `_4-presetspeed.md`; house: K8 |
 | BF32 | The item in Composer | The fan proxy's Preset Level page shows on it (`hide_proxy_properties` is a light_v2 capability) | **Automatic**; the manual says what it means | house: K2, K4; LV2 `5_light_v2_capabilities/` |
-| BF33 | Groups and voice | As a fan it leaves the lights: "all lights off", lighting scenes and light counts no longer touch Breeze (ECB BC33 goes away). A voice assistant sees a fan "Aviator 5 Breeze"; "turn on all fans" would start Breeze, and the fan | **Automatic**; the manual warns | assumed (ECC U7) |
+| BF33 | Groups and voice | As a fan it leaves the lights: "all lights off", lighting scenes and light counts no longer touch Breeze (ECB BC33 goes away). A voice assistant sees a fan "Aviator 5 Breeze"; "turn on all fans" sends contradictory targets to the two devices (BF102) | **Automatic**; the manual warns | assumed (ECC U7) |
 | BF34 | Rapid taps Breeze 1, 2, 3 | Each tap a message; the fan coalesces, latest wins, one request in flight; the tile shows confirmed values and may jump 1 to 3 | **Automatic** | BC12; ECC R5 |
 | BF35 | A refused or failed tap (offline, no Breeze, foreign) | The fan writes Last Action (L33, L35). Whether a Navigator keeps showing the tapped speed until told otherwise is not documented | **Automatic**: the fan answers every companion request with a state message once it settles or is refused, and the companion re-sends `CURRENT_SPEED` with the current value | assumed; FAN `45_fan_events/_1-FANEVENTS.md` (speed_changed fires on a change, so a repeat should fire nothing: assumed) |
 | BF36 | The new device does not show | Navigators cache the project | **Offered**: File ▸ Refresh Navigators in the brief; reopening the app if needed (assumed) | BC34; ECC U7 |
@@ -137,15 +154,15 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
 | ID | Case | What happens | Decision | Source |
 | --- | --- | --- | --- | --- |
 | BF37 | Breeze blows at strength 2 (`wind` and `fanOn` true) | Tile "Breeze 2"; the fan's `Breeze` variable 1 | **Automatic** | BZ1 |
-| BF38 | Fan off with `wind` still set | Tile 0 (BZ1); fan Status ` Breeze set`. The next start of the fan may resume Breeze (assumed BZ5 c): the tile moves to the strength and the device's turned_on fires though nobody touched it | **Automatic** report; **Offered**: the manual says Off on the Breeze device clears it (BF40) | BZ1, BZ5 |
-| BF39 | Off on the Breeze device while the fan runs | `{"wind":false}` only; the fan keeps turning; its tile is told the base speed again | **Automatic** | BZ7, BZ8 |
-| BF40 | Off on the Breeze device while its tile already shows 0 | Sent anyway, which clears a stored `wind`, so "Breeze device off" really means Breeze off, also for the next start | **Automatic** | V8; BC10 |
-| BF41 | The main fan turned off (tile, keypad, remote, app) | Breeze device 0; its turned_off and speed_changed fire; the fan's Breeze Stopped fires | **Automatic** | BZ1; FAN `45_…/_1-FANEVENTS.md` |
-| BF42 | Breeze N tapped with the fan off | The fan on at the fan proxy's preset (the house: Level 3), then `{"wind":true,"windSpeed":N}`: two requests, the fan first, 250 ms apart; the tile shows N after the second answer | **Automatic** | BZ6 |
+| BF38 | Fan stopped with `wind` still set (the remote's power off, a failed second request) | Both tiles 0 (BZ1); fan Status ` Breeze set`. A start from Control4 on the main fan clears `wind` first (BF83); the remote's power-on may resume Breeze (assumed BZ5 c), and then only the Breeze device comes on | **Automatic** report; **Offered**: the manual says Off on either device clears it | BZ1, BZ5 |
+| BF39 | Off on the Breeze device while Breeze blows | Superseded: the motor stops, then `wind` clears (BF87); 1.2 kept the fan turning (BZ7) | see BF87 | owner 2026-11-07 |
+| BF40 | Off on the Breeze device while its tile already shows 0 | `{"wind":false}` sent anyway, which clears a stored `wind`; it never stops a fan running in fan mode (BF88) | **Automatic** | V8; BC10 |
+| BF41 | The main fan turned off from Control4 (tile, keypad, programming) | The motor stops and a set `wind` is cleared (BF84); Breeze device 0; its turned_off and speed_changed fire; the fan's Breeze Stopped fires if it blew. From the remote or app: what the fan reports (BF98) | **Automatic** | BZ1; FAN `45_…/_1-FANEVENTS.md` |
+| BF42 | Breeze N tapped with the motor stopped | `{"wind":true,"windSpeed":N}`, then `{"fanOn":true}`, 250 ms apart, so the fan starts straight in Breeze and the main tile never shows a speed (1.2 started the fan at the preset first, BZ6, superseded); the tile shows N after the second answer | **Automatic** | owner 2026-11-07; BF67, BF68 |
 | BF43 | Strength changed in the Modern Forms app or remote while blowing | The tile moves to the new strength; the device's speed_changed is the only strength event (the fan item has none, BC4). Today `refresh()` re-sends only when BLOWS, AVAILABLE or HAS_BREEZE change, so `STRENGTH` must join that comparison | **Automatic** | code (`breeze.lua` `refresh`, `broadcast`); BC4 |
 | BF44 | Strength changed while not blowing | Tile stays 0; the strength is what the next `ON` resumes (BF27) | **Automatic** | BRR M0 |
-| BF45 | Gusts move `fanSpeed` | The tile follows `windSpeed`, not the speed: no flicker | **Automatic** | BZ8 |
-| BF46 | Blowing, but the answer carries no `windSpeed` | The last known strength, else the preset; logged once | **Automatic** | assumed (every answer seen carries it, BRR) |
+| BF45 | Gusts move `fanSpeed` | The Breeze tile follows `windSpeed`, not the speed; the main tile shows 0 for all of Breeze (BF76): no flicker on either | **Automatic** | BZ8 |
+| BF46 | Blowing, but the answer carries no `windSpeed` | The last known strength, else Breeze 1; logged once | **Automatic** | assumed (every answer seen carries it, BRR) |
 | BF47 | The fan item's Set Breeze Strength while Breeze is off | `{"windSpeed":N}` alone; tile stays 0 unless the fan starts Breeze | **Automatic** | BC14 |
 | BF48 | A fan without Breeze | HAS_BREEZE 0: tile 0, Status `Aviator 5 has no Breeze`, taps refused by the fan (L33), Add refused (L38) | **Automatic** | BZ10 |
 | BF49 | Fan offline, foreign, Gen 4, unset; rebooting | AVAILABLE 0 except while rebooting; the tile keeps what the fan item reports (it keeps the last value offline); Status `Waiting for Aviator 5`; a tap is tried once or refused, then BF35 | **Automatic** | BC19, BC20 |
@@ -163,13 +180,13 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
 | BF56 | Programming writes the device's read/write variables (Is On, Current Selected Speed) | Whether the proxy turns a write into a command to the driver is not documented; the driver handles whatever command arrives | **Offered**: the manual says use the commands | FAN `46_…/_1-FANVARIABLES.md`; the effect: assumed |
 | BF57 | A loop between the device's events and its commands | Runs at the fan's pace, one request in flight | **Automatic**; the manual warns, as BC24 | BC24; ECC P4 |
 | BF58 | Programming that named the old light switch (Light On 5100, Light Off 5101, its on and off commands, Is On) | Deleted with it, never converted | **Offered**: BF12 step (1); rebuilt on the fan item | LV2 `25_light_v2_events/_0-HEADER.md`, `20_…/_0-HEADER.md`; house: CR rule 20 |
-| BF59 | Composer's wording | "Set speed Breeze 2" on the device; Designate Preset only with `can_set_preset` True | **Automatic** | house: v1-design `speed_names` row ("Set speed Level 2"); the rest assumed |
+| BF59 | Composer's wording | "Set speed Breeze 2" on the device; no Designate Preset (`can_set_preset` False) | **Automatic** | house: v1-design `speed_names` row ("Set speed Level 2"); the rest assumed |
 
 ## 7. Keypads and the fan item
 
 | ID | Case | What happens | Decision | Source |
 | --- | --- | --- | --- | --- |
-| BF60 | Link 311, its LED, the four Breeze commands, events 4 and 5, `BOOL_BREEZE`, the `Breeze` variable | Unchanged in name, id and behaviour | **Forbidden** to change | BZ3, BZ4; FUND `14_…/_2` |
+| BF60 | Link 311, its LED, the four Breeze commands, events 4 and 5, `BOOL_BREEZE`, the `Breeze` variable | Names, ids and meanings of the events, variable and condition unchanged. Behaviour changes only as section 9 says: Breeze On from off starts in Breeze (BF42); Breeze Off and 311 toggling off stop the motor while blowing (BF87, BF89, BF90) | **Forbidden**: renaming, renumbering or removing any of them | BZ3, BZ4; FUND `14_…/_2` |
 | BF61 | Binding 400 and its class | Kept (connections are never removed); `MF_BREEZE_SET` gains an optional `STRENGTH` (and `STEP`, BF30) | **Automatic** | FUND `14_…/_2` |
 | BF62 | Keypad buttons for Breeze 1, 2, 3 | None of their own (BF24); a dealer can program a button with the device's Set speed or the fan's Set Breeze Strength | **Offered** | BF24 |
 
@@ -182,7 +199,96 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
 | BF65 | Two packages in Composer's driver list | With a new file name the old one stays in the list; a distinct `<name>` (for example "Modern Forms Breeze Fan") keeps them apart; the old package either leaves the release (its devices keep build 115, which still works) or ships once more Lua-only with BF10's Status as "replaced" (no capability change, no reboot) | **Offered** to the contract | FUND `14_…/_2`; XML `15_common_xml/_20.1-name.md` |
 | BF66 | Release tooling and words | The package list, `deploy/house.yaml`, the brief's device count and read-backs, the Documentation tabs, the release notes and `CHANGELOG.md` all change; the notes must say whether the Breeze switch has to be deleted before installing | **Offered** to the coordinator | `CLAUDE.md` (Deploy); [`changelog-design.md`](changelog-design.md) |
 
-## 9. Recommendations for the contract
+## 9. Two fan devices for one motor
+
+The owner, 2026-11-07, verified on his fan: in Breeze the fan speeds do not
+matter, Breeze speeds are unrelated to them, the fan is in one mode or the
+other, never both, and Breeze never has a light. The coordinator's model:
+the **main fan device shows fan mode only** (speed 0 and its speed, Toggle
+and Cycle LEDs dark while Breeze blows; the Off LED lit only while the
+motor is stopped); the **Breeze device shows Breeze 1 to 3**. A fan-mode
+command on the main device while `wind` is set clears `wind` first; Breeze
+on from fan mode sends `wind` (and strength), from off `wind` first, then
+`fanOn`; Off on the Breeze device while blowing stops the motor, then
+clears `wind`, and while not blowing only clears a set `wind`; Off on the
+main fan always stops the motor and clears a set `wind`; the Breeze
+device's `ON` resumes the fan's own last strength. This supersedes BZ6
+(fan first), BZ7 and ECB BC6, BC7 (no hidden `wind:false`), BC9 (Breeze
+from off starts at the preset), BC13 (a double tap on 311 ends where it
+started) and BZ8's part for the main tile (it now shows 0 for all of
+Breeze). The "owner" source below means this message.
+
+### 9.1 Requests and their order
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF67 | Every change that needs two requests | One rule orders them all: **when the target stops the motor, the `fan` group goes first** (`{"fanOn":false}`, then `{"wind":false}`); **otherwise the `breeze` group goes first** (`wind`, with strength, then `fanOn` or the speed). That covers Breeze from off, fan mode from Breeze or from a stopped fan with `wind` set, the Breeze device's Off while blowing, and the main Off with `wind` set. The model today has one fixed order, `fan` before `breeze` (breeze-design section 2), so the order must come from the target | **Automatic** | owner; code (`breeze-design.md` section 2, `GROUPS`) |
+| BF68 | The first request fails, or the fan answers something else | The second is not sent: `fanOn:true` without `wind` confirmed would start the fan in fan mode; a speed without `wind` cleared would be ignored by a fan in Breeze. Tiles and LEDs follow the answer; Last Action as for any failed command | **Automatic** | owner (speeds do not matter in Breeze); V8 |
+| BF69 | A new command arrives while the first of a pair is in flight | Latest wins; the order is worked out again from the new target and the old pair's rest is dropped (Breeze from off, then the main Off before `fanOn`: the fan never starts, `wind` is cleared) | **Automatic** | ECC R5; V8 |
+| BF70 | A poll lands between the two requests | It sees the half-way state (`wind` set with the motor still stopped; or Breeze ended with the motor at its old fan speed for 250 ms). It is the command's own change: not "outside", not reported, so the main tile does not show the old speed and then the new one (one speed_changed, not two) | **Automatic** | V8 (held values, settle); BZ9; ECC R3 |
+| BF71 | A fan without Breeze (no `wind` key) | Main commands send exactly what they sent in 1.2: no extra `wind:false`, ever | **Forbidden**: sending `wind` to it | BC15; BZ10 |
+| BF72 | The main Off while `wind` is false | Only `{"fanOn":false}`: the extra request is for "a set `wind`" (shown or confirmed); a `wind` the remote set and no poll has seen yet is cleared by the next fan-mode start (BF83) | **Automatic** | owner; assumed (costs one poll of staleness at most) |
+
+### 9.2 The main fan device while Breeze blows
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF73 | Breeze starts while the main fan runs at Level 4 (any source) | Main `CURRENT_SPEED` 4 to 0: its proxy fires turned_off and speed_changed and Is On reads false while the motor turns; the Breeze device 0 to N fires turned_on; the fan item fires Breeze Started | **Automatic** (that is "never both") | owner; FAN `45_…/_1-FANEVENTS.md`, `46_…/_1-FANVARIABLES.md` |
+| BF74 | Programming on the main fan's turned_off, speed_changed or Is Off (for example "when the fan turns off, turn its light off") | Now also runs when Breeze starts. On the house none is known: the remaining lines are two Double Tap commands; the LED scripts were deleted | **Offered**: the manual adds "If Breeze is off" (`BOOL_BREEZE`) to such lines or uses the Breeze events; the Windows session reads the main fan's events for code once | FAN `45_…/_1-FANEVENTS.md`; [`status.md`](status.md); BZ3 |
+| BF75 | Breeze ends with the motor still running (the remote or app picks a speed) | Main reports the speed the fan reports once `wind` is false, with turned_on and speed_changed; the Breeze device 0. Which speed the fan resumes is the fan's | **Automatic** | BZ8 (the speed told from the first read after); the resumed speed: assumed |
+| BF76 | Gusts | The main tile shows 0 for all of Breeze, so gusts never reach it; the gust guard stays for "outside" and the fast window only | **Automatic** | BZ8 |
+| BF77 | The direction during Breeze (assumed: reads forward, returns after) | `DIRECTION` to the main tile is held during Breeze and told after, so no pair of direction_changed | **Automatic** | BZ5 (f), assumed; FAN `42_…/_2-DIRECTION.md` |
+| BF78 | `ON` on the main tile while Breeze blows (it shows off) | Fan mode at the main preset: `wind:false`, then the speed; the motor keeps turning; Breeze device 0. `fanproxy.lua`'s "on already, nothing changes" must read "on in fan mode" (`fan_on` and not `wind`) | **Automatic** | FAN `41_…/_1-ON.md`; code (`fanproxy.lua` `on`, `toggle`, `cycle`, `reported_speed`) |
+| BF79 | `TOGGLE` on the main tile, or link 307, during Breeze | The tile shows off, so Toggle turns fan mode on (it does not stop the spinning fan); Off stops it | **Automatic**; the manual says so | FAN `41_…/_3-TOGGLE.md`; v1-design 4.6 (Toggle reads the shown state) |
+| BF80 | `SET_SPEED` N, a speed link or a Double Tap line during Breeze | `wind:false`, then N; that speed's LED lights at once, 311's goes dark at once | **Automatic** | V10; V8 |
+| BF81 | `CYCLE` on the main tile during Breeze | Down does nothing (it counts from off); up gives Level 1 in fan mode | **Automatic** | V11; code (`fanproxy.lua` `cycle`) |
+| BF82 | `OFF` (or `SET_SPEED` 0) on the main tile during Breeze, while it already shows off | The driver stops the motor and clears `wind`. Whether a Navigator sends Off for a tile that already shows off is not documented; if it does not, Off on the Breeze device stops it | **Automatic**; the Navigator's part assumed | FAN `41_…/_2-OFF.md`, `_5-SETSPEED.md` |
+| BF83 | `ON`, Toggle or a speed on the main fan while the motor is stopped with `wind` set | `wind:false` first, then on: Control4 never resumes Breeze through the main fan (the remote may, BF98) | **Automatic** | owner; BZ5 (c), assumed |
+| BF84 | The main Off with `wind` set (blowing or stored) | `{"fanOn":false}`, then `{"wind":false}`: the next start from anywhere is plain | **Automatic** | owner |
+| BF85 | The fan's light | Untouched in both modes; the Breeze device never has a light and offers none | **Automatic** | owner |
+| BF86 | The fan's `Status` during Breeze | Should say Breeze and its strength without the fan speed, which means nothing then (S5 shows both today) | **Automatic**; a texts change | owner; `breeze-design.md` S5 |
+
+### 9.3 Off and Toggle on the Breeze side
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF87 | Off on the Breeze device, `SET_SPEED` 0, the Breeze Off command or 311 toggling off, while Breeze blows | `{"fanOn":false}`, then `{"wind":false}`: the motor stops and the main tile stays 0, so the main fan never comes on at a speed by itself | **Automatic** | owner |
+| BF88 | The same while not blowing (fan mode, or stopped) | Only `{"wind":false}` (sent even when already false, V8); a fan running in fan mode keeps running | **Automatic** | owner; V8 |
+| BF89 | A 1.2 programming line using Breeze Off or Toggle Breeze to go back to the fan turning (1.2 kept it turning, BZ7) | Now the motor stops. The command's name and id stay (FUND 14 forbids only removing it), its behaviour changes: the CHANGELOG and release notes say so, with the way back to fan mode (a speed on the main fan). On the house none is known | **Offered**: the notes and the manual; the Windows session checks the house's scripts once | FUND `14_…/_2`; BZ7; [`changelog-design.md`](changelog-design.md) |
+| BF90 | A double tap on a button bound to 311, from fan mode | Two pushes (K6): the first gives Breeze, the second stops the motor, so it no longer ends where it started (BC13). The house keypad has no button on 311 | **Automatic**; the manual says so | house: K6; BC13 |
+| BF91 | Two quick Toggles on the Breeze device from fan mode | As BF90, from the shown state | **Automatic** | BF28 |
+| BF92 | A 1.2 light switch still bound | Its tap off now stops the motor while Breeze blows | **Automatic**; it goes in BF12 anyway | BF52 |
+
+### 9.4 Keypads
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF93 | LEDs | Off follows the motor (lit only when stopped); speed, Toggle and Cycle follow fan mode (dark during Breeze); 311 follows Breeze. On the house keypad (Low, Medium, Med-High, High, Off bound; nothing on 311) **every fan button is dark while the fan turns in Breeze** | **Automatic** LEDs; **Offered**: tell the owner; a lit Breeze button needs 311 on a button, and none is free (his call) | [`status.md`](status.md) (the keypad's bindings); BZ4 |
+| BF94 | Keypad Off during Breeze | The motor stops, `wind` clears, Off lit, 311 dark | **Automatic** | BF84 |
+| BF95 | The main tile says off while the Off LED is dark (Breeze) | Intended: the Off LED tells whether the motor turns | **Automatic**; the manual says so | owner |
+| BF96 | "Speed N Link Also Lit At" and the per-speed colours | No speed link lit during Breeze; dark links take the off colour, as for a stopped fan | **Automatic** | V26, V27 |
+
+### 9.5 The remote, the app and the wall control
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF97 | They start Breeze, from fan mode or from off | Seen at the next poll (15 s, 2 s in a fast window): BF73's reports; Last Change By says outside | **Automatic** | BC1, BC2 |
+| BF98 | The remote powers the fan off during Breeze | Both tiles 0, Off lit; `wind` may stay set; the remote's next power-on resumes Breeze and only the Breeze device comes on | **Automatic**; **Forbidden**: clearing the remote's `wind` on the driver's own initiative | ECC rule 5; BZ5 (c), assumed |
+| BF99 | The remote picks a fan speed during Breeze | Shown as the fan reports it: `wind` false and a speed gives the main tile on and the Breeze device 0; if the fan reported both, BZ1 shows Breeze | **Automatic** | owner; ECC R1 |
+| BF100 | The Modern Forms app shows the fan running while the main tile shows off | Deliberate | **Offered**: the manual says so | owner |
+
+### 9.6 Groups, scenes and programming across both devices
+
+| ID | Case | What happens | Decision | Source |
+| --- | --- | --- | --- | --- |
+| BF101 | "All fans off", "turn off the fans", a scene switching both off | The two Offs coalesce to `fanOn` false and `wind` false, in whatever order they arrive | **Automatic** | ECC R5 |
+| BF102 | "All fans on", or a scene switching both on | Contradictory targets; latest wins, so the result depends on arrival order | **Offered**: the manual says to keep the Breeze device out of "all on" groups | assumed (how assistants and scenes group fans) |
+| BF103 | A schedule or scene sets the main fan's speed during Breeze | Ends Breeze (fan mode) | **Automatic**; the manual says so | owner |
+| BF104 | Loops across the devices ("Breeze device off: fan to Level 2" plus "fan off: Breeze 1") | Each start turns the other off, so they ping-pong at the fan's pace | **Automatic** (no guard, as ECC P4); the manual warns | ECC P4; BC24 |
+| BF105 | The main fan's Is On and Current Selected Speed read by agents, summaries or a voice assistant's state | Off during Breeze | **Automatic** | FAN `46_…/_1-FANVARIABLES.md`; how each shows it: assumed |
+| BF106 | Director restart during Breeze | The main tile's first report (R6) is 0; the Breeze device's is N | **Automatic** | ECC R6 |
+
+## 10. Recommendations for the contract
 
 1. **Give the fan-proxy companion a new file name** and a distinct
    `<name>` (BF1 to BF7, BF64, BF65). It is what the SDK requires for a
@@ -202,9 +308,8 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
    `MF_BREEZE_TOGGLE` always for Toggle (BF28); a state message after
    every companion request, settled or refused (BF35); absence of
    `STRENGTH` means unknown (BF52).
-4. **ON** resumes the fan's own strength with `can_set_preset` False
-   (BF27, BF31); if the preset is kept, persist it and answer every
-   `DESIGNATE_PRESET` with `PRESET_SPEED`.
+4. **ON** resumes the fan's own strength, `can_set_preset` False, an
+   unasked `DESIGNATE_PRESET` ignored (BF27, BF31).
 5. **Tile rules for a proxy that cannot go offline** (BF25, BF26): last
    value while the fan is offline, 0 without Breeze or unbound, Status says
    why; no `ON`/`OFF` notifications; no `proxy_fan_speed_connections`.
@@ -212,6 +317,23 @@ room "Example Room", fan item "Aviator 5", Breeze device "Aviator 5 Breeze".
    install, Add, check it is a fan, Refresh Navigators, move it right after
    the fan in the room's Navigator order, owner glances once (under a
    minute).
-7. **The manual**: program Breeze on the fan item; Off on the Breeze device
-   ends Breeze (also a stored one) while the fan keeps turning; a tap on a
-   stopped fan starts it; "all fans on" starts Breeze.
+7. **The two-device model** (section 9): the request order comes from the
+   target, `fanOn` first only when the motor is to stop (BF67); the second
+   request only after the first succeeded, the pair worked out again when a
+   new command arrives, the half-way poll held (BF68 to BF70); never a
+   `wind` request to a fan without Breeze (BF71); `fanproxy.lua` and the
+   speed, Toggle and Cycle LEDs read "on in fan mode" (`fan_on` and not
+   `wind`), the Off LED reads the motor (BF78, BF93); `DIRECTION` held
+   during Breeze (BF77).
+8. **The release notes and CHANGELOG** say that Breeze Off and Toggle
+   Breeze now stop the motor while Breeze blows, how to return to fan mode
+   instead (a speed on the main fan), and that a double tap on 311 no
+   longer ends where it started (BF89, BF90).
+9. **The manual**: program Breeze on the fan item, and add "If Breeze is
+   off" to lines on the main fan's turned_off or speed_changed (BF74); the
+   main tile shows off and the keypad's fan buttons are dark while Breeze
+   blows (BF93, BF95, BF100); Off on the Breeze device stops the motor
+   while blowing and otherwise only clears Breeze; a Breeze tap on a
+   stopped fan starts it straight in Breeze; keep the Breeze device out of
+   "all fans on" groups (BF102); loops across the two devices ping-pong
+   (BF104).

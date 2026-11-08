@@ -40,10 +40,11 @@ hardware.
   carries the dev key as `common/devkey.lua` and is written 0600. The v1
   contract adds the number of actions each build shows (`unzip -p
   build/modernforms_fan.c4z driver.xml | grep -c '<action>'`: 6 since #111,
-  Add Breeze Switch last; the Breeze switch's package has none). Since #111
-  every build makes two packages, `modernforms_fan.c4z` and
-  `modernforms_breeze.c4z` (one per `src/*/driver.xml`), and the manifest
-  names both.
+  the last Add Breeze Switch until #121 and Add Breeze Fan since; the
+  Breeze companion's package has none). Since #111 every build makes two
+  packages (one per `src/*/driver.xml`), and the manifest names both:
+  `modernforms_fan.c4z` and, since #121, `modernforms_breeze_fan.c4z` (from
+  #111 to #121 `modernforms_breeze.c4z`, which no later build makes).
   `build/manifest.json` names the build, the commit, `"dev": false` or
   `true`, and each package's checksum and size.
 - `unzip -l build/<driver>.c4z` lists `LICENSE` and `NOTICE` in every package
@@ -108,7 +109,8 @@ in [`migration-design.md`](migration-design.md). Every later install is an
 update in place. Read:
 
 1. `Driver Version` on every Modern Forms Fan device and every Modern
-   Forms Breeze switch = the build; `Debug Mode` reads Off on every device (a dev-loop session often leaves it On,
+   Forms Breeze Fan device = the build (a 1.2 Breeze switch, until it is
+   deleted, keeps build 115, the last that made its package); `Debug Mode` reads Off on every device (a dev-loop session often leaves it On,
    and Director keeps the value through the release install).
 2. The Properties page: no development-only rows (those between the
    `DEV-ONLY` markers of `driver.xml`); the rows and texts the v1 contract
@@ -120,13 +122,44 @@ update in place. Read:
 6. Connections: the fan's speed links (the fan proxy's per-speed
    connections), the light's links and every keypad binding are still there
    after the update in place ([`composer-checklist.md`](composer-checklist.md),
-   sections D to F), and each Breeze switch is still connected to its fan's
-   `Breeze Switch` output.
+   sections D to F), and each Breeze fan is still connected to its fan's
+   `Breeze Switch` output (the output kept its 1.2 name).
 7. The first install of a release with Breeze (#111): the programming
    items read back, **Add Breeze Switch** clicked once on each fan that has
    Breeze, and File ▸ Refresh Navigators
    ([`composer-checklist.md`](composer-checklist.md), section J). No
    controller reboot: no capability of the fan device changes.
+8. **From 1.2 to 1.3, the Breeze switch to the Breeze fan** (#121,
+   [`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)
+   BF-D12; [`composer-checklist.md`](composer-checklist.md) steps 57 to
+   63), in this order, every step in the Windows session's brief and the
+   delete under the owner's standing approval (said so in the brief):
+   (a) list what programming, scenes and agents name the old Breeze switch
+   (on the house "Aviator 5 Breeze", driver Modern Forms Breeze), the
+   fan item's own programming on its turned-off and speed-changed events,
+   which now also runs when Breeze starts (add "Breeze is on" False where
+   it should not), and every line that sends Breeze Off or Toggle Breeze,
+   which now stop the fan while Breeze blows (the way back to fan mode is
+   a speed on the fan item); (b) install both packages at
+   once, `modernforms_fan.c4z` in place and `modernforms_breeze_fan.c4z`
+   into the library: no "Restart Director?", since no fan capability
+   changes and no device uses the new package yet; (c) delete the old
+   switch, confirming Composer's prompt; (d) click **Add Breeze Fan** once
+   and read `Last Action` (`Breeze fan added: Aviator 5 Breeze`); (e) read
+   back the new device: its proxy is a fan (`fan.c4i`; the item shows the
+   fan's Preset Level page), `Driver Version` the build, `Status`
+   (`Breeze off on Aviator 5` or `Breeze <n> on Aviator 5`), `Debug Mode`
+   Off and the binding on the fan's `Breeze Switch` output; (f) move
+   "Aviator 5 Breeze" right after the fan in the room's Navigator order
+   where Composer allows it; (g) File ▸ Refresh Navigators. No controller
+   reboot. The brief also tells the owner that the house keypad has no
+   button on Fan Breeze, so every fan LED on it is dark while Breeze blows
+   (BF93; lighting one means binding a button to Fan Breeze, his choice). `deploy.py done --devices` counts the fan and the Breeze fan.
+   The old switch's package stays on the v1.2 release. Going back to 1.2
+   is not designed for: 1.2 does not carry the Breeze fan's package, and
+   its fan driver sends the Breeze fan no strength and ignores the
+   strengths and steps it sends (edge-cases-breeze-fan BF6, BF52), so the
+   Breeze fan would be deleted and 1.2's switch added again.
 
 ## 3. The owner, on the phone, the keypads and the fan
 
@@ -140,9 +173,11 @@ update in place. Read:
    with the app reaches the tile.
 4. Keypad taps and holds on every bound button do what the v1 contract says
    (press, click and release each handled).
-5. Breeze (#111), under a minute: the Breeze switch on the phone and on one
-   touch screen shows the fan's Breeze, and one tap each way switches it
-   ([`composer-checklist.md`](composer-checklist.md), step 53).
+5. Breeze (#111; since #121 the Breeze fan), under a minute: on the phone,
+   the Breeze fan is listed by the fan; Breeze 1, 2, 3 and off each work;
+   the main fan shows off while Breeze blows; a fan speed on the main fan
+   ends Breeze ([`composer-checklist.md`](composer-checklist.md), step 61;
+   step 53 for the switch of 1.2).
 
 ## 4. After a controller OS upgrade
 
@@ -200,8 +235,9 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
    what the build job handed over, signs the provenance and attaches to the
    release of the tag, creating it when missing, with the title and notes
    written from `CHANGELOG.md` (step 4): every package of `manifest.json`
-   (`modernforms_fan.c4z` and, since #111, `modernforms_breeze.c4z`; 1.0
-   and 1.1 carry the first alone), `SHA256SUMS.txt`, `manifest.json` (tag,
+   (`modernforms_fan.c4z` and, since #121, `modernforms_breeze_fan.c4z`;
+   1.2 carries `modernforms_breeze.c4z` in its place, 1.0 and 1.1 the first
+   alone), `SHA256SUMS.txt`, `manifest.json` (tag,
    version, build, commit, build time, each package's sha256 and size),
    `attestations.sigstore.json`, the signed build provenance, and
    `mf-drivers.intoto.jsonl`, the same provenance as in-toto JSON lines. A
@@ -282,7 +318,8 @@ issue. After a release exists:
    note, and the standing-approval sentence. It carries no LAN address, MAC
    address or client id.
 5. **What the Windows session reads back.** Every device's `Driver Version`
-   equals the build (the Breeze switches included, since #111); `Debug Mode` and the other properties the v1 contract
+   equals the build (the Breeze fans included, since #121, as the Breeze
+   switches were from #111); `Debug Mode` and the other properties the v1 contract
    names match `deploy/house.yaml`; no `[ERROR]` line in a device's Lua tab
    during the install; and whether Composer asked "Restart Director?". If it
    did, the build changed capabilities: answering Yes loads nothing, the
@@ -290,7 +327,7 @@ issue. After a release exists:
    the Windows session cannot operate it), and the session reads `Driver
    Version` again afterwards.
 6. **Record the result.** `python3 tools/deploy.py done --devices <count>`
-   (every device read back, a Breeze switch counting as one; with `--note`
+   (every device read back, a Breeze fan counting as one; with `--note`
    for anything worth keeping) re-reads the release's
    manifest, refuses when its assets changed since `start`, sets the
    deployment to `success` and closes the deploy issue with a comment

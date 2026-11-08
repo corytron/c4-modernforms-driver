@@ -7,8 +7,10 @@ later, and where a note and `status.md` disagree about the present,
 `status.md` and the code win. The owner's manual itself is not here but in
 the driver: [`src/modernforms_fan/www/documentation.html`](../src/modernforms_fan/www/documentation.html)
 (the driver's Documentation tab in Composer; until the v1 contract it says
-that the driver is not ready), and since #111 the Breeze switch's own tab,
-`src/modernforms_breeze/www/documentation.html`. What each release changed is in
+that the driver is not ready), and since #121 the Breeze fan's own tab,
+`src/modernforms_breeze_fan/www/documentation.html` (from #111 to #121 the
+Breeze switch's, `src/modernforms_breeze/www/documentation.html`, which the
+1.2 release still carries). What each release changed is in
 [`CHANGELOG.md`](../CHANGELOG.md); the working rules of the AI sessions that
 build the driver are in [`CLAUDE.md`](../CLAUDE.md).
 
@@ -29,7 +31,8 @@ specification, and `status.md` says what of them is live.
   every speed, Off, Toggle and Cycle and the light's Top, Bottom and Toggle
   with keypad LEDs, the transport to the fan and the report rules, the
   properties, actions, events and texts, the module interfaces and the
-  build split; since #111 (V31) also Breeze and the companion package.
+  build split; since #111 (V31) also Breeze and the companion package,
+  and since #121 (V32) fan mode and Breeze mode and the Breeze fan.
 - [`migration-design.md`](migration-design.md): retired by #45, kept as
   the record of the house's cutover from the stock WAC driver: the new
   device beside the old one, the keypad moved button by button with a way
@@ -55,7 +58,12 @@ specification, and `status.md` says what of them is live.
   commands, variable, events and condition, the Fan Breeze link (311), the
   companion package `modernforms_breeze.c4z` with its on/off switch for
   the Navigators, added by the action Add Breeze Switch, the messages
-  between the two drivers, the texts, and the checks on the house.
+  between the two drivers, the texts, and the checks on the house; its
+  section 11 (#121, 1.3) is fan mode and Breeze mode, never both: the fan
+  item showing fan mode only, the Breeze fan (`modernforms_breeze_fan.c4z`,
+  three speeds Breeze 1 to 3) replacing the switch, the action renamed Add
+  Breeze Fan, what Off and the Breeze commands do now, the request order
+  and the house's update steps.
 - [`../probes/README.md`](../probes/README.md): the M1 probe (#17), a
   throwaway Composer package built outside `src/` so no release carries it,
   and the Windows session's brief for each check K4–K10 and K14 of
@@ -124,6 +132,13 @@ Read-only research written before a feature's contract, in the same style.
   has no place for it), the programming, keypad and Composer surfaces, the
   recommended companion switch, and the lifecycle cases BC1 to BC36 with
   what is automatic, offered or forbidden without a click.
+- [`edge-cases-breeze-fan.md`](edge-cases-breeze-fan.md): Breeze as a fan
+  device (#121): why the fan-proxy companion needs a new file name (an
+  installed device cannot change its proxy type), what deleting the 1.2
+  switch loses, the fan tile that cannot show offline, the house's update
+  order, and the two-device model of one motor (fan mode or Breeze mode,
+  the request order, the keypad LEDs, groups and loops), cases BF1 to
+  BF106.
 
 ## Start here
 

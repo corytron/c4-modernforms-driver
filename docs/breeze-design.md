@@ -30,7 +30,8 @@ silent, ECB section 3 and its BC decisions are the rule.
 
 - **A fourth command group `breeze`** after `fan` and `direction` (`GROUPS =
   { "fan", "direction", "breeze", "light" }` or `"light"` before it, as the
-  model's request order needs; `fan` must go before `breeze`): fields
+  model's request order needs; `fan` must go before `breeze`, superseded since
+  1.3 by BF-D6, section 11): fields
   `wind` (boolean) and `wind_speed` (integer 1 to 3), moved from the
   read-only rows to the fields (`FIELDS`, `GROUP_FIELDS`, `FIELD_NAME`:
   `wind = "breeze"`, `wind_speed = "breeze strength"`).
@@ -240,6 +241,10 @@ stands.
 | BF-D10 | **Add Breeze Fan.** The action is renamed **Add Breeze Fan** (sort order 7; an action name is no programming item) and adds `modernforms_breeze_fan.c4z` named "<fan item name> Breeze" in the fan item's room. Refused while any companion is bound to 400; when the bound one is a 1.2 switch (its driver name `Modern Forms Breeze`, as `GetBoundConsumerDevices` reports it) the line is L41 `Delete the old Breeze switch first: Aviator 5 Breeze`. Texts L36 to L40 say "Breeze fan" (L40 names `modernforms_breeze_fan.c4z`). Connection 400 keeps its name and class (connections are never redefined). |
 | BF-D11 | **Programming** items keep their names; Breeze Off and link 311 follow BF-D4. The main fan proxy's own events (Fan Off, speed changed) fire when Breeze starts or ends, because the main device's view changes; Breeze Started and Breeze Stopped are the Breeze events. Program Breeze on the fan item: the Breeze fan's own lines go when it is deleted (BF55, BF58). "All fans on" starts Breeze too (BF33). |
 | BF-D12 | **On the house** (the owner's word in the Windows session): list what programming names the old Breeze switch; install both packages (the fan in place, the Breeze fan into the library; no "Restart Director?" since no fan capability changes); delete the old Breeze switch; click Add Breeze Fan once; read back the new device (its proxy `fan.c4i`, Driver Version, Status, the binding on 400); move "Aviator 5 Breeze" right after the fan in the room's Navigator order where Composer allows it (BF22); File ▸ Refresh Navigators. The owner then checks on the phone: listed by the fan, Breeze 1, 2, 3 and off, the main fan off while Breeze blows, a fan speed ends Breeze. |
+
+| BF-D13 | **Pairs of requests** (BF67 to BF70): the second request of a pair goes only after the first is answered with success (a `fanOn:true` without `wind` confirmed would start fan mode); a new want while a pair is under way is planned again from the new target and the rest of the old pair is dropped; a read between the two is held as Control4's own change (the main tile never shows the old speed, then the new). |
+| BF-D14 | **Direction during Breeze** (BF77): the main fan proxy holds `DIRECTION` while Breeze blows and tells it after, so it fires no direction events for the fan's own Breeze behaviour. |
+| BF-D15 | **What the documents say** (BF73, BF74, BF89, BF90, BF101 to BF104, BF83, BF93): the main fan's Fan Off / speed changed events and Is Off now follow fan mode (add "If Breeze is off" where that matters); Breeze Off and Toggle Breeze keep their names but now stop the fan while Breeze blows (the way back to fan mode is a speed on the main fan); a double tap on link 311 from fan mode stops the fan on its second press; "all fans on" sends both devices contradictory targets (the last wins), "all fans off" is safe; programming that turns one device on when the other turns off ping-pongs; the remote's power-off during Breeze may keep `wind`, so its next power-on resumes Breeze; on the house keypad no button is on link 311, so every fan LED is dark while Breeze blows (lighting one is the owner's choice). |
 
 ### 11.1 Interfaces between the pieces
 
