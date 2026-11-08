@@ -1,6 +1,6 @@
 ## {version} "{codename}" (build {build})
 
-Codename: **{codename}**. Each X.Y release of this project has its own codename from Denis Villeneuve's Dune films (a widely recognised character, place or object for an X.0, a lesser-known one from that X.0's own world for a point release); every build of {version} keeps it. Released {date}.
+Released {date}.
 
 Install every `.c4z` file of the release at once through Driver ▸ "Add or Update Driver or Agent…" in Composer Pro, updating every device in place; never delete and re-add a Modern Forms Fan device (that loses its settings and every connection and programming line that names it). When the changes below say a driver's capabilities changed, reboot the controller from System Manager afterwards: on OS 3.x, Composer's "Restart Director?" does not load them.
 

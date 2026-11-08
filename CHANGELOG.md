@@ -2,10 +2,7 @@
 
 Every published release of the Modern Forms Fan driver, newest first, with
 what changed since the release before it. A version X.Y is the GitHub
-release of the tag `vX.Y` and carries its own codename from Dune, Denis
-Villeneuve's films (`.github/codenames.json`: a widely recognised
-character, place or object for an X.0, a lesser-known one tied to its X.0's
-name for a point release). A version can be released as several builds: the build
+release of the tag `vX.Y`. A version can be released as several builds: the build
 number is the commit count of the released commit and the Driver Version
 that Composer shows for every device, and each newer build of a version
 replaces the files of its release. Prereleases for testers (X.Y-beta.N),

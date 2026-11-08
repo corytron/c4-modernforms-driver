@@ -194,9 +194,7 @@ and its packages download directly from
 and, from 1.3 on,
 [`releases/latest/download/modernforms_breeze_fan.c4z`](https://github.com/corytron/c4-modernforms-driver/releases/latest/download/modernforms_breeze_fan.c4z)
 (1.2 carried the Breeze switch, `modernforms_breeze.c4z`, in its place).
-Each X.Y carries its own codename from Denis Villeneuve's *Dune* films, a
-major name for an X.0 and a lesser one for a point release: 1.0 is
-"Arrakis", 1.1 is "Jamis", 1.2 is "Thumper" and 1.3 is "Ornithopter". Prereleases for testers (`X.Y-beta.N`) are marked
+Prereleases for testers (`X.Y-beta.N`) are marked
 **Pre-release** and never **Latest**, so the links above skip them. What
 each release changed is in [`CHANGELOG.md`](CHANGELOG.md), which each
 release's notes and the end of the driver's Documentation tab repeat.
