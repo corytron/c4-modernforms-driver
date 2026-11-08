@@ -49,8 +49,12 @@ log.set_prefix(LOG_PREFIX)
 -- the two events (section 2.7) and the light's and the fan's links.
 local FAN_BINDING, LIGHT_BINDING = 5001, 5002
 local FIND_BINDING, MDNS_PORT, MDNS_GROUP = 6001, 5353, "224.0.0.251"
--- breeze-design BZ2 (#111): the companion Breeze switch's binding and its class.
-local BREEZE_BINDING, BREEZE_CLASS, BREEZE_DRIVER = 400, "MODERNFORMS_BREEZE", "modernforms_breeze.c4z"
+-- breeze-design BZ2 (#111): the companion's binding and its class; BF-D7 (#121):
+-- the Breeze fan's package, and the driver name of 1.2's light-type switch, which
+-- GetBoundConsumerDevices reports for a device still bound [verified: hardware,
+-- the Hue project; API 32/_3].
+local BREEZE_BINDING, BREEZE_CLASS, BREEZE_DRIVER = 400, "MODERNFORMS_BREEZE", "modernforms_breeze_fan.c4z"
+local OLD_BREEZE_NAME = "Modern Forms Breeze"
 local EVENT_FAN_OFFLINE, EVENT_FAN_ONLINE = 1, 2
 local LIGHT_LINKS = { [200] = true, [201] = true, [202] = true }
 local FAN_LINKS = { [311] = true } -- 311 Fan Breeze (breeze-design BZ4)
@@ -228,6 +232,11 @@ function listener.settled(group, st, why)
 end
 
 function listener.idle(group, st)
+	-- BF-D13 (#121): what the fan proxy held half way goes out when nothing follows.
+	fan:idle(group, st)
+	if breeze then
+		breeze:idle(group)
+	end
 	if group == "light" then
 		light:idle(st)
 	end
@@ -787,6 +796,14 @@ breeze = breeze_mod.new({
 		return (pcall(C4.Bind, C4, C4:GetDeviceID(), BREEZE_BINDING, id, 1, BREEZE_CLASS))
 	end,
 	item_name = fan_item_name,
+	-- BF-D10: a bound 1.2 switch gets L41 instead of L37.
+	old_companion = function(id)
+		local bound = C4:GetBoundConsumerDevices(C4:GetDeviceID(), BREEZE_BINDING) or {}
+		local name = bound[id]
+		if name == nil then name = bound[tonumber(id)] end
+		if name == nil then name = bound[tostring(id)] end
+		return name == OLD_BREEZE_NAME
+	end,
 	log = log,
 })
 
@@ -923,10 +940,10 @@ for _, name in ipairs({ "Breeze_On", "Breeze_Off", "Toggle_Breeze", "Set_Breeze_
 		breeze:command(name, params)
 	end
 end
-dispatch.commands["Add_Breeze_Switch"] = function()
+dispatch.commands["Add_Breeze_Fan"] = function()
 	breeze:add_switch()
 end
-for _, name in ipairs({ "MF_BREEZE_SET", "MF_BREEZE_TOGGLE", "MF_BREEZE_HELLO" }) do
+for _, name in ipairs({ "MF_BREEZE_SET", "MF_BREEZE_TOGGLE", "MF_BREEZE_CYCLE", "MF_BREEZE_HELLO" }) do
 	dispatch.commands[name] = function(params)
 		breeze:companion(name, params)
 	end

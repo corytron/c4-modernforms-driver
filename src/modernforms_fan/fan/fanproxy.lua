@@ -15,6 +15,29 @@
 --   * keeps the preset speed ON and Toggle go to (1 to 6, default 3,
 --     persisted as mf_preset_speed) and tells the proxy as PRESET_SPEED.
 --
+-- Fan mode and Breeze mode (#121, docs/breeze-design.md section 11): the
+-- motor is stopped, in fan mode or in Breeze mode, never two of them
+-- (fan/mode.lua, BF-D1), and this device shows fan mode only:
+--   * CURRENT_SPEED is the speed in fan mode and 0 when stopped or in Breeze
+--     mode (BF-D2), from the "fan" and the "breeze" settles alike. The model
+--     reports a group once it is idle (R5), but this value reads both groups,
+--     so a settle of one waits while the other half of a two-request change
+--     is still wanted or in flight (BF-D13: one speed_changed, never the old
+--     speed and then the new), and idle() catches up with a change whose
+--     second half the fan did not take;
+--   * "on" means on in fan mode (BF-D3, BF78, BF79): in Breeze mode ON and
+--     TOGGLE start fan mode at the preset, CYCLE counts from off (up gives 1,
+--     down nothing); a fan-mode command (ON, SET_SPEED 1 to 6, TOGGLE to on,
+--     CYCLE) wants its fields through mode.exit, so `wind = false` joins them
+--     while the shown `wind` is true, and OFF, SET_SPEED 0 and TOGGLE to off
+--     want `fan_on = false` the same way (BF-D4: stop, and clear a stored
+--     `wind`). The model orders the two requests (BF-D6);
+--   * DIRECTION is held while Breeze blows and told once it ends (BF-D14,
+--     BF77), so the fan's own behaviour during Breeze fires no direction
+--     events on this device.
+-- A fan without Breeze (`wind` nil) is never sent a `wind` and behaves as in
+-- 1.2 (BF71).
+--
 -- Everything that touches Director is an argument (section 9.1):
 --
 --   fanproxy.new({
@@ -26,12 +49,17 @@
 --       log = log,                            -- default common.log
 --   })
 --
+-- The model's listener hands it settled(group, st, why) for every group and
+-- idle(group, st) for the fan and Breeze groups at least (driver.lua).
+--
 -- Director delivers some proxy commands before late init (GET_CURRENT_STATE
 -- arrives at the add, hardware K8, 2026-10-27), where SendToProxy and the
 -- persistence store are not safe. GET_CURRENT_STATE answers nothing while the
 -- state is unknown, which covers it; DESIGNATE_PRESET persists and notifies,
 -- so the driver hands `on` an `on` whose handlers wait for late init, as
 -- common/device.lua's dev.after_late_init does for its own.
+
+local mode = require("fan.mode")
 
 local fanproxy = {}
 fanproxy.__index = fanproxy
@@ -111,15 +139,15 @@ local function direction_param(params)
 	return nil
 end
 
--- What CURRENT_SPEED says for a state: 0 when off, the speed when on, nil
--- when that is not known (nothing is reported then, never a guess).
+-- What CURRENT_SPEED says for a state (BF-D2): the speed in fan mode, 0 when
+-- stopped or in Breeze mode, nil when that is not known (nothing is reported
+-- then, never a guess).
 local function reported_speed(st)
-	if st.fan_on == false then
-		return 0
-	elseif st.fan_on == true then
-		return whole(st.speed, 1, SPEEDS)
+	local speed = mode.speed(st)
+	if speed == nil or speed == 0 then
+		return speed
 	end
-	return nil
+	return whole(speed, 1, SPEEDS)
 end
 
 local function shown_of(self)
@@ -142,6 +170,9 @@ function fanproxy.new(opts)
 		told_dir = nil, -- the last DIRECTION sent, "forward" or "reverse"
 		notify_fan = 0,
 		notify_dir = 0,
+		speed_waits = false, -- a CURRENT_SPEED waits for the other half of a change (BF-D13)
+		dir_held = false, -- a DIRECTION was held while Breeze blew (BF-D14)
+		dir_force = false, -- and it was a "start" or GET_CURRENT_STATE's: told once Breeze ends, even unchanged
 	}, fanproxy)
 
 	for _, command in ipairs(COMMANDS) do
@@ -238,27 +269,34 @@ function fanproxy:want(fields)
 	return true
 end
 
--- ON: off goes to the preset, on changes nothing. An unknown state counts as
--- off: ON is a request to run, and dropping it would lose the intent.
+-- ON: off goes to the preset, fan mode changes nothing. Breeze mode is off
+-- for this device, so ON starts fan mode at the preset and ends Breeze
+-- (BF78). An unknown state counts as off: ON is a request to run, and
+-- dropping it would lose the intent.
 function fanproxy:on()
-	if shown_of(self).fan_on == true then
-		self.log.debug("ON: the fan is on already; nothing changes")
+	local shown = shown_of(self)
+	if mode.fan_on(shown) == true then
+		self.log.debug("ON: the fan runs in fan mode already; nothing changes")
 		return true
 	end
-	return self:want({ fan_on = true, speed = self:preset() })
+	return self:want(mode.exit({ fan_on = true, speed = self:preset() }, shown))
 end
 
--- OFF is sent whatever the shown state says (V8: it can be a poll old).
+-- OFF is sent whatever the shown state says (V8: it can be a poll old): it
+-- stops the motor in Breeze mode too, and clears a stored `wind` (BF-D4).
 function fanproxy:off()
-	return self:want({ fan_on = false })
+	return self:want(mode.exit({ fan_on = false }, shown_of(self)))
 end
 
+-- From fan mode to off; from off or Breeze mode (which this device shows as
+-- off) to fan mode at the preset (BF79: it does not stop a fan blowing Breeze).
 function fanproxy:toggle()
-	local on = shown_of(self).fan_on
+	local shown = shown_of(self)
+	local on = mode.fan_on(shown)
 	if on == true then
-		return self:want({ fan_on = false })
+		return self:want(mode.exit({ fan_on = false }, shown))
 	elseif on == false then
-		return self:want({ fan_on = true, speed = self:preset() })
+		return self:want(mode.exit({ fan_on = true, speed = self:preset() }, shown))
 	end
 	self.log.debug("TOGGLE refused: the fan's state is not known yet")
 	return false, "unknown"
@@ -271,19 +309,22 @@ function fanproxy:speed(value)
 		self.log.warn("fan speed %s refused: 0 to %d", tostring(value), SPEEDS)
 		return false, "range"
 	end
+	local shown = shown_of(self)
 	if n == 0 then
-		return self:want({ fan_on = false })
+		return self:want(mode.exit({ fan_on = false }, shown))
 	end
-	return self:want({ fan_on = true, speed = n })
+	return self:want(mode.exit({ fan_on = true, speed = n }, shown))
 end
 
 -- One step up (step > 0) or down (step < 0) from the shown speed, so a burst
--- counts from its target (R5). From off, up goes to 1 and down does nothing.
--- At an end the speed stays: never round, never off by cycling (V11; the
--- proxy's CYCLE_SPEED_UP and DOWN and, since #77, the Fan Cycle link).
+-- counts from its target (R5). From off, up goes to 1 and down does nothing;
+-- Breeze mode counts as off (BF81). At an end the speed stays: never round,
+-- never off by cycling (V11; the proxy's CYCLE_SPEED_UP and DOWN and, since
+-- #77, the Fan Cycle link).
 function fanproxy:cycle(step)
 	local shown = shown_of(self)
-	if shown.fan_on == nil then
+	local on = mode.fan_on(shown)
+	if on == nil then
 		self.log.debug("cycle refused: the fan's state is not known yet")
 		return false, "unknown"
 	end
@@ -293,9 +334,9 @@ function fanproxy:cycle(step)
 	end
 	step = step > 0 and 1 or -1
 	local target
-	if shown.fan_on == false then
+	if on == false then
 		if step < 0 then
-			self.log.debug("cycle down: the fan is off; nothing changes")
+			self.log.debug("cycle down: the fan is not in fan mode (off or Breeze); nothing changes")
 			return true
 		end
 		target = 1
@@ -311,7 +352,7 @@ function fanproxy:cycle(step)
 			return true
 		end
 	end
-	return self:want({ fan_on = true, speed = target })
+	return self:want(mode.exit({ fan_on = true, speed = target }, shown))
 end
 
 -- "forward", "reverse" or "toggle". Without the capability nothing is ever
@@ -339,28 +380,107 @@ end
 
 -- Reports (section 4.5) ----------------------------------------------------------
 
--- The model's settled(group, st, why) for the fan and direction groups; the
--- light's is the light's. A value is sent when it differs from the last one
--- sent (R1) or at "start" (R6), which tells the proxy once whatever it was told.
+-- Whether the other half of a two-request change is still wanted or in
+-- flight (BF-D6, BF-D13): the shown state against the confirmed one the
+-- settle carries. A "fan" settle looks at `wind`, a "breeze" settle at fan_on
+-- and the speed (the settled group itself is idle, R5); anything else at all
+-- three. A fan without Breeze has no `wind` on either side, so its "fan"
+-- settles never wait.
+function fanproxy:half_way(group, st)
+	local shown = shown_of(self)
+	local fan_fields = shown.fan_on ~= st.fan_on or shown.speed ~= st.speed
+	if group == "fan" then
+		return shown.wind ~= st.wind
+	elseif group == "breeze" then
+		return fan_fields
+	end
+	return fan_fields or shown.wind ~= st.wind
+end
+
+-- CURRENT_SPEED from a confirmed state (BF-D2), when it differs from the last
+-- one sent (R1) or at the "fan" group's "start" (R6: the "breeze" group's
+-- start, from the same state, adds nothing). Outside "start" it waits while
+-- the other half of the change is under way, and the next settle or idle()
+-- tells it.
+function fanproxy:tell_speed(group, st, why)
+	local speed = reported_speed(st)
+	if speed == nil then
+		if st.fan_on == true then
+			self.log.debug("the fan is on without a speed: no CURRENT_SPEED sent")
+		end
+		return
+	end
+	if why ~= "start" and self:half_way(group, st) then
+		self.speed_waits = true
+		self.log.debug("CURRENT_SPEED %d waits for the rest of the change", speed)
+		return
+	end
+	self.speed_waits = false
+	if speed ~= self.told_fan or (why == "start" and group == "fan") then
+		self:send_speed(speed)
+	end
+end
+
+-- DIRECTION from a confirmed state, with can_reverse: held while Breeze blows
+-- (BF-D14: what the fan does with its direction during Breeze is no change of
+-- this device's), else sent when it differs from the last one sent (R1), at
+-- "start" (R6), or once after a hold that a "start" or GET_CURRENT_STATE asked for.
+function fanproxy:tell_direction(st, why)
+	if not self.can_reverse then
+		return
+	end
+	local direction = direction_of(st.direction)
+	if direction == nil then
+		return
+	end
+	if mode.breeze(st) then
+		self.dir_held = true
+		self.dir_force = self.dir_force or why == "start"
+		self.log.debug("DIRECTION %s held while Breeze blows", direction:upper())
+		return
+	end
+	local force = why == "start" or self.dir_force
+	self.dir_held, self.dir_force = false, false
+	if direction ~= self.told_dir or force then
+		self:send_direction(direction)
+	end
+end
+
+-- What waited is told from a later state: the speed once nothing is half way,
+-- a held direction once Breeze no longer blows.
+function fanproxy:catch_up(group, st)
+	if self.speed_waits then
+		self:tell_speed(group, st, nil)
+	end
+	if self.dir_held and not mode.breeze(st) then
+		self:tell_direction(st, nil)
+	end
+end
+
+-- The model's settled(group, st, why), st the whole confirmed state: the fan
+-- and Breeze groups give CURRENT_SPEED, the direction group DIRECTION; any
+-- settle catches up with what waited. The light's is the light's.
 function fanproxy:settled(group, st, why)
 	st = st or {}
-	if group == "fan" then
-		local speed = reported_speed(st)
-		if speed == nil then
-			if st.fan_on == true then
-				self.log.debug("the fan is on without a speed: no CURRENT_SPEED sent")
-			end
-			return
+	if group == "fan" or group == "breeze" then
+		self:tell_speed(group, st, why)
+		if self.dir_held and not mode.breeze(st) then
+			self:tell_direction(st, nil)
 		end
-		if speed ~= self.told_fan or why == "start" then
-			self:send_speed(speed)
-		end
-	elseif group == "direction" and self.can_reverse then
-		local direction = direction_of(st.direction)
-		if direction and (direction ~= self.told_dir or why == "start") then
-			self:send_direction(direction)
-		end
+	elseif group == "direction" then
+		self:tell_direction(st, why)
+		self:catch_up(group, st)
+	else
+		self:catch_up(group, st)
 	end
+end
+
+-- The model's idle(group, st): a group's command is done, answered or
+-- dropped. A CURRENT_SPEED that waited for it is told now, so a second half
+-- the fan did not take (or a target equal to what the first answer showed,
+-- which the model does not settle again) still reaches the proxy.
+function fanproxy:idle(group, st)
+	self:catch_up(group, st or {})
 end
 
 -- GET_CURRENT_STATE: the proxy asks for everything (it comes at the add,
@@ -379,7 +499,14 @@ function fanproxy:report_all()
 	end
 	local direction = direction_of(st.direction)
 	if self.can_reverse and direction then
-		self:send_direction(direction)
+		if mode.breeze(st) then
+			-- BF-D14: told once Breeze ends, even when it is the one told before.
+			self.dir_held, self.dir_force = true, true
+			self.log.debug("GET_CURRENT_STATE: DIRECTION %s held while Breeze blows", direction:upper())
+		else
+			self.dir_held, self.dir_force = false, false
+			self:send_direction(direction)
+		end
 	end
 	self:send_preset()
 end

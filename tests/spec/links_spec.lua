@@ -1424,6 +1424,205 @@ describe("fan.links", function()
 
 	-- breeze-design BZ4 and section 6 (ECB BC11, BC13, BC15, BC22, BC27): Fan
 	-- Breeze is handled as Fan Toggle; its LED is breeze_blows().
+	describe("fan mode and Breeze mode (#121, breeze-design BF-D2, BF93 to BF96)", function()
+		local BLOWING = { fan_on = true, speed = 3, wind = true, wind_speed = 2 }
+
+		it("Breeze mode darkens every speed link, Toggle, Cycle and Off; only 311 lights (BF93)", function()
+			local r = rig()
+			r.blows = true
+			r.lk:shown(BLOWING)
+			assert.same({
+				"300:false", "301:false", "302:false", "303:false", "304:false", "305:false", "306:false", "307:false",
+				"308:false", "311:true",
+			}, r.leds())
+		end)
+
+		it("fan mode lights the speed, Toggle and Cycle as in 1.2, with `wind` false", function()
+			local r = rig()
+			r.lk:shown({ fan_on = true, speed = 3, wind = false })
+			assert.same({
+				"300:false", "301:false", "302:false", "303:true", "304:false", "305:false", "306:false", "307:true",
+				"308:true", "311:false",
+			}, r.leds())
+		end)
+
+		it("Off lights only while the motor is stopped, a stored `wind` or not (BF94, BF95)", function()
+			local r = rig()
+			r.lk:shown({ fan_on = false, speed = 3, wind = true })
+			assert.same({
+				"300:true", "301:false", "302:false", "303:false", "304:false", "305:false", "306:false", "307:false",
+				"308:false", "311:false",
+			}, r.leds(), "stopped with a stored `wind`: Off lit, nothing else")
+			r.clear()
+			r.blows = true
+			r.lk:shown(BLOWING)
+			assert.same({ "300:false", "311:true" }, r.leds(), "Breeze blows: Off dark, since Off would stop it")
+		end)
+
+		it("from fan mode into Breeze and back: the links of fan mode go dark, then light again", function()
+			local r = rig()
+			r.lk:shown({ fan_on = true, speed = 4, wind = false })
+			r.clear()
+			r.blows = true
+			r.lk:shown({ fan_on = true, speed = 4, wind = true })
+			assert.same({ "304:false", "307:false", "308:false", "311:true" }, r.leds())
+			r.clear()
+			r.blows = false
+			r.lk:shown({ fan_on = true, speed = 2, wind = false })
+			assert.same({ "302:true", "307:true", "308:true", "311:false" }, r.leds(), "fan mode at the speed it shows")
+		end)
+
+		it("gusts or a new base speed during Breeze light nothing (BF76)", function()
+			local r = rig()
+			r.blows = true
+			r.lk:shown(BLOWING)
+			r.clear()
+			for speed = 1, 6 do
+				r.lk:shown({ fan_on = true, speed = speed, wind = true })
+			end
+			r.lk:shown({ fan_on = true, wind = true })
+			assert.same({}, r.leds())
+		end)
+
+		it("Also Lit At lights nothing during Breeze (BF96)", function()
+			local r = rig()
+			r.lk:set_also(2, 1)
+			r.lk:set_also(5, 6)
+			r.blows = true
+			r.show({ fan_on = true, speed = 1, wind = true })
+			assert.same({
+				"300:false", "301:false", "302:false", "303:false", "304:false", "305:false", "306:false", "307:false",
+				"308:false", "311:true",
+			}, r.leds())
+			r.clear()
+			r.lk:set_also(2, 1)
+			assert.same({ "302:false" }, r.leds(), "a changed row sends its link again: dark")
+		end)
+
+		it("Per speed: no BUTTON_COLORS during Breeze, on a change, a request, a bind or a new colour set (BF96)",
+			function()
+				local r = rig({ shown = { fan_on = true, speed = 3, wind = true } })
+				r.blows = true
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.lk:shown(r.model:shown())
+				r.lk:refresh()
+				r.recv(303, "REQUEST_BUTTON_COLORS")
+				r.lk:binding_changed(303, true, 456, 7)
+				r.lk:set_colors("per_speed", COLORS, "202020")
+				for _, s in ipairs(r.sent) do
+					assert.equal("MATCH_LED_STATE", s.command)
+					if s.link ~= BREEZE then
+						assert.is_false(s.params.STATE, tostring(s.link))
+					end
+				end
+				r.clear()
+				r.blows = false
+				r.lk:shown({ fan_on = true, speed = 3, wind = false })
+				assert.is_true(contains(r.trace(), "303 BUTTON_COLORS"), "fan mode again: the colour of speed 3")
+			end)
+
+		it("REQUEST_BUTTON_COLORS and a bind during Breeze answer the speed links dark and 311 lit", function()
+			local r = rig({ shown = { fan_on = true, speed = 3, wind = true } })
+			r.blows = true
+			r.recv(303, "REQUEST_BUTTON_COLORS")
+			r.recv(307, "REQUEST_BUTTON_COLORS")
+			r.recv(300, "REQUEST_BUTTON_COLORS")
+			r.lk:binding_changed(BREEZE, true, 456, 7)
+			assert.same({ "303:false", "307:false", "300:false", "311:true" }, r.leds())
+		end)
+
+		describe("presses through the real proxy (BF-D3, BF-D4, BF78 to BF84)", function()
+			it("a speed link during Breeze wants that speed and `wind` false; it lights at once and 311 goes dark",
+				function()
+					local r = rig({ real_fan = true, shown = { fan_on = true, speed = 3, wind = true } })
+					r.blows = true
+					r.lk:refresh()
+					r.clear()
+					r.recv(305, "DO_PUSH")
+					assert.same({ { fan_on = true, speed = 5, wind = false } }, r.model.wants)
+					r.blows = false -- fan/breeze.lua reads the same shown state: `wind` false
+					r.lk:shown(r.model:shown())
+					assert.same({ "305:true", "307:true", "308:true", "311:false" }, r.leds())
+				end)
+
+			it("a speed link at the speed the fan held during Breeze still ends Breeze (BF80)", function()
+				local r = rig({ real_fan = true, shown = { fan_on = true, speed = 3, wind = true } })
+				r.recv(303, "DO_PUSH")
+				assert.same({ { fan_on = true, speed = 3, wind = false } }, r.model.wants)
+			end)
+
+			it("Off during Breeze stops the motor and clears `wind`; Off lights at once (BF94)", function()
+				local r = rig({ real_fan = true, shown = { fan_on = true, speed = 3, wind = true } })
+				r.blows = true
+				r.lk:refresh()
+				r.clear()
+				r.recv(300, "DO_PUSH")
+				assert.same({ { fan_on = false, wind = false } }, r.model.wants)
+				r.blows = false
+				r.lk:shown(r.model:shown())
+				assert.same({ "300:true", "311:false" }, r.leds())
+			end)
+
+			it("Off with a stored `wind` and the motor stopped clears it (BF84)", function()
+				local r = rig({ real_fan = true, shown = { fan_on = false, speed = 3, wind = true } })
+				r.recv(300, "DO_PUSH")
+				assert.same({ { fan_on = false, wind = false } }, r.model.wants)
+			end)
+
+			it("Toggle during Breeze turns fan mode on at the preset: it does not stop the spinning fan (BF79)",
+				function()
+					local r = rig({ real_fan = true, shown = { fan_on = true, speed = 2, wind = true } })
+					r.recv(5001, "DESIGNATE_PRESET", { PRESET = "4" })
+					r.recv(307, "DO_PUSH")
+					assert.same({ { fan_on = true, speed = 4, wind = false } }, r.model.wants)
+					r.recv(307, "DO_PUSH")
+					assert.same({ fan_on = false }, r.model.wants[2], "from fan mode, off; `wind` is false by then")
+				end)
+
+			it("Cycle during Breeze counts from off: Fan Cycle gives speed 1 in fan mode (BF81)", function()
+				local r = rig({ real_fan = true, shown = { fan_on = true, speed = 5, wind = true } })
+				r.recv(308, "DO_PUSH")
+				assert.same({ { fan_on = true, speed = 1, wind = false } }, r.model.wants)
+				r.recv(308, "DO_PUSH")
+				assert.same({ fan_on = true, speed = 2 }, r.model.wants[2], "and on from there in fan mode")
+			end)
+
+			it("a fan-mode press from a stopped fan with a stored `wind` clears it first (BF83)", function()
+				local r = rig({ real_fan = true, shown = { fan_on = false, speed = 3, wind = true } })
+				r.recv(302, "DO_PUSH")
+				assert.same({ { fan_on = true, speed = 2, wind = false } }, r.model.wants)
+				local t = rig({ real_fan = true, shown = { fan_on = false, speed = 3, wind = true } })
+				t.recv(307, "DO_PUSH")
+				assert.same({ { fan_on = true, speed = 3, wind = false } }, t.model.wants)
+				local c = rig({ real_fan = true, shown = { fan_on = false, speed = 3, wind = true } })
+				c.recv(308, "DO_PUSH")
+				assert.same({ { fan_on = true, speed = 1, wind = false } }, c.model.wants)
+			end)
+
+			it("in fan mode with `wind` false no press adds `wind` (BF72)", function()
+				for _, link in ipairs(FAN_IDS) do
+					local r = rig({ real_fan = true, shown = { fan_on = true, speed = 3, wind = false } })
+					r.recv(link, "DO_PUSH")
+					for _, want in ipairs(r.model.wants) do
+						assert.is_nil(want.wind, tostring(link))
+					end
+				end
+			end)
+
+			it("a fan without Breeze is never sent a `wind`, from any press in any state (BF71)", function()
+				for _, shown in ipairs({ { fan_on = true, speed = 3 }, { fan_on = false, speed = 3 }, { fan_on = false } }) do
+					for _, link in ipairs(FAN_IDS) do
+						local r = rig({ real_fan = true, shown = shown })
+						r.recv(link, "DO_PUSH")
+						for _, want in ipairs(r.model.wants) do
+							assert.is_nil(want.wind, tostring(link))
+						end
+					end
+				end
+			end)
+		end)
+	end)
+
 	describe("Fan Breeze, link 311 (breeze-design BZ4)", function()
 		-- The 311 sends since the last clear, as "311:true".
 		local function breeze_leds(r)
@@ -1481,7 +1680,7 @@ describe("fan.links", function()
 				assert.equal(3, r.toggles, "10 s after the push: the window is over")
 			end)
 
-			it("a double tap toggles twice, so Breeze ends where it started (BC13, as on Fan Toggle)", function()
+			it("a double tap toggles twice, as on Fan Toggle (what each toggle does is fan/breeze.lua's, BF90)", function()
 				local r = rig()
 				r.recv(BREEZE, "DO_PUSH")
 				r.advance(100)
@@ -1569,17 +1768,17 @@ describe("fan.links", function()
 				r.blows = true
 				r.lk:shown({ fan_on = true, speed = 3, wind = true })
 				assert.equal(asked + 1, r.blows_asked, "read again at this shown state")
-				assert.same({ "311:true" }, r.leds(), "only 311 changed")
+				assert.same({ "303:false", "307:false", "308:false", "311:true" }, r.leds(),
+					"311 lights, and fan mode's links go dark (BF-D2)")
 				r.clear()
 				r.lk:shown({ fan_on = true, speed = 3, wind = true })
 				r.lk:shown({ fan_on = true, speed = 3, wind = true, light_on = true })
 				assert.same({}, r.leds(), "the same lit state twice sends nothing")
 				r.lk:shown({ fan_on = true, speed = 4, wind = true })
-				assert.same({ "303:false", "304:true" }, r.leds(), "a speed change leaves 311 alone while it blows")
-				r.clear()
+				assert.same({}, r.leds(), "a speed change during Breeze lights nothing: the speed does not matter then")
 				r.blows = false
 				r.lk:shown({ fan_on = false, speed = 4, wind = true })
-				assert.same({ "300:true", "304:false", "307:false", "308:false", "311:false" }, r.leds())
+				assert.same({ "300:true", "311:false" }, r.leds(), "the motor stopped: Off lights, 311 goes dark")
 			end)
 
 			it("shows a press's target at once: the model's shown state changes and breeze_blows says so", function()
@@ -1589,11 +1788,11 @@ describe("fan.links", function()
 				r.recv(BREEZE, "DO_PUSH")
 				r.blows = true -- fan/breeze.lua wanted { wind = true }; the model shows it
 				r.lk:shown({ fan_on = true, speed = 2, wind = true })
-				assert.same({ "311:true" }, r.leds())
+				assert.same({ "302:false", "307:false", "308:false", "311:true" }, r.leds())
 				r.clear()
 				r.blows = false -- the request failed; the shown state fell back
 				r.lk:shown({ fan_on = true, speed = 2 })
-				assert.same({ "311:false" }, r.leds())
+				assert.same({ "302:true", "307:true", "308:true", "311:false" }, r.leds())
 			end)
 
 			it("waits for the first contact like the other links (BC22): nothing while the fan's state is unknown", function()

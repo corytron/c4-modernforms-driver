@@ -22,8 +22,8 @@
 --     write it. What the owner typed into Fan Address, and the instance name
 --     another fan announces (Found Fans, L32), are echoed cut, with every byte
 --     outside printable ASCII shown as "?"; so is the Breeze strength given
---     (L34). Item names Director gives (L22, L23, L36, L37) are printed as
---     they are, cut only between characters.
+--     (L34). Item names Director gives (L22, L23, L36, L37, L41) are printed
+--     as they are, cut only between characters.
 --   * Rows stay under about 70 characters (Composer clips near 75, ECC F29).
 --     Two texts can pass that: Fan Automations with every item active (84
 --     characters; the contract gives no shorter form) and S9 with a
@@ -59,7 +59,8 @@ texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign"
 -- then the eight answers of the rename job, L22 to L29 (fan-name-design 2.3),
 -- then the address follower's two, L30 and L31 (address-follow-design 2.4),
 -- then the waiting pick, L32 (auto-discovery-design 5), then Breeze's eight,
--- L33 to L40 (breeze-design section 5).
+-- L33 to L40 (breeze-design section 5; "Breeze fan" since section 11), and
+-- L41, the 1.2 switch still bound (breeze-design BF-D10).
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 	"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
@@ -67,7 +68,7 @@ texts.RESULT_KEYS = {
 	"name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed", "name_no_pin",
 	"name_busy", "followed", "follow_refused", "picked_wait",
 	"breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added", "breeze_switch_exists",
-	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed",
+	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed", "breeze_old_switch",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -574,31 +575,31 @@ local function strength_of(x)
 	return nil
 end
 
--- S5's fan part: "speed 3", "off", then " reverse" and the Breeze flag when
--- they apply. The flag is the raw `wind` (breeze-design BZ1): " Breeze 2"
--- while it blows (`wind` and `fan_on`, at strength 2; " Breeze" when the
--- strength is unknown), " Breeze set" while `wind` is set and the fan is off,
--- and " Breeze" while the fan's on/off is unknown.
+-- S5's fan part, by the motor's three states (breeze-design BF-D1, BF-D2).
+-- Breeze mode (`fan_on` and `wind` both true, "Breeze blows" of BZ1) is
+-- "Breeze 2", the strength alone, since the fan speed does not matter then
+-- ("Breeze" when the strength is unknown or not 1 to 3). Otherwise "fan speed
+-- 3", "fan off" or "fan unknown", then " reverse" when it applies, then the
+-- raw `wind` flag: " Breeze set" while `wind` is set and the fan is off, and
+-- " Breeze" while the fan's on/off is unknown. A fan without Breeze (`wind`
+-- nil) reads as in 1.2.
 local function fan_part(st)
-	local out = "unknown"
+	if st.fan_on == true and st.wind == true then
+		local strength = strength_of(st.wind_speed)
+		return "Breeze" .. (strength and (" " .. strength) or "")
+	end
+	local out = "fan unknown"
 	if st.fan_on == true then
 		local speed = whole(st.speed)
-		out = speed and ("speed " .. speed) or "on"
+		out = speed and ("fan speed " .. speed) or "fan on"
 	elseif st.fan_on == false then
-		out = "off"
+		out = "fan off"
 	end
 	if st.direction == "reverse" then
 		out = out .. " reverse"
 	end
 	if st.wind == true then
-		if st.fan_on == true then
-			local strength = strength_of(st.wind_speed)
-			out = out .. " Breeze" .. (strength and (" " .. strength) or "")
-		elseif st.fan_on == false then
-			out = out .. " Breeze set"
-		else
-			out = out .. " Breeze"
-		end
+		out = out .. (st.fan_on == false and " Breeze set" or " Breeze")
 	end
 	return out
 end
@@ -657,7 +658,7 @@ function STATUS.online(v)
 		return "Online, but the fan reports no " .. missing .. tail
 	end
 	local st = type(v.st) == "table" and v.st or {}
-	return string.format("Online: fan %s, %s", fan_part(st), light_part(st, v.has_light))
+	return string.format("Online: %s, %s", fan_part(st), light_part(st, v.has_light))
 end
 
 -- S7, S8, S9: offline after timeouts and refusals, or after answers that
@@ -743,7 +744,8 @@ end
 --   fan_type                         the model the name table lacks (L24)
 --   strength                         the Breeze strength as given (L34)
 --   why                              the model's refusal reason (L35)
---   name                             the Breeze switch's item name (L36, L37)
+--   name                             the Breeze fan's item name (L36, L37),
+--                                    or the 1.2 switch's (L41)
 -- The last three are never read from a pin.
 local function fields(args)
 	local a = type(args) == "table" and args or {}
@@ -952,7 +954,8 @@ function RESULTS.name_busy()
 	return "Naming in progress; try again in a moment"
 end
 
--- L33 to L40: Breeze (breeze-design section 5, BZ10, BZ11).
+-- L33 to L41: Breeze (breeze-design section 5, BZ10, BZ11; section 11,
+-- BF-D10: the action is Add Breeze Fan, and L41 is new).
 
 -- L34 shows the strength it was given cut to this many characters; L35 the
 -- key a "no <key>" refusal names cut to this many.
@@ -974,7 +977,7 @@ local function given(x, cut)
 	return text:sub(1, cut)
 end
 
--- An item name as Director gives it (L36, L37): control characters dropped,
+-- An item name as Director gives it (L36, L37, L41): control characters dropped,
 -- blanks trimmed, and past `cut` bytes cut with no marker, never inside a
 -- UTF-8 character (a name may hold any, and L22 prints names as they are).
 -- "?" for none.
@@ -1048,35 +1051,42 @@ function RESULTS.breeze_refused(f)
 	return "Breeze not sent: " .. words
 end
 
--- L36 and L37 name the switch after a fixed start, the name cut so the line
--- stays at ROW_MAX: 49 characters of it for L36, 32 for L37.
-local SWITCH_ADDED = "Breeze switch added: "
-local SWITCH_EXISTS = "A Breeze switch is already connected: "
+-- L36, L37 and L41 name the device after a fixed start, the name cut so the
+-- line stays at ROW_MAX: 52 characters of it for L36, 35 for L37, 34 for L41.
+local FAN_ADDED = "Breeze fan added: "
+local FAN_EXISTS = "A Breeze fan is already connected: "
+local OLD_SWITCH = "Delete the old Breeze switch first: "
 
--- L36: Add Breeze Switch added and bound the switch (BZ11).
+-- L36: Add Breeze Fan added and bound the Breeze fan (BZ11, BF-D10).
 function RESULTS.breeze_switch_added(f)
-	return SWITCH_ADDED .. item_name(f.name, ROW_MAX - #SWITCH_ADDED)
+	return FAN_ADDED .. item_name(f.name, ROW_MAX - #FAN_ADDED)
 end
 
--- L37: a switch is already bound to this fan device; named.
+-- L37: a Breeze fan is already bound to this fan device; named.
 function RESULTS.breeze_switch_exists(f)
-	return SWITCH_EXISTS .. item_name(f.name, ROW_MAX - #SWITCH_EXISTS)
+	return FAN_EXISTS .. item_name(f.name, ROW_MAX - #FAN_EXISTS)
 end
 
 -- L38: the fan reports no Breeze (BZ10).
 function RESULTS.breeze_switch_no_breeze()
-	return "No Breeze switch added: this fan reports no Breeze"
+	return "No Breeze fan added: this fan reports no Breeze"
 end
 
 -- L39: no fan is pinned yet.
 function RESULTS.breeze_switch_no_fan()
-	return "No Breeze switch added: set up the fan first"
+	return "No Breeze fan added: set up the fan first"
 end
 
 -- L40: Composer refused the new device or its binding (the package is not
 -- installed, most likely).
 function RESULTS.breeze_switch_failed()
-	return "No Breeze switch added: install modernforms_breeze.c4z first"
+	return "No Breeze fan added: install modernforms_breeze_fan.c4z first"
+end
+
+-- L41: the companion bound to this fan device is 1.2's light-type Breeze
+-- switch (BF-D10), which has to go before the Breeze fan is added; named.
+function RESULTS.breeze_old_switch(f)
+	return OLD_SWITCH .. item_name(f.name, ROW_MAX - #OLD_SWITCH)
 end
 
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see

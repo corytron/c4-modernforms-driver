@@ -2,8 +2,9 @@
 -- contract's section 7 (docs/v1-design.md), for the fan's name and the rename
 -- job's answers from docs/fan-name-design.md 2.3, and for the Found Fans rows,
 -- S2, L7, L21 and L32 from docs/auto-discovery-design.md sections 3 and 5, and
--- for Breeze's S5 forms, L33 to L40 and the 13 links from
--- docs/breeze-design.md section 5. The module is pure, so nothing here needs the fake runtime. Times are built from
+-- for Breeze's S5 forms, L33 to L41 and the 13 links from
+-- docs/breeze-design.md sections 5 and 11 (BF-D2, BF-D10). The module is pure, so nothing here needs the fake
+-- runtime. Times are built from
 -- local-time fields, so the specs hold in any time zone.
 --
 -- texts.lua requires fan.names, the table of fan types and their names. This
@@ -99,9 +100,9 @@ describe("fan.texts", function()
 		end)
 
 		it("lists the 18 result keys of section 9.6 left after L8 to L10, the 8 of fan-name-design 2.3, the 2 of"
-			.. " address-follow-design 2.4, L32 of auto-discovery-design 5 and the 8 of breeze-design 5, each with a"
-			.. " text of its own", function()
-			assert.equal(37, #texts.RESULT_KEYS)
+			.. " address-follow-design 2.4, L32 of auto-discovery-design 5, the 8 of breeze-design 5 and L41 of"
+			.. " BF-D10, each with a text of its own", function()
+			assert.equal(38, #texts.RESULT_KEYS)
 			assert.same({ "learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 				"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending", "away_off", "away_already",
 				"learning_off", "learning_already", "not_answering", "not_taken", "not_picked" },
@@ -109,8 +110,8 @@ describe("fan.texts", function()
 			assert.same({ "name_renamed", "name_same", "name_unknown", "name_no_type", "name_no_ids", "name_unconfirmed",
 				"name_no_pin", "name_busy", "followed", "follow_refused", "picked_wait" }, { unpack(texts.RESULT_KEYS, 19, 29) })
 			assert.same({ "breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added",
-				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed" },
-				{ unpack(texts.RESULT_KEYS, 30) })
+				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed",
+				"breeze_old_switch" }, { unpack(texts.RESULT_KEYS, 30) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				local text = texts.result(key, { client_id = ID1, address = ADDR, which = "away", at = T,
@@ -273,55 +274,59 @@ describe("fan.texts", function()
 				assert.equal("Online: fan off, light off", texts.status(v))
 			end)
 
-			it("reverse and Breeze follow the speed", function()
-				local v = online({ st = state({ speed = 6, direction = "reverse", wind = true, level = 100 }) })
-				assert.equal("Online: fan speed 6 reverse Breeze, light 100 %", texts.status(v))
+			-- breeze-design BF-D1 and BF-D2: three states of one motor. Breeze
+			-- mode (`fan_on` and `wind`, BZ1) shows the strength alone.
+			it("reverse follows the speed in fan mode", function()
 				assert.equal("Online: fan speed 2 reverse, light 40 %",
 					texts.status(online({ st = state({ speed = 2, direction = "reverse" }) })))
-				assert.equal("Online: fan speed 1 Breeze, light 40 %",
-					texts.status(online({ st = state({ speed = 1, wind = true }) })))
+				assert.equal("Online: fan speed 6 reverse, light 100 %",
+					texts.status(online({ st = state({ speed = 6, direction = "reverse", level = 100 }) })))
 			end)
 
-			it("reverse and Breeze follow off as well (the grammar has no exception): Breeze set", function()
-				local v = online({ st = state({ fan_on = false, direction = "reverse", wind = true }) })
-				assert.equal("Online: fan off reverse Breeze set, light 40 %", texts.status(v))
-			end)
-
-			-- breeze-design BZ1 and section 5: blowing is `wind` and `fan_on`.
-			it("Breeze blowing shows its strength after the speed and reverse: Breeze 2", function()
-				assert.equal("Online: fan speed 3 Breeze 2, light 40 %",
-					texts.status(online({ st = state({ wind = true, wind_speed = 2 }) })))
-				assert.equal("Online: fan speed 6 reverse Breeze 3, light 100 %",
-					texts.status(online({ st = state({ speed = 6, direction = "reverse", wind = true, wind_speed = 3,
-						level = 100 }) })))
+			it("Breeze mode is the strength alone, no fan speed: Online: Breeze 2, light off", function()
+				assert.equal("Online: Breeze 2, light off",
+					texts.status(online({ st = state({ wind = true, wind_speed = 2, light_on = false }) })))
 				for strength = 1, 3 do
-					assert.equal("Online: fan speed 3 Breeze " .. strength .. ", light 40 %",
-						texts.status(online({ st = state({ wind = true, wind_speed = strength }) })))
+					assert.equal("Online: Breeze " .. strength .. ", light 40 %",
+						texts.status(online({ st = state({ speed = 5, wind = true, wind_speed = strength }) })))
 				end
-				assert.equal("Online: fan on Breeze 1, light 40 %",
+				assert.equal("Online: Breeze 1, light 40 %",
 					texts.status(online({ st = { fan_on = true, wind = true, wind_speed = 1, light_on = true, level = 40 } })),
 					"no speed known")
+				assert.equal("Online: Breeze 2, no light kit",
+					texts.status(online({ has_light = false, st = state({ wind = true, wind_speed = 2 }) })))
 			end)
 
-			it("Breeze blowing with no strength known, or one that is not 1 to 3, shows no number", function()
+			it("Breeze mode shows no reverse marker: the direction does not matter there", function()
+				assert.equal("Online: Breeze 3, light 100 %",
+					texts.status(online({ st = state({ speed = 6, direction = "reverse", wind = true, wind_speed = 3,
+						level = 100 }) })))
+			end)
+
+			it("Breeze mode with no strength known, or one that is not 1 to 3, shows no number", function()
 				for _, odd in ipairs({ false, 0, 4, 2.5, -1, 1e308, 0 / 0, math.huge, "x", "", {} }) do
-					assert.equal("Online: fan speed 3 Breeze, light 40 %",
+					assert.equal("Online: Breeze, light 40 %",
 						texts.status(online({ st = state({ wind = true, wind_speed = odd }) })), tostring(odd))
 				end
-				assert.equal("Online: fan speed 3 Breeze, light 40 %",
-					texts.status(online({ st = state({ wind = true }) })))
-				assert.equal("Online: fan speed 3 Breeze 2, light 40 %",
+				assert.equal("Online: Breeze, light 40 %", texts.status(online({ st = state({ wind = true }) })))
+				assert.equal("Online: Breeze, light 40 %",
+					texts.status(online({ st = state({ speed = 1, direction = "reverse", wind = true }) })))
+				assert.equal("Online: Breeze 2, light 40 %",
 					texts.status(online({ st = state({ wind = true, wind_speed = "2" }) })), "a number as text")
 			end)
 
-			it("Breeze set while the fan is off: the strength is not shown", function()
+			it("stopped with a stored wind: fan off, then reverse, then Breeze set; the strength is not shown", function()
 				assert.equal("Online: fan off Breeze set, light off",
 					texts.status(online({ st = state({ fan_on = false, wind = true, wind_speed = 2, light_on = false }) })))
+				assert.equal("Online: fan off reverse Breeze set, light 40 %",
+					texts.status(online({ st = state({ fan_on = false, direction = "reverse", wind = true }) })))
 			end)
 
 			it("Breeze with the fan's on/off unknown is the bare flag", function()
 				assert.equal("Online: fan unknown Breeze, light unknown",
 					texts.status(online({ st = { wind = true, wind_speed = 2 } })))
+				assert.equal("Online: fan unknown reverse Breeze, light unknown",
+					texts.status(online({ st = { direction = "reverse", wind = true } })))
 			end)
 
 			it("a strength without wind adds nothing", function()
@@ -329,6 +334,16 @@ describe("fan.texts", function()
 					texts.status(online({ st = state({ wind = false, wind_speed = 2 }) })))
 				assert.equal("Online: fan off, light 40 %",
 					texts.status(online({ st = state({ fan_on = false, wind_speed = 3 }) })))
+			end)
+
+			it("a fan without Breeze (wind nil) reads as in 1.2", function()
+				assert.equal("Online: fan speed 4 reverse, light 40 %",
+					texts.status(online({ st = state({ speed = 4, direction = "reverse", wind = nil }) })))
+				assert.equal("Online: fan off, light off",
+					texts.status(online({ st = state({ fan_on = false, wind = nil, light_on = false }) })))
+				assert.equal("Online: fan on, light 40 %",
+					texts.status(online({ st = { fan_on = true, light_on = true, level = 40 } })))
+				assert.equal("Online: fan unknown, light unknown", texts.status(online({ st = {} })))
 			end)
 
 			it("forward and Breeze off add nothing", function()
@@ -910,19 +925,20 @@ describe("fan.texts", function()
 			end)
 		end)
 
-		-- L33 to L40: Breeze (breeze-design section 5, BZ10, BZ11).
-		describe("L33 to L40, Breeze", function()
+		-- L33 to L41: Breeze (breeze-design section 5, BZ10, BZ11; section 11, BF-D10).
+		describe("L33 to L41, Breeze", function()
 			local AVIATOR = { name = "Aviator 5 Breeze" }
 
 			-- { id, key, args, the text verbatim, its length }
 			local cases = {
 				{ "L33", "breeze_unavailable", {}, "Breeze not available: this fan reports no Breeze", 48 },
 				{ "L34", "breeze_strength", { strength = "5" }, "Breeze strength 5 refused: use 1, 2 or 3", 40 },
-				{ "L36", "breeze_switch_added", AVIATOR, "Breeze switch added: Aviator 5 Breeze", 37 },
-				{ "L37", "breeze_switch_exists", AVIATOR, "A Breeze switch is already connected: Aviator 5 Breeze", 54 },
-				{ "L38", "breeze_switch_no_breeze", {}, "No Breeze switch added: this fan reports no Breeze", 50 },
-				{ "L39", "breeze_switch_no_fan", {}, "No Breeze switch added: set up the fan first", 44 },
-				{ "L40", "breeze_switch_failed", {}, "No Breeze switch added: install modernforms_breeze.c4z first", 60 },
+				{ "L36", "breeze_switch_added", AVIATOR, "Breeze fan added: Aviator 5 Breeze", 34 },
+				{ "L37", "breeze_switch_exists", AVIATOR, "A Breeze fan is already connected: Aviator 5 Breeze", 51 },
+				{ "L38", "breeze_switch_no_breeze", {}, "No Breeze fan added: this fan reports no Breeze", 47 },
+				{ "L39", "breeze_switch_no_fan", {}, "No Breeze fan added: set up the fan first", 41 },
+				{ "L40", "breeze_switch_failed", {}, "No Breeze fan added: install modernforms_breeze_fan.c4z first", 61 },
+				{ "L41", "breeze_old_switch", AVIATOR, "Delete the old Breeze switch first: Aviator 5 Breeze", 52 },
 			}
 			for _, case in ipairs(cases) do
 				it(case[1] .. " " .. case[2] .. " says '" .. case[4] .. "' (" .. case[5] .. " characters)", function()
@@ -1013,51 +1029,66 @@ describe("fan.texts", function()
 				assert.equal("Breeze not sent", r("breeze_refused", { pin = { why = "unset" } }), "never from a pin")
 			end)
 
-			it("L36 and L37 name the switch as Director gives it, trimmed, control characters dropped", function()
-				assert.equal("Breeze switch added: Aviator 5 Breeze", r("breeze_switch_added", { name = "  Aviator 5 Breeze\n" }))
-				assert.equal("Breeze switch added: Caf\195\169 Breeze", r("breeze_switch_added", { name = "Caf\195\169 Breeze" }),
+			it("L36, L37 and L41 name the device as Director gives it, trimmed, control characters dropped", function()
+				assert.equal("Breeze fan added: Aviator 5 Breeze", r("breeze_switch_added", { name = "  Aviator 5 Breeze\n" }))
+				assert.equal("Breeze fan added: Caf\195\169 Breeze", r("breeze_switch_added", { name = "Caf\195\169 Breeze" }),
 					"a name is printed as it is, as L22 does")
-				assert.equal("A Breeze switch is already connected: Hall, Fan Breeze",
+				assert.equal("A Breeze fan is already connected: Hall, Fan Breeze",
 					r("breeze_switch_exists", { name = "Hall, Fan Breeze" }), "a row, not a list item")
+				assert.equal("Delete the old Breeze switch first: Aviator 5 Breeze",
+					r("breeze_old_switch", { name = "\tAviator 5 Breeze " }))
 			end)
 
-			it("L36 and L37 cut a long name so the line stays at 70: 49 and 32 characters of it", function()
+			it("L36, L37 and L41 cut a long name so the line stays at 70: 52, 35 and 34 characters of it", function()
 				local long = string.rep("N", 100)
-				assert.equal("Breeze switch added: " .. string.rep("N", 49), r("breeze_switch_added", { name = long }))
+				assert.equal("Breeze fan added: " .. string.rep("N", 52), r("breeze_switch_added", { name = long }))
 				assert.equal(70, #r("breeze_switch_added", { name = long }))
-				assert.equal("A Breeze switch is already connected: " .. string.rep("N", 32),
+				assert.equal("A Breeze fan is already connected: " .. string.rep("N", 35),
 					r("breeze_switch_exists", { name = long }))
 				assert.equal(70, #r("breeze_switch_exists", { name = long }))
+				assert.equal("Delete the old Breeze switch first: " .. string.rep("N", 34),
+					r("breeze_old_switch", { name = long }))
+				assert.equal(70, #r("breeze_old_switch", { name = long }))
 				local thirty = "Master Bedroom Ceiling F Breeze" -- the companion's own name, cut to 30 by breeze.lua
-				assert.equal("A Breeze switch is already connected: " .. thirty, r("breeze_switch_exists", { name = thirty }))
-				assert.is_true(#r("breeze_switch_exists", { name = thirty }) <= 70)
-			end)
-
-			it("L36 and L37 never cut inside a UTF-8 character, and leave no blank at the end", function()
-				local e_acute, euro, cyclone = "\195\169", "\226\130\172", "\240\159\140\128"
-				assert.equal("Breeze switch added: " .. string.rep("a", 48),
-					r("breeze_switch_added", { name = string.rep("a", 48) .. e_acute .. "b" }))
-				assert.equal("Breeze switch added: " .. string.rep("a", 47) .. e_acute,
-					r("breeze_switch_added", { name = string.rep("a", 47) .. e_acute .. "b" }), "a whole character stays")
-				assert.equal("Breeze switch added: " .. string.rep("a", 47),
-					r("breeze_switch_added", { name = string.rep("a", 47) .. euro }))
-				assert.equal("Breeze switch added: " .. string.rep("a", 46) .. euro,
-					r("breeze_switch_added", { name = string.rep("a", 46) .. euro .. "zzz" }))
-				assert.equal("A Breeze switch is already connected: " .. string.rep("a", 29),
-					r("breeze_switch_exists", { name = string.rep("a", 29) .. cyclone }))
-				assert.equal("A Breeze switch is already connected: " .. string.rep("a", 31),
-					r("breeze_switch_exists", { name = string.rep("a", 31) .. " Breeze" }))
-			end)
-
-			it("L36 and L37 say ? for no name, and read it from the args only, never from a pin", function()
-				for _, none in ipairs({ "", "   ", "\n\t", false, true, {}, 0 / 0 }) do
-					assert.equal("Breeze switch added: ?", r("breeze_switch_added", { name = none }), tostring(none))
-					assert.equal("A Breeze switch is already connected: ?", r("breeze_switch_exists", { name = none }))
+				for _, key in ipairs({ "breeze_switch_added", "breeze_switch_exists", "breeze_old_switch" }) do
+					local text = r(key, { name = thirty })
+					assert.equal(thirty, text:sub(-#thirty), key .. ": a 30-character name is never cut")
+					assert.is_true(#text <= 70, key)
 				end
-				assert.equal("Breeze switch added: ?", r("breeze_switch_added"))
-				assert.equal("Breeze switch added: ?", r("breeze_switch_added", { pin = { name = "Aviator 5 Breeze" } }))
-				assert.equal("A Breeze switch is already connected: ?",
+			end)
+
+			it("L36, L37 and L41 never cut inside a UTF-8 character, and leave no blank at the end", function()
+				local e_acute, euro, cyclone = "\195\169", "\226\130\172", "\240\159\140\128"
+				assert.equal("Breeze fan added: " .. string.rep("a", 51),
+					r("breeze_switch_added", { name = string.rep("a", 51) .. e_acute .. "b" }))
+				assert.equal("Breeze fan added: " .. string.rep("a", 50) .. e_acute,
+					r("breeze_switch_added", { name = string.rep("a", 50) .. e_acute .. "b" }), "a whole character stays")
+				assert.equal("Breeze fan added: " .. string.rep("a", 50),
+					r("breeze_switch_added", { name = string.rep("a", 50) .. euro }))
+				assert.equal("Breeze fan added: " .. string.rep("a", 49) .. euro,
+					r("breeze_switch_added", { name = string.rep("a", 49) .. euro .. "zzz" }))
+				assert.equal("A Breeze fan is already connected: " .. string.rep("a", 32),
+					r("breeze_switch_exists", { name = string.rep("a", 32) .. cyclone }))
+				assert.equal("A Breeze fan is already connected: " .. string.rep("a", 34),
+					r("breeze_switch_exists", { name = string.rep("a", 34) .. " Breeze" }))
+				assert.equal("Delete the old Breeze switch first: " .. string.rep("a", 31),
+					r("breeze_old_switch", { name = string.rep("a", 31) .. cyclone }))
+				assert.equal("Delete the old Breeze switch first: " .. string.rep("a", 33),
+					r("breeze_old_switch", { name = string.rep("a", 33) .. " Breeze" }))
+			end)
+
+			it("L36, L37 and L41 say ? for no name, and read it from the args only, never from a pin", function()
+				for _, none in ipairs({ "", "   ", "\n\t", false, true, {}, 0 / 0 }) do
+					assert.equal("Breeze fan added: ?", r("breeze_switch_added", { name = none }), tostring(none))
+					assert.equal("A Breeze fan is already connected: ?", r("breeze_switch_exists", { name = none }))
+					assert.equal("Delete the old Breeze switch first: ?", r("breeze_old_switch", { name = none }))
+				end
+				assert.equal("Breeze fan added: ?", r("breeze_switch_added"))
+				assert.equal("Breeze fan added: ?", r("breeze_switch_added", { pin = { name = "Aviator 5 Breeze" } }))
+				assert.equal("A Breeze fan is already connected: ?",
 					r("breeze_switch_exists", { fan = "Aviator 5", client_id = ID1 }))
+				assert.equal("Delete the old Breeze switch first: ?",
+					r("breeze_old_switch", { pin = { name = "Aviator 5 Breeze" }, fan = "Aviator 5" }))
 			end)
 		end)
 

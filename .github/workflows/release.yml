@@ -36,7 +36,7 @@
 #   the steps that call gh or push the tag.
 # The packages are named in one place, the src/<driver>/ directories that hold a
 # driver.xml (docs/prerelease-design.md, section 2; today two, modernforms_fan
-# and modernforms_breeze): build/manifest.json lists them, every check below
+# and modernforms_breeze_fan): build/manifest.json lists them, every check below
 # takes the list from it, and
 # both jobs check that list against those directories of the commit. The
 # release's title and notes come from CHANGELOG.md on every run

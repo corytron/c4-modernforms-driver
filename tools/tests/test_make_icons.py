@@ -1,5 +1,5 @@
 """Unit tests for tools/make_icons.py: the six committed Composer icons (the fan driver's fan and light, the
-Breeze switch's gust) are RGBA at 16 and 32 px with a transparent background and something drawn on it, each
+Breeze fan's gust) are RGBA at 16 and 32 px with a transparent background and something drawn on it, each
 lies in its own package and is the file that package's driver.xml names, and the generator, run into a
 temporary directory, reproduces them byte for byte.
 
@@ -34,21 +34,21 @@ ICONS = [
     ("modernforms_fan", 32),
     ("modernforms_light", 16),
     ("modernforms_light", 32),
-    ("modernforms_breeze", 16),
-    ("modernforms_breeze", 32),
+    ("modernforms_breeze_fan", 16),
+    ("modernforms_breeze_fan", 32),
 ]
 
 # The package each icon belongs to: src/<package>/www/images/.
 PACKAGE = {
     "modernforms_fan": "modernforms_fan",
     "modernforms_light": "modernforms_fan",
-    "modernforms_breeze": "modernforms_breeze",
+    "modernforms_breeze_fan": "modernforms_breeze_fan",
 }
 
 # The share of an icon's pixels that must be (nearly) opaque: the fan's five blades and hub cover
 # over a quarter of the square, the drum light over half of it; the gust's three strokes about a fifth
 # at 32 px and under a third at 16 px.
-MIN_OPAQUE_SHARE = {"modernforms_fan": 0.2, "modernforms_light": 0.2, "modernforms_breeze": 0.15}
+MIN_OPAQUE_SHARE = {"modernforms_fan": 0.2, "modernforms_light": 0.2, "modernforms_breeze_fan": 0.15}
 
 
 @unittest.skipUnless(Image is not None, "Pillow is not installed")

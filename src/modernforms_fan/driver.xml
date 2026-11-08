@@ -334,11 +334,12 @@
 				<sort_order>6</sort_order>
 				<params/>
 			</action>
-			<!-- breeze-design BZ2, BZ11 (#111): adds the companion Breeze switch
-			     (modernforms_breeze.c4z) for the Navigators; only on this click. -->
+			<!-- breeze-design BZ2, BZ11 (#111), BF-D10 (#121): adds the Breeze fan
+			     (modernforms_breeze_fan.c4z) for the Navigators; only on this click.
+			     Named Add Breeze Switch in 1.2 (an action is no programming item). -->
 			<action>
-				<name>Add Breeze Switch</name>
-				<command>Add Breeze Switch</command>
+				<name>Add Breeze Fan</name>
+				<command>Add Breeze Fan</command>
 				<sort_order>7</sort_order>
 				<params/>
 			</action>

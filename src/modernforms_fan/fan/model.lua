@@ -23,6 +23,12 @@
 --     pending Use Selected Fan read (or a follow's), a reboot, the contact (an info
 --     read, then a state read) while one is due, a command (one group per request,
 --     fan, direction, breeze, light), the due poll (section 4.3).
+--   * The fan group and the breeze group wanted together are a pair (#121,
+--     docs/breeze-design.md BF-D6, BF-D13): a stop goes first and clears `wind`
+--     after; otherwise Breeze goes first (the mode, then the start or the speed). The
+--     second goes only once the first is answered and the fan shows what it set; both
+--     groups count as busy until the pair is done, so a read between them is reported
+--     as nobody's half-way state.
 --   * A failure of any request makes the next one a contact, so a command is
 --     never sent to a fan whose identity has not been read again since it last
 --     went quiet (V5, ECM N3). A command wanted while a contact is due makes
@@ -69,9 +75,14 @@ model.RAMP_STEP_MS = 500     -- the light's hold steps (its constant; exported w
 local Model = {}
 Model.__index = Model
 
--- The request order: the fan goes before Breeze, so Breeze On from off is the fan's
--- body first and then {"wind":true} (BZ6).
+-- The request order (section 4.3), one group per request. When the fan group and the
+-- breeze group are both wanted they are a pair (#121, docs/breeze-design.md BF-D6 and
+-- BF-D13): a stop goes first and clears `wind` after (GROUPS), anything else sets or
+-- clears the mode first and then starts the motor or changes its speed (BREEZE_FIRST),
+-- so the motor never starts in the wrong mode. Direction and light follow as before.
 local GROUPS = { "fan", "direction", "breeze", "light" }
+local BREEZE_FIRST = { "breeze", "fan", "direction", "light" }
+local PAIRED = { fan = "breeze", breeze = "fan" }
 local GROUP_FIELDS = {
 	fan = { "fan_on", "speed" },
 	direction = { "direction" },
@@ -323,6 +334,7 @@ function model.new(opts)
 	self.known = false          -- a state was read in this run
 	self.reported = false       -- the first contact's reports ("start") are done
 	self.wanted, self.flight = {}, {}
+	self.pair = nil             -- a fan and Breeze change under way (BF-D13): see Model:plan_command
 	self.told = {}              -- group -> the value last reported
 	self.settle, self.held = {}, {}
 	self.was_busy = {}
@@ -518,13 +530,26 @@ function Model:group_has_wanted(group)
 	return false
 end
 
-function Model:busy(group)
+-- A group's own fields are wanted or in flight.
+function Model:own_busy(group)
 	for _, f in ipairs(GROUP_FIELDS[group] or {}) do
 		if self.wanted[f] ~= nil or self.flight[f] ~= nil then
 			return true
 		end
 	end
 	return false
+end
+
+-- Busy: its own fields, or either group of a pair while the pair is under way (BF70):
+-- neither group of a fan and Breeze change is reported before both requests are done,
+-- so a read between them (the first one's own answer included) is the command's own
+-- change and shows nobody the half-way state (the main tile one speed change, not two).
+function Model:busy(group)
+	if self:own_busy(group) then
+		return true
+	end
+	local p = self.pair
+	return p ~= nil and (group == p.first or group == p.second) and (self:own_busy(p.first) or self:own_busy(p.second))
 end
 
 function Model:has_commands()
@@ -850,22 +875,123 @@ function Model:plan_group(g)
 	return { light_on = true }, { light_on = true, level = self.conf.level }
 end
 
+-- BF-D6: the fan group and the breeze group both wanted, and not a stop: Breeze first.
+-- A fan target is a start or a speed unless fan_on is false (a speed whose fan_on an
+-- earlier answer already confirmed is still one, plan_group sends it with fanOn).
+function Model:command_order()
+	if self:group_has_wanted("fan") and self.wanted.fan_on ~= false and self:group_has_wanted("breeze")
+		and self:group_present("breeze") then
+		return BREEZE_FIRST
+	end
+	return GROUPS
+end
+
+-- What the second request of a pair needs the first to have set, and the confirmed
+-- state does not show (BF68): a fan start or speed only with the `wind` the pair set
+-- (without it the motor starts in fan mode, or a fan in Breeze ignores the speed), and
+-- `{"wind":false}` only with the motor stopped (or it turns a running fan to fan mode).
+-- A stop is never held back: it starts nothing. nil when the second may go.
+function Model:pair_blocked(p)
+	if p.field == nil or self.conf[p.field] == p.value then
+		return nil
+	end
+	if p.second == "fan" and self.wanted.fan_on == false then
+		return nil
+	end
+	local text = FIELD_NAME[p.field] .. " " .. show_value(p.field, p.value) .. " not confirmed"
+	return (text:gsub("^%l", string.upper))
+end
+
+-- The pair ends and its second group's wanted fields go, unless they are a stop: the
+-- first request failed, was given up or could not be built (BF68, "tried once").
+function Model:drop_second(reason)
+	local p = self.pair
+	self.pair = nil
+	if p and not (p.second == "fan" and self.wanted.fan_on == false) then
+		self:release_group(p.second, reason)
+	end
+end
+
+-- The pair is over once neither of its groups has a field wanted or in flight. It ends
+-- there and then: a later want of either group is a change of its own, never held by it.
+function Model:end_pair_if_done()
+	local p = self.pair
+	if p and not self:own_busy(p.first) and not self:own_busy(p.second) then
+		self.pair = nil
+	end
+end
+
+-- After every answer: once the pair's first group is done, the confirmed state must
+-- show what it set while the second waits, or the second is dropped (BF68). A read
+-- between the two (a contact after the address was typed again) counts the same way.
+-- A pair whose Breeze has gone (an answer without `wind`) ends here, so its groups are
+-- reported on their own.
+function Model:check_pair()
+	self:end_pair_if_done()
+	local p = self.pair
+	if not p then
+		return
+	end
+	if not (self:group_present(p.first) and self:group_present(p.second)) then
+		self.pair = nil
+		return
+	end
+	if not self:own_busy(p.first) and self:own_busy(p.second) then
+		local reason = self:pair_blocked(p)
+		if reason then
+			self:drop_second(reason)
+		end
+	end
+end
+
+-- One group's request. The first group of a pair (the other group of fan and breeze
+-- wanted too) records what the second needs from it (BF-D13): a stop needs the motor
+-- stopped; Breeze needs the `wind` it sends, and a strength sent after that `wind`
+-- keeps the pair's need. A new want while a pair is under way is planned again here
+-- from the merged target (BF69): its order comes from command_order again, and what
+-- the old pair still had to send goes only as part of that target.
+function Model:plan_command(g)
+	local w = self.wire
+	local other = PAIRED[g]
+	local first = other ~= nil and self:group_has_wanted(other) and self:group_present(other)
+	local sent, covers, step1 = self:plan_group(g)
+	if first then
+		local p, field, value = self.pair, nil, nil
+		if g == "fan" then
+			field, value = "fan_on", false -- the fan group goes first only with a stop
+		elseif sent and sent.wind ~= nil then
+			field, value = "wind", sent.wind
+		elseif p and p.first == "breeze" and p.second == "fan" then
+			field, value = p.field, p.value
+		end
+		self.pair = { first = g, second = other, field = field, value = value }
+	end
+	local body, why
+	if sent then
+		body, why = w.body(sent)
+	end
+	if body then
+		return { kind = "command", path = w.PATH, body = body, group = g, sent = sent, covers = covers,
+			step1 = step1 }
+	end
+	self.log.error("%s: no body for the wanted fields (%s); dropped", g, tostring(why or "no speed"))
+	self:release_group(g)
+	if self.pair and self.pair.first == g then
+		self:drop_second("No " .. g .. " request before it")
+	end
+	self:reconcile({})
+	return nil
+end
+
 function Model:command_request()
 	local w = self.wire
-	for _, g in ipairs(GROUPS) do
+	self:end_pair_if_done()
+	for _, g in ipairs(self:command_order()) do
 		if self:group_has_wanted(g) and self:group_present(g) then
-			local sent, covers, step1 = self:plan_group(g)
-			local body, why
-			if sent then
-				body, why = w.body(sent)
+			local req = self:plan_command(g)
+			if req then
+				return req
 			end
-			if body then
-				return { kind = "command", path = w.PATH, body = body, group = g, sent = sent, covers = covers,
-					step1 = step1 }
-			end
-			self.log.error("%s: no body for the wanted fields (%s); dropped", g, tostring(why or "no speed"))
-			self:release_group(g)
-			self:reconcile({})
 		end
 	end
 	if self.off_req then
@@ -1324,6 +1450,7 @@ function Model:apply_answer(rec, st)
 	if rec.kind == "command" then
 		self:finish_command(rec, norm)
 	end
+	self:check_pair()
 	local why
 	if c then
 		why = self:finish_contact(c, st)
@@ -1433,13 +1560,18 @@ end
 
 -- The command's request is answered: its fields leave flight and a wanted field
 -- equal to what was sent is done (a repeated press costs nothing). The light's
--- target is also done when the answer shows it (section 4.3).
+-- target is also done when the answer shows it (section 4.3). The answer to a pair's
+-- second request ends the pair: what either group still wants after it (a newer
+-- speed, a strength Off could not carry) is reported when its own fields are done.
 function Model:finish_command(rec, norm)
 	for f, v in pairs(rec.covers) do
 		self.flight[f] = nil
 		if self.wanted[f] == v then
 			self.wanted[f] = nil
 		end
+	end
+	if self.pair and rec.group == self.pair.second then
+		self.pair = nil
 	end
 	if rec.step1 then
 		self.leveled = true
@@ -1487,6 +1619,10 @@ function Model:release_group(g, reason)
 		w[f] = self.wanted[f]
 		self.wanted[f] = nil
 	end
+	if self.pair and self.pair.second == g then
+		self.pair = nil -- nothing left for the pair to send
+	end
+	self:end_pair_if_done()
 	if g == "light" then
 		self.leveled = false
 	end
@@ -1496,6 +1632,7 @@ function Model:release_group(g, reason)
 end
 
 function Model:drop_all(reason)
+	self.pair = nil
 	for _, g in ipairs(GROUPS) do
 		self:release_group(g, reason)
 	end
@@ -1511,7 +1648,12 @@ function Model:release(rec, reason)
 		self.flight[f] = nil
 	end
 	if rec.group then
+		local p = self.pair
 		self:release_group(rec.group, reason)
+		if p and p.first == rec.group then
+			-- BF68: the first of a pair did not get through, so the second does not go.
+			self:drop_second(reason)
+		end
 	end
 	if rec.tag == "off" and self.off_req then
 		self:resolve_off("not_answering")
@@ -1542,6 +1684,7 @@ function Model:abandon_inflight()
 		self:release(rec, "Request given up")
 	end
 	self.flight = {}
+	self:end_pair_if_done()
 end
 
 -- A request failed. A streak makes the next request a contact; the third failure
@@ -1869,6 +2012,7 @@ function Model:want(fields)
 	if not plan then
 		return false, reason
 	end
+	self:end_pair_if_done()
 	for g, p in pairs(plan) do
 		for _, f in ipairs(GROUP_FIELDS[g]) do
 			if g ~= "breeze" or p[f] ~= nil then
@@ -1976,7 +2120,7 @@ function Model:stop()
 		return
 	end
 	self:abandon()
-	self.wanted, self.flight = {}, {}
+	self.wanted, self.flight, self.pair = {}, {}, nil
 	if self.off_req then
 		self:resolve_off("not_answering")
 	end

@@ -20,6 +20,13 @@
 --     keypad asks with REQUEST_BUTTON_COLORS.
 --   * Colours: none are sent unless Speed LED Colors is "per_speed" (V27); the
 --     button then shows the colours set on the keypad itself.
+--   * Fan mode and Breeze mode (#121, docs/breeze-design.md BF-D2, BF93 to
+--     BF96; fan/mode.lua): the speed links (with "Also Lit At" and the
+--     per-speed colours), Toggle and Cycle light from fan mode only, so they
+--     are dark while Breeze blows; Off lights only while the motor is stopped
+--     (dark in Breeze mode too: Off would stop it). A press goes through
+--     fan/fanproxy.lua, which decides "on" from fan mode and adds
+--     `wind = false` to a fan-mode command while the shown `wind` is true.
 --   * Fan Breeze (311, BZ4) is handled as Fan Toggle: its push calls
 --     breeze_toggle(), the click rule and the release are the same. Its LED is
 --     breeze_blows() (BZ1: the shown `wind` and `fan_on`), read again on every
@@ -47,6 +54,8 @@
 --       breeze_blows = fn() -> bool,   -- link 311's LED (b:blows_shown()); optional
 --       log = log,              -- default common.log
 --   })
+
+local fanmode = require("fan.mode")
 
 local links = {}
 links.__index = links
@@ -244,18 +253,18 @@ end
 -- Whether a link is lit by a shown state, and for a lit speed link the speed
 -- (it names the colour). nil: not known, and nothing is sent then. The Breeze
 -- link waits for the first contact as the others do (BC22), then follows
--- breeze_blows().
+-- breeze_blows(). Off follows the motor, the rest fan mode (BF-D2).
 function links:lit(link, shown)
-	local on, speed = shown.fan_on, shown.speed
-	if on == nil then
+	local fan_mode, speed = fanmode.fan_on(shown), shown.speed
+	if fan_mode == nil then
 		return nil
 	elseif link == BREEZE then
 		return self:blows()
 	elseif link == 300 then
-		return on == false
+		return fanmode.stopped(shown)
 	elseif link == 307 or link == 308 then
-		return on == true
-	elseif on == false then
+		return fan_mode
+	elseif not fan_mode then
 		return false
 	elseif speed == nil then
 		return nil
