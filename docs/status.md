@@ -111,7 +111,7 @@ measured on the house: the owner chose to assume the results (BZ5).
 ## Open
 
 Every open item is an issue (`gh issue list --state open`). On 2026-11-07
-#111 (Breeze) is open with PR #114, until that PR merges. The list below is what was open on 2026-10-27 and how each
+none is open: Breeze (#111) closed with PR #114. The list below is what was open on 2026-10-27 and how each
 ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,
