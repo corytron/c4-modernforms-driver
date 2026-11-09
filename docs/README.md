@@ -139,6 +139,17 @@ Read-only research written before a feature's contract, in the same style.
   order, and the two-device model of one motor (fan mode or Breeze mode,
   the request order, the keypad LEDs, groups and loops), cases BF1 to
   BF106.
+- [`breeze-leds-sdk-research.md`](breeze-leds-sdk-research.md): a keypad
+  LED animation while Breeze blows (#137), from the SDK's side: every
+  documented way to change a keypad button's LED, which source wins under
+  each LED Behavior, driver timers, and what programming alone can reach.
+- [`breeze-leds-field-research.md`](breeze-leds-field-research.md): the
+  same animation from outside the SDK (#137): the keypad's LEDs, Composer's
+  Delay and Timer agent, field reports and drivers that animate keypads,
+  Zigbee message rates, and how few LEDs can still look like motion.
+- [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md): the lifecycle
+  cases of that animation (#137), done by programming or by the driver, and
+  what is automatic, offered or forbidden without a click.
 
 ## Start here
 
