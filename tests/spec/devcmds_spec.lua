@@ -275,7 +275,7 @@ describe("fan.devcmds", function()
 				end
 				table.sort(names)
 				assert.same({ "Dev_Fan_State", "Dev_Link", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request",
-					"Dev_Search" }, names)
+					"Dev_Search", "Dev_Vars" }, names)
 				assert.is_function(env.stop)
 			end)
 
@@ -824,6 +824,46 @@ describe("fan.devcmds", function()
 			env.commands.Dev_Link({ LINK = "303", KIND = "colors", ON = "teal" })
 			env.commands.Dev_Link({ LINK = "303", KIND = "state", STATE = "yes" })
 			assert.same({}, sent)
+		end)
+	end)
+
+	-- #137: what a keypad bound to a fan link reports in its variables.
+	describe("Dev Vars", function()
+		local saved
+		before_each(function() saved = _G.C4 end)
+		after_each(function() _G.C4 = saved end)
+
+		it("logs every variable of each device bound to LINK, or of DEVICE", function()
+			local asked = {}
+			_G.C4 = {
+				GetBoundConsumerDevices = function(_, device, binding)
+					asked[#asked + 1] = "bound " .. device .. " " .. binding
+					return { [456] = "Example Keypad" }
+				end,
+				GetDeviceVariables = function(_, device)
+					asked[#asked + 1] = "vars " .. device
+					return { [1001] = { name = "LIGHT_LEVEL", value = "12" }, [1000] = { name = "LED_MODE", value = "1" } }
+				end,
+			}
+			local env = new_commands()
+			env.commands.Dev_Vars({ LINK = "302" })
+			env.commands.Dev_Vars({ DEVICE = "789" })
+			assert.same({ "bound 0 302", "vars 456", "vars 789" }, asked)
+			local text = table.concat(env.log.texts("always"), "\n")
+			assert.truthy(text:find("device 456 (Example Keypad): 2 variable(s)", 1, true))
+			assert.truthy(text:find("1000 name=LED_MODE value=1", 1, true))
+			assert.truthy(text:find("1001 name=LIGHT_LEVEL value=12", 1, true))
+		end)
+
+		it("refuses without the APIs or a fan link, and says so when nothing is bound", function()
+			_G.C4 = nil
+			local env = new_commands()
+			assert.has_no.errors(function() env.commands.Dev_Vars({ LINK = "302" }) end)
+			_G.C4 = { GetDeviceVariables = function() error("not asked") end,
+				GetBoundConsumerDevices = function() return nil end }
+			assert.has_no.errors(function() env.commands.Dev_Vars({ LINK = "999" }) end)
+			env.commands.Dev_Vars({ LINK = "303" })
+			assert.truthy(table.concat(env.log.texts("always"), "\n"):find("nothing is bound to link 303", 1, true))
 		end)
 	end)
 

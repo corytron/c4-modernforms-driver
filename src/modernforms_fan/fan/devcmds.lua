@@ -735,6 +735,63 @@ function devcmds.new(opts)
 		end
 	end
 
+	-- LINK: one of the fan's links, or DEVICE: a device id. Logs every variable
+	-- (C4:GetDeviceVariables) of each device bound to LINK, or of DEVICE, to find
+	-- what a keypad reports about its LEDs and the room's light (#137, the
+	-- Breeze LEDs' night brightness). Reads only.
+	local function dev_vars(params)
+		params = type(params) == "table" and params or {}
+		-- C4 may be userdata on a controller, so the functions are looked up under pcall.
+		local function api(name)
+			local ok, fn = pcall(function() return C4[name] end)
+			return ok and fn or nil
+		end
+		if not api("GetDeviceVariables") then
+			return refuse("Dev Vars", "this Director has no GetDeviceVariables")
+		end
+		local devices = {}
+		local device = whole(params.DEVICE)
+		if device then
+			devices[device] = "DEVICE"
+		else
+			local link = whole(params.LINK)
+			if not (link and PRESS_LINKS[link]) then
+				return refuse("Dev Vars", string.format("LINK %s is not a fan link and no DEVICE was given",
+					plain(params.LINK, 30)))
+			end
+			if not api("GetBoundConsumerDevices") then
+				return refuse("Dev Vars", "this Director has no GetBoundConsumerDevices")
+			end
+			local ok, bound = pcall(C4.GetBoundConsumerDevices, C4, 0, link)
+			if not ok or type(bound) ~= "table" or next(bound) == nil then
+				log.always("Dev Vars: nothing is bound to link %d", link)
+				return
+			end
+			for id, name in pairs(bound) do
+				devices[tonumber(id) or id] = name
+			end
+		end
+		for id, name in pairs(devices) do
+			local ok, vars = pcall(C4.GetDeviceVariables, C4, id)
+			if not ok or type(vars) ~= "table" then
+				log.always("Dev Vars: device %s (%s): no variables (%s)", plain(id, 12), plain(name, 40),
+					plain(vars, 80))
+			else
+				local ids = {}
+				for var in pairs(vars) do
+					ids[#ids + 1] = var
+				end
+				table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
+				log.always("Dev Vars: device %s (%s): %d variable(s)", plain(id, 12), plain(name, 40), #ids)
+				for _, var in ipairs(ids) do
+					local info = vars[var]
+					log.always("Dev Vars:   %s %s", plain(var, 12),
+						type(info) == "table" and describe(info) or plain(info, 80))
+				end
+			end
+		end
+	end
+
 	-- BODY: one of the two queries, or a body fan/wire.lua builds; sent through
 	-- opts.request (the model's queue, the transport behind it) and the answer
 	-- logged normalized.
@@ -831,6 +888,7 @@ function devcmds.new(opts)
 		Dev_Proxy = dev_proxy,
 		Dev_Request = dev_request,
 		Dev_Search = dev_search,
+		Dev_Vars = dev_vars,
 	}, stop
 end
 
