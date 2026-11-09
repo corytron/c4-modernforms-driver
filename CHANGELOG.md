@@ -11,6 +11,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- Breeze on the keypad LEDs: with the new property Breeze LED Animation set to `Gusts`, the buttons bound to the fan's speed links (Fan Speed 1 to 6) play gusts while the fan blows in Breeze mode, a white head with a teal trail rising over an azure column every few seconds, more often at a higher Breeze strength. A rising wipe plays when Breeze starts and a falling wipe once when it ends, whoever started or ended it (a keypad, a Navigator, the Modern Forms app, the remote, programming), and a pressed speed button lights as the falling wipe passes it. Fan Off, Toggle, Cycle and Breeze buttons and the light's buttons never animate. It needs Speed LED Colors set to `Per speed` (otherwise Last Action reads `Breeze LEDs need Speed LED Colors set to Per speed`). The driver cannot see where buttons sit on the keypad, so it orders them by speed number, and Breeze LED Bottom (`Speed 1` or `Speed 6`) says which end is at the bottom; Breeze LED Step (ms), 200 to 600 (default 300), sets the pace. It changes colours only, so the keypad's own LED brightness and its dimming by the room's light apply. Off by default; the update needs no controller reboot (#137).
+
 ## 1.3 "Ornithopter", build 124 (2026-11-08)
 
 ### Added

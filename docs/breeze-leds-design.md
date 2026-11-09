@@ -121,8 +121,10 @@ links:paint(link, colour, with_state)  -- BUTTON_COLORS {ON_COLOR = colour,
 	-- OFF_COLOR = self.off_color, CURRENT_COLOR = colour} as NOTIFY, then,
 	-- with with_state, MATCH_LED_STATE true as COMMAND. led[link] and
 	-- led_speed[link] are cleared (the link's real state is no longer on the keypad).
-links:settle(link)      -- clear led[link] and led_speed[link], then
-	-- push_led(link, model:shown(), true): the real state, colours first.
+links:settle(link)      -- the real state. Under Per speed always colours
+	-- first, also for a dark link (its own speed's colour as the on colour,
+	-- so no frame colour stays behind), then MATCH_LED_STATE; under Keypad's
+	-- own the state only. led and led_speed as push_led sets them.
 links:pixels_list()     -- the bound speed links (301 to 306 with a known
 	-- consumer or a binding not yet known by number), ascending
 ```
@@ -142,7 +144,9 @@ links:pixels_list()     -- the bound speed links (301 to 306 with a known
   `links:shown(shown)`, so the pixels are held before the links look.
   `listener.phase` calls `bleds:update` with the new online flag.
 - `OnPropertyChanged` for the three rows and for `Speed LED Colors`:
-  `bleds:configure{...}`; L42 per section 2.
+  `bleds:configure{...}`; L42 per section 2. For `Speed LED Colors` the
+  Breeze LEDs are configured **before** the links take the new colour mode,
+  so leaving `Per speed` settles the pixels with their per-speed colours.
 - `OnDriverDestroyed`: `bleds:stop()` before `links:stop()`.
 - The `fan_driver_spec` gets the integration specs (section 5).
 
