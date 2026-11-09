@@ -298,9 +298,9 @@
 			<property>
 				<name>Breeze LED Step (ms)</name>
 				<type>RANGED_INTEGER</type>
-				<minimum>200</minimum>
-				<maximum>600</maximum>
-				<default>300</default>
+				<minimum>60</minimum>
+				<maximum>400</maximum>
+				<default>120</default>
 				<readonly>false</readonly>
 			</property>
 			<property>

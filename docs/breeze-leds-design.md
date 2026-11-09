@@ -48,13 +48,54 @@ BF-D15); the links are [`v1-design.md`](v1-design.md) section 5 and
 | BL-D17 | **Restart, update, reload.** `OnDriverDestroyed` cancels the timer and sends nothing (whether a send still arrives there is not documented). The keypad keeps its last frame until the first contact, whose refresh sends every link its real state; if Breeze still blows, the rising wipe plays. No state is persisted. | SDK 6; BL45 to BL47 |
 | BL-D18 | **Off by default.** `Breeze LED Animation` = `Off` | `Gusts`, default `Off`: an update starts animating no one's keypad. A fan without Breeze never animates. No new command, event, variable or condition; property rows only, so no `<capabilities>` change and no controller reboot. | BL44 |
 
+## 1a. Revision after the first hardware round (2026-11-09)
+
+The owner watched the first build on the house keypad and the probes of
+issue #137's comment of 2026-11-09 measured the keypad. These decisions
+**replace** BL-D5 (palette), BL-D6 (enter), BL-D7 (gusts), BL-D12 (step)
+and BL-D14 (messages); the rest of section 1 stands, BL-D8's falling wipe
+included (the owner saw it and kept it).
+
+What the keypad showed: a `BUTTON_COLORS` without `CURRENT_COLOR` leaves a
+dark button dark (a colour can be preloaded); `MATCH_LED_STATE` true then
+shows it; a `BUTTON_COLORS` with `CURRENT_COLOR` repaints a lit button at
+once; one button flickers distinctly at 20 changes a second; four buttons at
+10 changes a second each (about 40 messages a second) stay even and in step;
+**pure blue `0000ff` vanishes at the keypad's night dimming**. The fan does
+not report its gusts: `fanSpeed` stays at the set speed through Breeze.
+
+| # | Decision | Basis |
+| --- | --- | --- |
+| BL-D19 | **Dark first, dark between.** When the animation starts, every pixel is taken and goes dark at once (`MATCH_LED_STATE` false), and the first gust starts at once. Between gusts every pixel is dark. A pixel is lit only while a gust uses it. There is no resting column. | owner 2026-11-09 (points 1 and 2) |
+| BL-D20 | **A night-proof palette:** head white `ffffff`; sparkles ice `a0ffff`, teal `00ffff` and sky `40b0ff`. Nothing darker than sky, never pure blue. Hue changes only, full component values (BL-D5's dimming rule stands). | probe: `0000ff` invisible at night; `0080ff` seen as teal |
+| BL-D21 | **A gust is a shimmering front.** A front rises one pixel per front step (`Breeze LED Step (ms)`, now 60 to 400, default 120, each step jittered by up to 20 % per gust). The pixel the front is on is white. Every pixel the front has passed **shimmers**: for a few sparkle ticks it flickers off and on and changes among ice, teal and sky at random, then goes dark; the shimmer fades (fewer lit ticks towards its end). Ahead of the front, a pixel may glint once in sky. Each gust draws its own randomness, so no two gusts look the same. Sometimes a second front follows the first by 2 to 4 front steps (a double gust). | owner 2026-11-09 (point 3); field Q6 |
+| BL-D22 | **Strength sets the weather.** Breeze 1: rests of 4 to 8 s, 2 to 3 sparkle ticks a pixel, doubles 10 %. Breeze 2: rests of 2 to 5 s, 3 to 4 ticks, doubles 25 %. Breeze 3: rests of 1 to 3 s, 4 to 6 ticks, doubles 40 %. Unknown strength: as 2. A change applies from the next gust. The gusts stay random: the fan does not report its own. | owner ("fire when the physical fan is gusting if possible"; not possible) |
+| BL-D23 | **The cheapest message for each change.** A colour for a dark pixel is preloaded silently (`BUTTON_COLORS` without `CURRENT_COLOR`), so lighting and flickering cost one `MATCH_LED_STATE` each; a lit pixel changes colour with one `BUTTON_COLORS` with `CURRENT_COLOR`. `RECOLOUR_NEEDS_STATE` is false (measured). | probes |
+| BL-D24 | **One clock and a budget.** The engine ticks every sparkle tick, 50 ms; the front moves every front step. At most **30 messages a second** over all pixels (40 a second measured clean; headroom for the rest of the Zigbee mesh): a tick that would exceed it drops sparkle changes first, never a front pixel, a settle or the falling wipe. Late ticks still coalesce (BL-D13). | probes; BL-D13 |
+| BL-D25 | **The falling wipe at the front's pace.** BL-D8 stands, at the front step (default 120 ms): from the top pixel, the head lights white and every pixel it leaves is settled. From a rest (all dark) the head still runs down the column. | owner (kept) |
+
+**Interface changes for BL-D19 to BL-D25** (sections 3.1 and 3.2 otherwise stand):
+
+```lua
+-- links.lua
+links:paint(link, colour, with_state, preload)  -- preload: BUTTON_COLORS without
+	-- CURRENT_COLOR (a dark pixel stays dark); with_state as before
+links:light(link, lit)  -- MATCH_LED_STATE lit on a speed link 301..306 for the
+	-- animation; clears led[link] and led_speed[link]; refused elsewhere
+-- breezeleds.lua
+breezeleds.new({ ..., light = fn(link, lit) })  -- links:light
+-- constants: HEAD "ffffff"; SPARKS { "a0ffff", "00ffff", "40b0ff" }; GLINT "40b0ff";
+-- TICK_MS 50; STEP_MIN 60, STEP_MAX 400, STEP_DEFAULT 120; BUDGET_PER_S 30;
+-- REST_MS and the per-strength tables of BL-D22; RECOLOUR_NEEDS_STATE false
+```
+
 ## 2. Properties (driver.xml, after `Speed LED Off Color`)
 
 | Name | Type | Values | Default |
 | --- | --- | --- | --- |
 | `Breeze LED Animation` | LIST | `Off`, `Gusts` | `Off` |
 | `Breeze LED Bottom` | LIST | `Lowest speed`, `Highest speed` | `Lowest speed` |
-| `Breeze LED Step (ms)` | RANGED_INTEGER | 200 to 600 | 300 |
+| `Breeze LED Step (ms)` | RANGED_INTEGER | 60 to 400 (BL-D21) | 120 |
 
 Text **L42**, written to Last Action when `Breeze LED Animation` is set to
 `Gusts` while `Speed LED Colors` is not `Per speed` (and when `Speed LED
