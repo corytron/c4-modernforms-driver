@@ -4,9 +4,9 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.4 "Sietch Tabr" is the latest release (build 152, 2026-11-09; the
-announcement in Discussion #144); its install on the house waits for the
-owner's word in the Windows session (deploy issue #142).** It adds the
+**1.4 "Sietch Tabr" runs on the house: build 152, released and installed
+in place on 2026-11-09 (deploy issue #142, the announcement in Discussion
+#144).** It adds the
 Breeze animation on the keypad LEDs (#137,
 [`breeze-leds-design.md`](breeze-leds-design.md), the rounds in Discussion
 #138):
@@ -18,8 +18,8 @@ Breeze animation on the keypad LEDs (#137,
 
 It was designed on the house keypad with the owner watching, through the
 dev loop. The night brightness and the direction shipped at the owner's
-word, without a further hardware round. Until the release install, the
-house runs dev build 144, with the 1.4 Lua served by the dev loop.
+word, without a further hardware round. The release install ended the dev
+loop.
 
 Before it, 1.3 "Ornithopter" ran on the house; the stock
 driver is gone. Build 124 of v1.3 was released and installed on
@@ -75,14 +75,19 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **Now (2026-11-09):** the fan runs dev build 144 with the 1.4 Lua pinned
-  in the dev loop. It has `Breeze LED Animation` Gusts, `Breeze LED Bottom`
-  Highest speed (Low is the keypad's top speed button) and `Breeze LED
-  Step (ms)` 120, with Debug Mode Off. Desired: v1.4 build 152 (PR #143,
-  deployment 7649366122 in progress, #142). The release install also
-  brings the row `Breeze LED Night Brightness (%)` (default 50) and ends
-  the dev loop.
-- **v1.3, build 124** (before the dev build), two devices, the fan and its Breeze fan:
+- **v1.4, build 152** (since 2026-11-09), the fan and its Breeze fan:
+  `deploy/house.yaml` and the environment `house` agree (deployment
+  7649366122, success; deploy issue #142 closed). The Windows session
+  installed both packages in place through Driver ▸ "Add or Update Driver or
+  Agent…": one "Update Succeeded" dialog, no "Restart Director?", and no
+  device deleted or re-added. Read back: Driver Version 152 and Debug Mode
+  Off on both; the fan `Online: fan speed 2, light off`, the Breeze fan
+  `Breeze off on Aviator 5`; `Breeze LED Animation` Gusts, `Breeze LED
+  Bottom` Highest speed, `Breeze LED Step (ms)` 120, `Breeze LED Night
+  Brightness (%)` 50 (new); Keypad Links `7 of 13 links bound`; the Dev
+  Server and Dev State rows gone. The log from the install onward has no
+  error or warning. The dev server on the VM is stopped.
+- **v1.3, build 124** (2026-11-08 until the dev build of #137), two devices, the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
   success, 2026-11-08; Keypad Links reads `7 of 13 links bound` with all
   seven rows; Found Fans `This device's fan answered; no other fan found`;
@@ -157,9 +162,13 @@ passed, the follow to a new address included (#58).
 
 ## Open
 
-Every open item is an issue (`gh issue list --state open`). On 2026-11-07
-none is open: Breeze (#111) closed with PR #114. The list below is what was open on 2026-10-27 and how each
-ended; all of them are closed.
+Every open item is an issue (`gh issue list --state open`). On 2026-11-09
+the one in progress is **#141, simulated light fades**. The research is on
+draft PR #147 (`light-fades-sdk-research.md`, `edge-cases-light-fades.md`),
+and the owner answered its questions in #146 with "all recommended". The
+contract `light-fades-design.md` is next. The probes that flash the light
+run only with the owner watching. The list below is what was open on
+2026-10-27 and how each ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,
   K12, K13 and K15 ran on 2026-10-27 (`tools/mf_probe.py`,
