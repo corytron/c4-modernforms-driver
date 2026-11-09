@@ -211,7 +211,7 @@ describe("Modern Forms Fan driver", function()
 					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
-					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)",
+					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
 					"Debug Mode", "Dev Server", "Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
@@ -994,9 +994,23 @@ describe("Modern Forms Fan driver", function()
 				end
 			end
 
-			it("darkens every speed button first, then runs a gust's white front up from the bottom (BL-D19, BL-D21)",
-				function()
-					local env, c4 = leds_driver()
+			it("runs the gusts down from the top while the fan blows down (forward, BL-D30)", function()
+				local env, c4 = leds_driver()
+				c4.calls = {}
+				env.ReceivedFromProxy(311, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2, fanDirection = "forward" }, 6000)
+				local list = shows(c4)
+				for index = #PIXELS, 2, -1 do
+					local upper, lower = first(list, PIXELS[index], HEAD), first(list, PIXELS[index - 1], HEAD)
+					assert.is_not_nil(upper, "the front reaches " .. PIXELS[index])
+					assert.is_not_nil(lower, "the front reaches " .. PIXELS[index - 1])
+					assert.is_true(upper < lower, "top to bottom")
+				end
+			end)
+
+			it("darkens every speed button first, then runs a gust's white front up from the bottom while the fan "
+				.. "blows up (BL-D19, BL-D21, BL-D30)", function()
+					local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = false, fanDirection = "reverse" })
 					c4.calls = {}
 					env.ReceivedFromProxy(311, "DO_PUSH", {})
 					local list = shows(c4)
@@ -1004,7 +1018,8 @@ describe("Modern Forms Fan driver", function()
 						assert.is_not_nil(first(list, link, "dark"), link .. " goes dark at the press")
 					end
 					assert.is_false(any_frame(list), "nothing animated before the dark-first")
-					hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 6000)
+					hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2, fanDirection = "reverse" },
+						6000)
 					list = shows(c4)
 					for index, link in ipairs(PIXELS) do
 						assert.is_not_nil(first(list, link, HEAD), "the front reaches " .. link)
@@ -1031,7 +1046,65 @@ describe("Modern Forms Fan driver", function()
 				return nil
 			end
 
-			it("plays the falling wipe once when a speed press ends Breeze, and leaves the pressed button lit", function()
+			-- BL-D28, BL-D29: at a grid location (no one's home), midnight in January
+			-- (05:00 UTC) is night and noon (17:00 UTC) is day.
+			local NIGHT_S, DAY_S = 1768453200, 1768496400
+			local function at_location(epoch, extra)
+				local real_time = os.time
+				os.time = function(t) -- luacheck: ignore 122
+					if t == nil then
+						return epoch
+					end
+					return real_time(t)
+				end
+				local ok, env, c4 = pcall(function()
+					local props = {
+						["Fan Address"] = FAN,
+						["Speed LED Colors"] = "Per speed",
+						["Breeze LED Animation"] = "Gusts",
+					}
+					for speed = 1, 6 do
+						props["Speed " .. speed .. " LED Color"] = "128,0,255"
+					end
+					for name, value in pairs(extra or {}) do
+						props[name] = value
+					end
+					local env, c4 = fake.load_driver(DRIVER, props)
+					c4.GetProjectProperty = function(_, name)
+						return ({ Latitude = "40.7", Longitude = "-74.0" })[name]
+					end
+					env.OnDriverInit("DIT_STARTUP")
+					env.OnDriverLateInit("DIT_STARTUP")
+					answer(c4, mf.INFO)
+					answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = false }))
+					for index, link in ipairs({ 302, 303, 304, 305, 300, 311 }) do
+						fake.link_keypad(env, link, 456, 10 + index)
+					end
+					c4.calls = {}
+					env.ReceivedFromProxy(311, "DO_PUSH", {})
+					hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 6000)
+					return env, c4
+				end)
+				os.time = real_time -- luacheck: ignore 122
+				assert(ok, env)
+				return env, c4
+			end
+
+			it("sends the animation's colours at half strength at night at the project's location (BL-D28, BL-D29)",
+				function()
+					local _, c4 = at_location(NIGHT_S)
+					local list = shows(c4)
+					assert.is_not_nil(first(list, PIXELS[#PIXELS], "808080"), "a half-white head at night")
+					assert.is_false(any_frame(list), "no full-strength frame colour at night")
+					local _, c4_day = at_location(DAY_S)
+					local day = shows(c4_day)
+					assert.is_not_nil(first(day, PIXELS[#PIXELS], HEAD), "a full-white head by day")
+					local _, c4_full = at_location(NIGHT_S, { ["Breeze LED Night Brightness (%)"] = "100" })
+					assert.is_not_nil(first(shows(c4_full), PIXELS[#PIXELS], HEAD), "100 % keeps full white at night")
+				end)
+
+			it("plays the ending wipe once when a speed press ends Breeze, against the gusts, and leaves the pressed "
+				.. "button lit (BL-D25, BL-D30)", function()
 				local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 })
 				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 6000)
 				c4.calls = {}
@@ -1044,8 +1117,9 @@ describe("Modern Forms Fan driver", function()
 					settled[index] = colour_at(c4, link, PURPLE)
 					assert.is_not_nil(settled[index], link .. " is settled")
 				end
-				for index = #PIXELS, 2, -1 do
-					assert.is_true(settled[index] < settled[index - 1], "top to bottom")
+				-- The fixture's fan blows down (forward), so the gusts fell and the wipe rises.
+				for index = 2, #PIXELS do
+					assert.is_true(settled[index - 1] < settled[index], "bottom to top")
 				end
 				assert.equal(true, last_state(c4, 303), "Medium ends lit")
 				local colours = sent(c4, 303, "BUTTON_COLORS", "ON_COLOR")
@@ -1055,7 +1129,7 @@ describe("Modern Forms Fan driver", function()
 				end
 				-- Nothing of the animation after the last settle: the wipe played once.
 				local calls = c4.calls_to("SendToProxy")
-				for index = settled[1] + 1, #calls do
+				for index = settled[#PIXELS] + 1, #calls do
 					local args = calls[index]
 					if args[1] >= 302 and args[1] <= 305 and args[2] == "BUTTON_COLORS" then
 						assert.is_nil(FRAME[args[3].ON_COLOR], "no frame colour after the wipe")
@@ -1082,7 +1156,7 @@ describe("Modern Forms Fan driver", function()
 				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 3 }))
 				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 3 }, 5000)
 				local list = shows(c4)
-				assert.is_true(first(list, 302, HEAD) < first(list, 305, HEAD))
+				assert.is_true(first(list, 305, HEAD) < first(list, 302, HEAD), "down from the top: the fan blows down (BL-D30)")
 			end)
 
 			it("puts every pixel back at once, with no wipe, when the property goes Off", function()

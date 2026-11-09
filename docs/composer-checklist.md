@@ -869,7 +869,8 @@ Breeze starts, play a shimmering gust every few seconds while it blows (a
 white front rising up the buttons with a twinkling tail of ice, teal and
 sky blue that travels up with it and follows it off the top; section 1a of
 the contract, BL-D26 and BL-D27 for the tail), and a
-falling wipe once when it ends. On the house that is Low, Medium, Med-High and High (links 302 to
+ending wipe once, the other way, when it ends (BL-D30: the gusts run the way
+the fan blows, down while it blows down). On the house that is Low, Medium, Med-High and High (links 302 to
 305); Off, Up and Down never animate, and `Speed LED Colors` is already
 `Per speed`, which the animation needs. The steps run on a `--dev` build
 of the feature branch through the dev loop ([`dev-loop.md`](dev-loop.md)),
@@ -950,7 +951,7 @@ the standing-approval sentence and names the Sets on the three new rows.
     gusts. *By hand*: press Off.
     - **Expect:** the fan stops (`Status` `Online: fan off, …`); Off lights
       at once in the keypad's own colour, before the wipe reaches the
-      bottom; the falling wipe runs down from the top and leaves every
+      bottom; the ending wipe runs against the gusts and leaves every
       speed button dark. Record whether Off lit at the press.
     - **Done:** open.
 70. **From the Modern Forms app (HB7).** *By hand*: start Breeze in the
@@ -959,13 +960,27 @@ the standing-approval sentence and names the Sets on the three new rows.
     Change By` after each change.
     - **Expect:** each change reaches the keypad within the poll interval
       (15 seconds, sooner in the 2-second window after a change): the
-      buttons going dark, then gusts, then the falling wipe leaving every speed
+      buttons going dark, then gusts, then the ending wipe leaving every speed
       button dark and Off lit, as from Control4; `Last Change By` names the
       app. Record the delay of each. Afterwards the fan is as it was
       before step 65, `Breeze LED Bottom` as step 64 left it, `Breeze LED
       Step (ms)` as step 67 left it, and `Breeze LED Animation` as the
       owner wants it on the house; a release install ends the dev loop.
     - **Done:** open.
+71. **Night brightness (BL-D28, BL-D29).** After a release install the
+    Windows session reads `Breeze LED Night Brightness (%)` (expect `50`,
+    10 to 100) on the fan item. With `Debug Mode` On, the Lua tab names
+    day or night and the time of the next sunrise or sunset the driver
+    worked out from the project's location (`Breeze LEDs: night until
+    HH:MM`); compare it with the project's own sunrise and sunset in
+    Composer's scheduler (within a couple of minutes).
+    - **Expect:** after sunset the gusts' colours are about half as bright
+      as by day (on 2026-11-09 at night the owner saw half white clearly;
+      half ice, teal and sky blue were shown next and taken as passing at
+      the owner's word); every button shows its usual colour once Breeze
+      ends.
+    - **Done:** open (the colours passed the probe; the driver side ships
+      in 1.4 untested on the hardware at the owner's word, 2026-11-09).
 
 ## What to paste back
 

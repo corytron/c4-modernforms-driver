@@ -1,5 +1,5 @@
 -- fan.breezeleds on fakes: Breeze on the keypad LEDs (#137, docs/breeze-leds-design.md section 1 as revised by
--- section 1a, BL-D19 to BL-D27, and the interfaces of sections 3.1 and 1a). The paint, light and settle calls
+-- section 1a, BL-D19 to BL-D30, and the interfaces of sections 3.1 and 1a). The paint, light and settle calls
 -- are recorded in order and replayed on a keypad that behaves as the house keypad was measured to (#137,
 -- 2026-11-09): a colour loaded while dark stays dark, MATCH_LED_STATE shows the loaded colour or dark, and a
 -- BUTTON_COLORS with CURRENT_COLOR repaints a lit button. The timer records its ms and callback and the spec
@@ -23,6 +23,8 @@ local SHIPPED_RECOLOUR = breezeleds.RECOLOUR_NEEDS_STATE
 local HEAD, GLINT, SPARKS = breezeleds.HEAD, breezeleds.GLINT, breezeleds.SPARKS
 local ICE, TEAL, SKY = SPARKS[1], SPARKS[2], SPARKS[3]
 local LETTER = { [HEAD] = "W", [ICE] = "i", [TEAL] = "t", [SKY] = "s" }
+-- The same colours at half brightness (BL-D28).
+local HALF = { [HEAD] = "808080", [ICE] = "508080", [TEAL] = "008080", [SKY] = "205880" }
 
 local HOUSE = { 302, 303, 304, 305 } -- Low, Medium, Med-High, High (BL-D2)
 local LISTS = { [1] = { 303 }, [2] = { 302, 303 }, [4] = HOUSE, [6] = { 301, 302, 303, 304, 305, 306 } }
@@ -1694,6 +1696,375 @@ describe("fan.breezeleds", function()
 		end)
 	end)
 
+	describe("direction (BL-D30)", function()
+		-- Configured, bound and blowing down.
+		local function start_down(r, list, bottom, strength)
+			r.b:configure({ enabled = true, per_speed = true, bottom = bottom or 1, step = STEP })
+			r.b:set_pixels(list or HOUSE)
+			r.b:update({ breeze = true, strength = strength or 2, online = true, direction = "down" })
+			return take(r)
+		end
+
+		for _, n in ipairs({ 1, 4, 6 }) do
+			it(string.format("runs a gust down %d pixel(s) from the top, its tail above its head, dark at the rest", n),
+				function()
+					local r = rig()
+					local order = LISTS[n]
+					assert.same(darks(order), start_down(r, order))
+					assert.equal("down", r.b:debug().gust.direction)
+					local looks = run_gust(r, order)
+					for i = 1, n do
+						local j = n + 1 - i -- its place along the gust
+						for t = 1, #looks do
+							local white = looks[t]:sub(i, i) == "W"
+							assert.equal(t == 2 * j or t == 2 * j + 1, white,
+								string.format("pixel %d white at ticks %d and %d only (tick %d)", i, 2 * j, 2 * j + 1, t))
+						end
+					end
+					assert.equal(2 * (n + 1 + 5), #looks + 1, "the head runs on past the bottom: L steps more")
+					assert.equal(string.rep(".", n), look(r, order))
+				end)
+
+			it(string.format("mirrors the travelling tail over %d pixel(s): nothing beyond its back edge, no twinkle " ..
+				"travelling up", n), function()
+				for _, seed in ipairs({ 4, 21 }) do
+					for strength = 1, 3 do
+						local r = rig()
+						r.pick = seeded(seed * 10 + strength)
+						local lane = reversed(LISTS[n]) -- along the gust: the top pixel first
+						start_down(r, LISTS[n], 1, strength)
+						local before, gusts, relit = look(r, lane), 0, 0
+						while gusts < 4 do
+							local phase = r.b:debug().phase
+							tick(r)
+							if r.b:debug().phase == "gust" then
+								relit = relit + check_tail(r, lane, before, string.format("down, seed %d, Breeze %d",
+									seed, strength))
+							elseif phase == "gust" then
+								gusts = gusts + 1
+								assert.equal(string.rep(".", n), look(r, lane), "dark when the rest begins")
+							end
+							before = look(r, lane)
+						end
+						assert.is_true(relit > 0, "relights seen")
+					end
+				end
+			end)
+		end
+
+		it("glints below the head when the gust runs down", function()
+			local r = rig()
+			local draws = 0
+			r.pick = function(lo, hi)
+				if lo == 1 and hi == 100 then
+					draws = draws + 1
+					return draws == 1 and 100 or 1 -- no double; every glint
+				end
+				return low(lo, hi)
+			end
+			start_down(r)
+			tick(r)
+			tick(r)
+			assert.equal(".s.W", look(r, HOUSE), "the head on the top pixel, a glint two below it")
+		end)
+
+		it("enters at the top pixel, the highest speed or the lowest as Breeze LED Bottom says", function()
+			local r = rig()
+			start_down(r, HOUSE, 1)
+			tick(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, tick(r))
+			local s = rig()
+			start_down(s, HOUSE, 6)
+			tick(s)
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(s), "302 is the top pixel")
+		end)
+
+		it("ends with a rising wipe after downward gusts, settling each pixel as the head leaves it", function()
+			local r = rig()
+			start_down(r)
+			run_gust(r, HOUSE)
+			take(r)
+			r.b:update({ breeze = false, strength = 2, online = true, direction = "down" })
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, take(r))
+			assert.equal("rising", r.b:debug().wipe)
+			assert.same({ { "paint", 303, HEAD, false, true }, { "light", 303, true }, { "settle", 302 } }, tick(r))
+			assert.same({ { "paint", 304, HEAD, false, true }, { "light", 304, true }, { "settle", 303 } }, tick(r))
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true }, { "settle", 304 } }, tick(r))
+			assert.same({ { "settle", 305 } }, tick(r))
+			assert.equal("idle", r.b:debug().phase)
+		end)
+
+		it("ends with a falling wipe after rising gusts", function()
+			local r = rig()
+			to_rest(r)
+			r.b:update({ breeze = false, strength = 2, online = true, direction = "up" })
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, take(r))
+			assert.equal("falling", r.b:debug().wipe)
+		end)
+
+		it("settles every pixel a late rising wipe passed, bottom up", function()
+			local r = rig()
+			start_down(r)
+			run_gust(r, HOUSE)
+			r.b:update({ breeze = false, direction = "down" })
+			take(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true }, { "settle", 302 },
+				{ "settle", 303 }, { "settle", 304 } }, tick(r, 2 * STEP))
+			assert.same({ { "settle", 305 } }, tick(r))
+			assert.equal("idle", r.b:debug().phase)
+		end)
+
+		it("takes a direction change mid-gust from the next gust, sending nothing for it", function()
+			local r = rig()
+			start(r)
+			ticks(r, 4)
+			take(r)
+			local timer = pending(r)
+			r.b:update({ breeze = true, strength = 2, online = true, direction = "down" })
+			assert.same({}, take(r))
+			assert.equal(timer, pending(r))
+			assert.equal("up", r.b:debug().gust.direction, "the running gust keeps its way")
+			tick(r)
+			tick(r)
+			assert.equal("..W.", look(r, HOUSE):gsub("[its]", "."), "tick 6: the head still rises, on 304")
+			run_gust(r, HOUSE)
+			tick(r) -- the rest
+			assert.equal("down", r.b:debug().gust.direction)
+			tick(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, tick(r), "from the top")
+		end)
+
+		it("takes the direction at the wipe's start", function()
+			local r = rig()
+			start_down(r)
+			ticks(r, 4)
+			take(r)
+			r.b:update({ breeze = false, strength = 2, online = true, direction = "up" })
+			assert.equal("falling", r.b:debug().wipe, "the fan turned to blow up as Breeze ended")
+		end)
+
+		it("counts nil, or anything but down, as up; an update without breeze keeps the direction", function()
+			for _, direction in ipairs({ "up", "sideways", 1 }) do
+				local r = rig()
+				r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP })
+				r.b:set_pixels(HOUSE)
+				r.b:update({ breeze = true, strength = 2, online = true, direction = direction })
+				assert.equal("up", r.b:debug().direction)
+				tick(r)
+				assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
+			end
+			local r = rig()
+			start(r) -- no direction at all
+			assert.equal("up", r.b:debug().direction)
+			r.b:update({ breeze = true, direction = "down" })
+			r.b:update({ online = true })
+			assert.equal("down", r.b:debug().direction, "online alone keeps it")
+			r.b:update({ breeze = true })
+			assert.equal("up", r.b:debug().direction, "with breeze, a missing direction is unknown: up")
+		end)
+
+		it("sends nothing for a direction change alone, in a rest or the wipe", function()
+			local r = rig()
+			to_rest(r)
+			local timer = pending(r)
+			r.b:update({ breeze = true, strength = 2, online = true, direction = "down" })
+			assert.same({}, take(r))
+			assert.equal(timer, pending(r))
+			r.b:update({ breeze = false, strength = 2, online = true, direction = "down" })
+			take(r)
+			timer = pending(r)
+			r.b:update({ breeze = false, strength = 2, online = true, direction = "up" })
+			assert.same({}, take(r))
+			assert.equal(timer, pending(r))
+			assert.equal("rising", r.b:debug().wipe, "the wipe keeps the way it started")
+		end)
+	end)
+
+	describe("night (BL-D28)", function()
+		describe("scale", function()
+			it("sends each component at the percent, rounded half up, in lower case", function()
+				assert.equal("808080", breezeleds.scale("ffffff", 50))
+				assert.equal("508080", breezeleds.scale("a0ffff", 50))
+				assert.equal("008080", breezeleds.scale("00ffff", 50))
+				assert.equal("205880", breezeleds.scale("40b0ff", 50))
+				assert.equal("508080", breezeleds.scale("A0FFFF", 50))
+				assert.equal("010101", breezeleds.scale("010101", 50), "0.5 rounds up")
+				assert.equal("545454", breezeleds.scale("ffffff", 33), "84.15")
+				assert.equal("404040", breezeleds.scale("ffffff", 25), "63.75")
+				assert.equal("808080", breezeleds.scale("ffffff", "50"))
+			end)
+
+			it("leaves the colour unchanged at 100", function()
+				assert.equal("ffffff", breezeleds.scale("ffffff", 100))
+				assert.equal("A0FFFF", breezeleds.scale("A0FFFF", 100))
+				assert.equal("40b0ff", breezeleds.scale("40b0ff", 150), "over 100 is 100")
+			end)
+
+			it("holds the percent at 10 at least", function()
+				assert.equal("1a1a1a", breezeleds.scale("ffffff", 5))
+				assert.equal("1a1a1a", breezeleds.scale("ffffff", -20))
+			end)
+
+			it("gives back a colour that is not 6-digit hex, or a percent that is not a number, unchanged", function()
+				for _, colour in ipairs({ "fff", "#ffffff", "12345g", "", "fffffff" }) do
+					assert.equal(colour, breezeleds.scale(colour, 50))
+				end
+				assert.is_nil(breezeleds.scale(nil, 50))
+				assert.equal(123, breezeleds.scale(123, 50))
+				assert.equal("ffffff", breezeleds.scale("ffffff", "dim"))
+				assert.equal("ffffff", breezeleds.scale("ffffff", nil))
+			end)
+		end)
+
+		local function night_start(r, list, strength, percent)
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP, night = true,
+				night_percent = percent })
+			r.b:set_pixels(list or HOUSE)
+			r.b:update({ breeze = true, strength = strength or 2, online = true })
+			return take(r)
+		end
+
+		it("sends no animation colour unscaled at night: heads, tails, glints and the wipe's head; settles are the " ..
+			"links' own", function()
+			local scaled = {}
+			for _, colour in pairs(HALF) do
+				scaled[colour] = true
+			end
+			local r = rig()
+			r.pick = seeded(9)
+			night_start(r, LISTS[6], 3)
+			local calls, skies = {}, 0
+			local gusts = 0
+			while gusts < 6 do
+				local phase = r.b:debug().phase
+				for _, call in ipairs(tick(r)) do
+					calls[#calls + 1] = call
+				end
+				if phase == "gust" and r.b:debug().phase == "rest" then
+					gusts = gusts + 1
+				end
+			end
+			r.b:update({ breeze = false })
+			for _, call in ipairs(take(r)) do
+				calls[#calls + 1] = call
+			end
+			while r.b:debug().phase == "leave" do
+				for _, call in ipairs(tick(r)) do
+					calls[#calls + 1] = call
+				end
+			end
+			local settled = {}
+			for _, call in ipairs(calls) do
+				if call[1] == "paint" then
+					assert.is_true(scaled[call[3]] == true, "scaled: " .. call[3])
+					if call[3] == HALF[SKY] then
+						skies = skies + 1 -- a glint, or a tail spark in sky
+					end
+				elseif call[1] == "settle" then
+					assert.equal(2, #call, "a settle carries no colour of the animation's")
+					settled[#settled + 1] = call[2]
+				end
+			end
+			assert.is_true(skies > 0, "sky sent scaled too")
+			assert.same(reversed(LISTS[6]), settled)
+		end)
+
+		it("scales the falling wipe's head", function()
+			local r = rig()
+			night_start(r)
+			run_gust(r, HOUSE)
+			take(r)
+			r.b:update({ breeze = false })
+			assert.same({ { "paint", 305, HALF[HEAD], false, true }, { "light", 305, true } }, take(r))
+			assert.same({ { "paint", 304, HALF[HEAD], false, true }, { "light", 304, true }, { "settle", 305 } },
+				tick(r))
+		end)
+
+		it("takes a flip mid-gust from the next colour sent: nothing is repainted for it", function()
+			local r = rig()
+			start(r)
+			ticks(r, 4)
+			assert.equal("iW..", look(r, HOUSE))
+			local timer = pending(r)
+			r.b:configure({ night = true })
+			assert.same({}, take(r))
+			assert.equal(timer, pending(r))
+			assert.same({}, tick(r), "302 and 303 keep the brightness they were lit at")
+			assert.same({ { "paint", 304, HALF[HEAD], false, true }, { "light", 304, true },
+				{ "paint", 303, HALF[ICE], false, false }, { "light", 302, false } }, tick(r), "the next colours scaled")
+			r.b:configure({ night = false })
+			assert.same({}, take(r))
+			tick(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true },
+				{ "paint", 304, ICE, false, false }, { "light", 303, false } }, tick(r), "and back by day")
+		end)
+
+		it("relights a dark pixel at the brightness of now: preloaded again after a flip, not twice", function()
+			local r = rig()
+			start(r, { 303 }, 1, 3)
+			ticks(r, 6) -- lit ice at tick 4, dark at tick 6, ice loaded at full brightness
+			r.b:configure({ night = true })
+			tick(r)
+			assert.same({ { "paint", 303, HALF[ICE], false, true }, { "light", 303, true } }, tick(r), "tick 8")
+			ticks(r, 4)
+			assert.same({ { "light", 303, true } }, tick(r), "tick 13: the half ice is loaded already")
+		end)
+
+		it("changes nothing by itself in any phase, nor with the percent alone", function()
+			local function same_again(r)
+				local timer, armed = pending(r), #r.timers
+				r.b:configure({ night = not r.b:debug().night })
+				r.b:configure({ night_percent = 30 })
+				r.b:configure({ night = true, night_percent = 70 })
+				assert.same({}, take(r))
+				assert.equal(armed, #r.timers, "nothing re-armed")
+				assert.equal(timer, pending(r))
+			end
+			local r = rig()
+			r.b:configure({ night = true })
+			assert.same({}, take(r), "idle")
+			start(r)
+			same_again(r)
+			ticks(r, 5)
+			take(r)
+			same_again(r)
+			run_gust(r, HOUSE)
+			take(r)
+			same_again(r)
+			r.b:update({ breeze = false })
+			take(r)
+			same_again(r)
+		end)
+
+		it("takes the percent from configure: held within 10 to 100, 50 for anything not a number", function()
+			local function head_at(percent)
+				local r = rig()
+				night_start(r, { 303 }, 2, percent)
+				tick(r)
+				return tick(r)[1][3], r.b:debug().night_percent
+			end
+			assert.same({ "404040", 25 }, { head_at(25) })
+			assert.same({ "ffffff", 100 }, { head_at(100) }, "100 turns the night dimming off")
+			assert.same({ "1a1a1a", 10 }, { head_at(5) })
+			assert.same({ "808080", 50 }, { head_at("dim") })
+			assert.same({ "808080", 50 }, { head_at(nil) }, "50 at first")
+			local r = rig()
+			r.b:configure({ night_percent = 30 })
+			r.b:configure({ night = true })
+			assert.equal(30, r.b:debug().night_percent, "a missing key keeps its value")
+		end)
+
+		it("reports night and its percent in debug", function()
+			local d = breezeleds.new({}):debug()
+			assert.is_false(d.night)
+			assert.equal(50, d.night_percent)
+			local r = rig()
+			r.b:configure({ night = true, night_percent = 40 })
+			assert.is_true(r.b:debug().night)
+			assert.equal(40, r.b:debug().night_percent)
+		end)
+	end)
+
 	describe("debug", function()
 		it("shows the phase, the pixels in order, what each shows, the ranges, the gust and the budget", function()
 			local r = rig()
@@ -1711,8 +2082,9 @@ describe("fan.breezeleds", function()
 			assert.same({ 1000, 3000 }, d.rest)
 			assert.same({ 700, 1100 }, d.tail)
 			assert.equal(40, d.double)
-			assert.same({ tick = 9, step = 200, tail = 700, length = 4, offsets = { 0 }, strength = 3, dropped = 0 },
-				d.gust)
+			assert.same({ tick = 9, step = 200, tail = 700, length = 4, offsets = { 0 }, strength = 3, dropped = 0,
+				direction = "up" }, d.gust)
+			assert.equal("up", d.direction)
 			assert.equal(30, d.budget.limit)
 			assert.is_true(d.budget.sent > 0)
 			assert.is_true(d.active)

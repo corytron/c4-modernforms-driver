@@ -1,5 +1,5 @@
 -- fan/breezeleds.lua: Breeze on the keypad LEDs (#137). The contract is docs/breeze-leds-design.md: section 1
--- (BL-D1 to BL-D18) as revised by section 1a (BL-D19 to BL-D27, which replace BL-D5 to BL-D7, BL-D12, BL-D14
+-- (BL-D1 to BL-D18) as revised by section 1a (BL-D19 to BL-D30, which replace BL-D5 to BL-D7, BL-D12, BL-D14
 -- and BL-D22's sparkle ticks), this module's interface (section 3.1 and section 1a's interface block) and what
 -- the owner sees; the reasons are docs/edge-cases-breeze-leds.md (BL1 to BL70), docs/breeze-leds-sdk-research.md
 -- section 6 and the keypad probes of #137 (2026-11-09).
@@ -25,25 +25,41 @@
 --          With DOUBLE_PERCENT[strength] a second front follows DOUBLE_GAP_STEPS (2 to 4) front steps behind,
 --          with its own tail; a pixel belongs to the tail of the latest front that passed it. Every other pixel
 --          is dark. When every back edge has passed the top (N + 1 + L steps for N pixels): a rest.
+--          Direction (BL-D30): the above is a gust blowing up, the fan in reverse (and when its direction is
+--          unknown). With the fan blowing down (forward) the gust runs the same way down the column: it enters
+--          at the top pixel, its tail trails above its head, its head runs on past the bottom, its glints come
+--          below it, and a dark tail pixel relights only while the pixel below it is lit, the head or past the
+--          bottom. Positions count along the gust's lane, so everything above holds mirrored.
 --   rest   (BL-D19, BL-D22) every pixel dark, nothing sent and no ticking: one timer for a time drawn in
 --          REST_MS[strength], then the next gust.
---   leave  (BL-D8, BL-D25) the falling wipe, once, when Breeze ends while online and everything else still
---          holds: the head (HEAD) starts on the top held pixel and descends one pixel per step (the step
---          property, not jittered); each pixel it leaves is settled (settle(link): the links send its real
---          state). A pixel the head has not reached keeps what it shows (a tail is frozen). Pixel 1 settled: idle.
+--   leave  (BL-D8, BL-D25, BL-D30) the ending wipe, once, when Breeze ends while online and everything else
+--          still holds, the other way from the gusts (in the direction at its start): after rising gusts the head
+--          (HEAD) starts on the top held pixel and falls one pixel per step (the step property, not jittered);
+--          after downward gusts it starts on the bottom held pixel and rises. Each pixel it leaves is settled
+--          (settle(link): the links send its real state). A pixel the head has not reached keeps what it shows
+--          (a tail is frozen). The last pixel settled: idle.
 --
 -- Start (BL-D19): from idle, or when Breeze is back during the leave (BL-D10), every pixel is taken (held) and
 -- sent dark at once, and the first gust starts at once; its front enters pixel 1 one front step later, so the
 -- dark shows first. Active means enabled, per_speed, online, breeze and at least one pixel. Any other way out
 -- of active settles every held pixel at once, with no wipe (BL-D11). Leave during a gust or a rest starts the
--- falling wipe from the top at once (BL-D10). The strength is read when a gust starts (its tail and double)
--- and when a rest is armed; a step change applies from the next gust, and in the wipe from the next arm.
+-- ending wipe at once (BL-D10). The strength and the direction are read when a gust starts (its tail, double and
+-- way) and the strength when a rest is armed; the direction when the wipe starts; a step change applies from the
+-- next gust, and in the wipe from the next arm. A change of strength or direction alone sends nothing.
 --
 -- Messages (BL-D23): what the keypad shows is kept per pixel (lit, dark or unknown, and the colour loaded) and
 -- only real changes are sent: a dark pixel's colour is preloaded with paint(link, colour, false, true) and shown
 -- with light(link, true); a lit pixel changes colour with paint(link, colour, RECOLOUR_NEEDS_STATE, false);
 -- dark is light(link, false); a pixel whose state is unknown is lit with paint(link, colour, true, false). A
 -- send that fails leaves that part unknown, so the next tick sends it again.
+--
+-- Night (BL-D28): while configure's `night` is true and `night_percent` is under 100, every colour the animation
+-- lights (heads, tails, glints, the falling wipe's head) is sent through breezeleds.scale(colour, night_percent);
+-- settles are the links' own colours, untouched. A change of night or percent applies from the next colour the
+-- engine sends and sends nothing by itself: a pixel lit in the colour it should show keeps the brightness it
+-- was lit at, while relighting a dark pixel compares the scaled colours, so a colour loaded at the other
+-- brightness is preloaded again and one loaded at this brightness is not. The day-or-night decision is the
+-- driver's (fan/sun.lua, BL-D29).
 --
 -- One clock and a budget (BL-D24, BL-D13): one one-shot timer at a time, re-armed every TICK_MS while a gust
 -- runs, every step while the wipe runs, once for the rest's length during a rest; every phase change, stop and
@@ -81,9 +97,10 @@
 --   * A bottom change while running darkens what is lit and rests; during the leave it settles at once.
 --   * repaint(link) sends what the pixel shows: lit, paint(colour, true, false); otherwise light(false), and its
 --     loaded colour counts as unknown (the keypad that asked may hold its own).
---   * update{} without `breeze` keeps the strength it has (listener.phase may send `online` alone); with
---     `breeze` the strength is read too, nil meaning unknown. A missing key of configure{} or update{} keeps
---     its value. stop() is final: every later call is ignored (held() answers false).
+--   * update{} without `breeze` keeps the strength and direction it has (listener.phase may send `online`
+--     alone); with `breeze` they are read too, nil meaning unknown (Breeze 2, up). A missing key of configure{}
+--     or update{} keeps its value (night_percent: 50 at first; anything in it that is not a number is 50).
+--     stop() is final: every later call is ignored (held() answers false).
 --
 -- Pure like fan/links.lua: nothing here touches Director. Every option is called through pcall; a failure is
 -- logged, never raised, and the animation goes on as best it can:
@@ -97,9 +114,12 @@
 --       now = fn() -> ms,                               -- a clock (only differences are used); optional
 --       log = log,                                      -- default common.log
 --   })
---   b:configure({ enabled = bool, per_speed = bool, bottom = 1 | 6, step = ms })
+--   b:configure({ enabled = bool, per_speed = bool, bottom = 1 | 6, step = ms, night = bool,
+--                 night_percent = 10..100 })
+--   breezeleds.scale(colour, percent) -> colour  -- each component * percent / 100, rounded half up (BL-D28)
 --   b:set_pixels(list)       -- the bound speed links, any order, duplicates ignored, only 301 to 306 kept
---   b:update({ breeze = bool, strength = 1 | 2 | 3 | nil, online = bool })
+--   b:update({ breeze = bool, strength = 1 | 2 | 3 | nil, online = bool,
+--              direction = "down" | "up" | nil })  -- the fan's airflow (BL-D30); nil counts as "up"
 --   b:held(link) -> bool     -- the links ask before sending a speed link anything (BL-D15)
 --   b:repaint(link) -> bool  -- a held pixel's REQUEST_BUTTON_COLORS or new binding: what it shows
 --   b:stop()                 -- OnDriverDestroyed: cancel the timer, forget every hold, send nothing
@@ -127,6 +147,9 @@ breezeleds.TAIL_GAP_TICKS = { 2, 4 } -- a tail's blink gaps (BL-D26)
 breezeleds.GLINT_PERCENT = 30 -- the chance of a glint two pixels above the leading front, as it reaches a pixel
 breezeleds.DEFAULT_STRENGTH = 2 -- a strength that is nil or unknown (BL-D22)
 breezeleds.DARKEN_TICKS = 20 -- after a gust, ticks waiting for room to darken a pixel still lit
+breezeleds.NIGHT_PERCENT_DEFAULT = 50 -- Breeze LED Night Brightness (%) (BL-D28)
+breezeleds.NIGHT_PERCENT_MIN = 10
+breezeleds.NIGHT_PERCENT_MAX = 100
 breezeleds.RECOLOUR_NEEDS_STATE = false -- BL-D23: BUTTON_COLORS with CURRENT_COLOR repaints a lit button (measured)
 breezeleds.FIRST_LINK = 301 -- the speed links, the only links that ever animate (BL-D2)
 breezeleds.LAST_LINK = 306
@@ -191,6 +214,37 @@ local function strength_of(value)
 	return nil
 end
 
+-- A percent for scale(): rounded and held within NIGHT_PERCENT_MIN to NIGHT_PERCENT_MAX; nil when not a number.
+local function percent_of(value)
+	local n = number_of(value)
+	if n == nil then
+		return nil
+	end
+	n = round(n)
+	if n < breezeleds.NIGHT_PERCENT_MIN then
+		return breezeleds.NIGHT_PERCENT_MIN
+	elseif n > breezeleds.NIGHT_PERCENT_MAX then
+		return breezeleds.NIGHT_PERCENT_MAX
+	end
+	return n
+end
+
+-- `colour` ("rrggbb") with each component at `percent` (10 to 100) of its value, rounded half up, as lower-case
+-- hex (BL-D28): the hue stays, the brightness goes down. 100, a percent that is not a number, and a colour that
+-- is not 6-digit hex come back unchanged.
+function breezeleds.scale(colour, percent)
+	local p = percent_of(percent)
+	if p == nil or p >= 100 or type(colour) ~= "string" or not colour:match("^%x%x%x%x%x%x$") then
+		return colour
+	end
+	local out = {}
+	for i = 1, 5, 2 do
+		local c = tonumber(colour:sub(i, i + 1), 16)
+		out[#out + 1] = string.format("%02x", math.floor((2 * c * p + 100) / 200))
+	end
+	return table.concat(out)
+end
+
 -- The speed links of a list, ascending, each once.
 local function links_of(list)
 	local seen, out = {}, {}
@@ -233,19 +287,24 @@ function breezeleds.new(opts)
 		per_speed = false,
 		bottom = 1,
 		step = breezeleds.STEP_DEFAULT,
+		night = false,
+		night_percent = breezeleds.NIGHT_PERCENT_DEFAULT,
 		-- update
 		breeze = false,
 		strength = nil,
 		online = false,
+		down = false, -- the fan blows down: the gusts run down the column (BL-D30); unknown is up
 		-- set_pixels
 		links = {}, -- the bound speed links, ascending
 		order = {}, -- the pixels, pixel 1 (the bottom) first
 		-- the animation
 		phase = "idle",
-		head = 0, -- the falling wipe's pixel
+		head = 0, -- the ending wipe's pixel
+		rising = false, -- the ending wipe runs up the column (after downward gusts, BL-D30)
 		gust = nil, -- the running gust (gust phase)
 		hold = {}, -- [link] = true while the animation holds it
-		shows = {}, -- [link] = { lit = true | false | nil (unknown), colour = loaded colour or nil (unknown) }
+		shows = {}, -- [link] = { lit = true | false | nil (unknown), colour = the colour loaded, as sent (scaled at
+		-- night), or nil (unknown), base = the animation's colour it was sent for (HEAD, a spark, GLINT) }
 		-- time and the budget
 		vt = 0, -- the engine's time, ms
 		cref = nil, -- the clock when vt was last brought up to it
@@ -293,6 +352,18 @@ function Leds:reorder()
 		order[i] = self.bottom == 6 and self.links[n + 1 - i] or self.links[i]
 	end
 	self.order = order
+end
+
+-- The pixels in the order a gust runs over them (BL-D30): bottom to top, or top to bottom when it blows down.
+function Leds:lane(down)
+	if not down then
+		return self.order
+	end
+	local lane, n = {}, #self.order
+	for i = 1, n do
+		lane[i] = self.order[n + 1 - i]
+	end
+	return lane
 end
 
 function Leds:strength_now()
@@ -473,28 +544,37 @@ function Leds:send_light(link, lit)
 	return true
 end
 
-function Leds:send_paint(link, colour, with_state, preload)
+function Leds:send_paint(link, colour, with_state, preload, base)
 	self:stamp(with_state and 2 or 1)
 	local s = self:record(link)
 	local ok, err = try(self.o.paint, link, colour, with_state, preload)
 	if not ok then
 		self:say("warn", "link %d could not be painted %s: %s", link, colour, tostring(err))
-		s.colour = nil
+		s.colour, s.base = nil, nil
 		if with_state then
 			s.lit = nil
 		end
 		return false
 	end
-	s.colour = colour
+	s.colour, s.base = colour, base
 	if with_state then
 		s.lit = true
 	end
 	return true
 end
 
--- Brings a held pixel to lit in `colour`, or dark (BL-D23), with the fewest messages; nothing when it shows that
--- already. Unless `must`, only when the budget has room for all of it and `spare` more (else dropped). true when
--- it shows it.
+-- The colour sent for an animation colour: scaled at night (BL-D28).
+function Leds:shade(colour)
+	if self.night and self.night_percent < 100 then
+		return breezeleds.scale(colour, self.night_percent)
+	end
+	return colour
+end
+
+-- Brings a held pixel to lit in the animation colour `colour` (sent through shade), or dark (BL-D23), with the
+-- fewest messages; nothing when it shows that already. A lit pixel showing `colour` keeps the brightness it was
+-- lit at (BL-D28: nothing is repainted for night); a dark one is relit at the brightness of now. Unless `must`,
+-- only when the budget has room for all of it and `spare` more (else dropped). true when it shows it.
 function Leds:apply(link, lit, colour, must, spare)
 	local s = self:record(link)
 	local function fits(count)
@@ -508,21 +588,22 @@ function Leds:apply(link, lit, colour, must, spare)
 		end
 		return self:send_light(link, false)
 	end
+	local sent = self:shade(colour)
 	if s.lit == true then
-		if s.colour == colour then
+		if s.colour == sent or (s.colour ~= nil and s.base == colour) then
 			return true
 		end
 		local with_state = breezeleds.RECOLOUR_NEEDS_STATE == true
 		if not fits(with_state and 2 or 1) then
 			return self:drop()
 		end
-		return self:send_paint(link, colour, with_state, false)
+		return self:send_paint(link, sent, with_state, false, colour)
 	elseif s.lit == false then
-		local loaded = s.colour == colour
+		local loaded = s.colour == sent
 		if not fits(loaded and 1 or 2) then
 			return self:drop()
 		end
-		if not loaded and not self:send_paint(link, colour, false, true) then
+		if not loaded and not self:send_paint(link, sent, false, true, colour) then
 			return false
 		end
 		return self:send_light(link, true)
@@ -530,7 +611,7 @@ function Leds:apply(link, lit, colour, must, spare)
 	if not fits(2) then
 		return self:drop()
 	end
-	return self:send_paint(link, colour, true, false)
+	return self:send_paint(link, sent, true, false, colour)
 end
 
 function Leds:take(link)
@@ -669,6 +750,7 @@ function Leds:start_gust()
 		length = math.max(1, round(tail_ms / fstep)), -- L: the tail, in front steps (BL-D27)
 		offsets = offsets,
 		strength = strength,
+		down = self.down, -- the gust runs down the column (BL-D30); positions count along its lane
 		tails = {}, -- [f][i] = pixel i's blinking in front f's tail: { lit, colour, next }
 		glints = {}, -- [i] = the tick pixel i glints
 		lead = 0, -- the leading front's position at the tick last applied
@@ -685,7 +767,8 @@ function Leds:start_gust()
 		g.tails[f] = {}
 	end
 	self.phase = "gust"
-	self:say("debug", "a gust: a front step of %d ms, a tail of %d step(s)%s, strength %d", fstep, g.length,
+	self:say("debug", "a gust %s: a front step of %d ms, a tail of %d step(s)%s, strength %d",
+		g.down and "down" or "up", fstep, g.length,
 		offsets[2] and string.format(", a second front %d steps behind", offsets[2] / fstep) or "", strength)
 	self:gust_at(0)
 end
@@ -702,10 +785,11 @@ function Leds:gust_tick()
 	self:gust_at(n)
 end
 
--- Whether pixel i of a tail may relight now (BL-D27): the pixel above is past the top, is that front's head, or
--- shows lit; so a twinkle never travels downwards.
-function Leds:may_relight(w, pos)
-	local above = self.order[w.i + 1]
+-- Whether place i of a tail (along the gust's lane) may relight now (BL-D27, BL-D30): the next place towards
+-- the head is past the end of the column, is that front's head, or shows lit; so a twinkle never travels
+-- against the gust.
+function Leds:may_relight(w, pos, lane)
+	local above = lane[w.i + 1]
 	if above == nil or pos[w.front] == w.i + 1 then
 		return true
 	end
@@ -715,7 +799,8 @@ end
 
 -- The gust at tick n: what every pixel wants, sent within the budget (BL-D24), then the next tick or the rest.
 function Leds:gust_at(n)
-	local g, order = self.gust, self.order
+	local g = self.gust
+	local order = self:lane(g.down) -- positions count along the gust's lane: 1 is where it enters
 	local count, length = #order, g.length
 	g.n = n
 	local pos, over = {}, true
@@ -752,7 +837,7 @@ function Leds:gust_at(n)
 			end
 		end
 		local s = self.shows[link]
-		local white = s ~= nil and s.lit == true and s.colour == HEAD
+		local white = s ~= nil and s.lit == true and s.base == HEAD
 		local want = { link = link, i = i, front = front }
 		if head then
 			want.lit, want.colour = true, HEAD
@@ -807,12 +892,12 @@ function Leds:gust_at(n)
 	end
 	for _, w in ipairs(tails) do
 		local t, s = w.t, self:record(w.link)
-		if not t.lit and n >= t.next and s.lit == false and self:may_relight(w, pos) then
+		if not t.lit and n >= t.next and s.lit == false and self:may_relight(w, pos, order) then
 			t.lit, t.colour = true, self:spark()
 			t.next = n + self:gap(w.k, length)
 		end
 		if t.lit then
-			if s.lit ~= true and not self:may_relight(w, pos) then
+			if s.lit ~= true and not self:may_relight(w, pos, order) then
 				t.lit = false -- the pixel above went dark first: wait for it
 			else
 				self:apply(w.link, true, t.colour, false)
@@ -889,35 +974,47 @@ function Leds:start_rest()
 	self:arm_rest()
 end
 
--- The falling wipe's frame: the head HEAD if held, every held pixel above it settled, top down (BL-D8, BL-D25).
+-- The ending wipe's frame: the head HEAD if held, every held pixel it has passed settled, in the head's order
+-- (BL-D8, BL-D25; rising after downward gusts, BL-D30).
 function Leds:wipe_frame()
 	local h, order = self.head, self.order
 	local link = order[h]
 	if link ~= nil and self.hold[link] then
 		self:apply(link, true, HEAD, true)
 	end
-	for i = #order, h + 1, -1 do
-		if self.hold[order[i]] then
-			self:release(order[i])
+	if self.rising then
+		for i = 1, math.min(h - 1, #order) do
+			if self.hold[order[i]] then
+				self:release(order[i])
+			end
+		end
+	else
+		for i = #order, h + 1, -1 do
+			if self.hold[order[i]] then
+				self:release(order[i])
+			end
 		end
 	end
 end
 
+-- The ending wipe, the other way from the gusts (BL-D30): from the top held pixel down after rising gusts, from
+-- the bottom held pixel up after downward ones; the direction is the one at its start.
 function Leds:start_leave()
 	self:cancel()
 	self.gust = nil
-	local top = 0
+	self.rising = self.down
+	local first = 0
 	for i, link in ipairs(self.order) do
-		if self.hold[link] then
-			top = i
+		if self.hold[link] and (not self.rising or first == 0) then
+			first = i
 		end
 	end
-	if top == 0 then
+	if first == 0 then
 		self:idle("Breeze ended; nothing held")
 		return
 	end
-	self.phase, self.head = "leave", top
-	self:say("debug", "Breeze ended: the falling wipe from pixel %d", top)
+	self.phase, self.head = "leave", first
+	self:say("debug", "Breeze ended: the %s wipe from pixel %d", self.rising and "rising" or "falling", first)
 	self:wipe_frame()
 	self:arm(self.step)
 end
@@ -927,12 +1024,16 @@ function Leds:wipe_tick(due)
 	local step = self.step
 	local k = 1 + math.floor((self.vt - due) / step)
 	if k > 1 then
-		self:say("debug", "a late tick: %d steps of the falling wipe together", k)
+		self:say("debug", "a late tick: %d steps of the ending wipe together", k)
 	end
-	self.head = math.max(0, self.head - k)
+	if self.rising then
+		self.head = math.min(#self.order + 1, self.head + k)
+	else
+		self.head = math.max(0, self.head - k)
+	end
 	self:wipe_frame()
-	if self.head < 1 or not self:any_held() then
-		self:idle("the falling wipe is done")
+	if self.head < 1 or self.head > #self.order or not self:any_held() then
+		self:idle("the ending wipe is done")
 		return
 	end
 	self:arm(due + k * step - self.vt)
@@ -970,6 +1071,12 @@ function Leds:configure(c)
 	if c.step ~= nil then
 		self.step = step_of(c.step) -- from the next gust, or the wipe's next arm
 	end
+	if c.night ~= nil then
+		self.night = c.night == true -- from the next colour sent (BL-D28)
+	end
+	if c.night_percent ~= nil then
+		self.night_percent = percent_of(c.night_percent) or breezeleds.NIGHT_PERCENT_DEFAULT
+	end
 	local moved = false
 	if c.bottom ~= nil then
 		local bottom = number_of(c.bottom) == 6 and 6 or 1
@@ -1003,6 +1110,9 @@ function Leds:update(u)
 	end
 	if u.breeze ~= nil or u.strength ~= nil then
 		self.strength = strength_of(u.strength) -- from the next gust or rest
+	end
+	if u.breeze ~= nil or u.direction ~= nil then
+		self.down = u.direction == "down" -- from the next gust, or the next wipe (BL-D30); unknown is up
 	end
 	self:evaluate(self.online and "update" or "not online")
 end
@@ -1068,9 +1178,9 @@ function Leds:repaint(link)
 	self:advance_time()
 	local s = self:record(link)
 	if s.lit == true and s.colour ~= nil then
-		return self:send_paint(link, s.colour, true, false)
+		return self:send_paint(link, s.colour, true, false, s.base)
 	end
-	s.colour = nil
+	s.colour, s.base = nil, nil
 	return self:send_light(link, false)
 end
 
@@ -1110,10 +1220,14 @@ function Leds:debug()
 		frame = frame,
 		loaded = loaded,
 		step = self.step,
+		night = self.night,
+		night_percent = self.night_percent,
 		rest = { rest[1], rest[2] },
 		tail = { tail[1], tail[2] },
 		double = breezeleds.DOUBLE_PERCENT[strength],
 		strength = self.strength,
+		direction = self.down and "down" or "up",
+		wipe = self.phase == "leave" and (self.rising and "rising" or "falling") or nil,
 		bottom = self.bottom,
 		enabled = self.enabled,
 		per_speed = self.per_speed,
@@ -1129,6 +1243,7 @@ function Leds:debug()
 			length = g.length,
 			offsets = { g.offsets[1], g.offsets[2] },
 			strength = g.strength,
+			direction = g.down and "down" or "up",
 			dropped = g.dropped,
 		} or nil,
 		budget = { sent = #self.window, limit = breezeleds.BUDGET_PER_S, dropped = self.dropped },
