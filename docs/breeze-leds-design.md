@@ -41,7 +41,7 @@ BF-D15); the links are [`v1-design.md`](v1-design.md) section 5 and
 | BL-D10 | **Interruptions.** Leave during an enter wipe or a gust: the falling wipe starts from the top at once; pixels not yet passed keep their frame until the head passes. Breeze again during a leave wipe: the rising wipe starts from pixel 1; pixels it passes are taken back. The newest shown state always wins. | BL12, BL13 |
 | BL-D11 | **No wipe, settle at once** when the animation stops for anything other than leaving Breeze while online: the phase is not `online` (offline, rebooting, waiting; BL11), the property turned Off, `Speed LED Colors` left `Per speed`, or no pixel left. When the phase returns to `online` with Breeze still shown, the rising wipe plays again. | BL11, BL30 |
 | BL-D12 | **Step time** `Breeze LED Step (ms)`, 200 to 600, default 300: one step moves the head one pixel. Wipes and gusts use the same step. | field Q5, rec. 3; SDK 4 |
-| BL-D13 | **Pacing.** One one-shot timer at a time, re-armed each step. A late tick never bursts: the steps that fell due are applied together, each pixel gets only its final colour of those steps, and every pixel a leave wipe passed is settled. A pixel is sent only when its colour changes. | SDK 4; BL37, BL38 |
+| BL-D13 | **Pacing.** One one-shot timer at a time, re-armed each sparkle tick (BL-D24; each step until section 1a). A late tick never bursts: the steps that fell due are applied together, each pixel gets only its final colour of those steps, and every pixel a leave wipe passed is settled. A pixel is sent only when its colour changes. | SDK 4; BL37, BL38 |
 | BL-D14 | **Messages per pixel change:** `BUTTON_COLORS` (on = frame colour, off = `Speed LED Off Color`, current = frame colour), then `MATCH_LED_STATE` true, unless the animation itself last lit that pixel and `breezeleds.RECOLOUR_NEEDS_STATE` is false. It ships true (both messages, the behaviour verified on the house, K6) until hardware check HB2 shows `BUTTON_COLORS` alone repaints a lit button. A gust step changes three pixels. | SDK 1, 6; K6 |
 | BL-D15 | **Held pixels.** While the animation holds a pixel the links send that link nothing on a shown change, a colour change (`set_colors`) or an `Also Lit At` change; they keep their tables, which the settle uses. A `REQUEST_BUTTON_COLORS` or a new binding on a held pixel is answered with the pixel's current frame colour. | SDK 6; BL40 to BL42 |
 | BL-D16 | **Bindings mid-animation.** A speed link that gains a button joins at once (held, answered with the base colour, or the current frame). A link that loses its last button leaves the pixel list without a send (the button keeps its last colour, as any unbound button does; the manual says so). | BL40 to BL43; ECC C4 |
@@ -73,20 +73,22 @@ not report its gusts: `fanSpeed` stays at the set speed through Breeze.
 | BL-D23 | **The cheapest message for each change.** A colour for a dark pixel is preloaded silently (`BUTTON_COLORS` without `CURRENT_COLOR`), so lighting and flickering cost one `MATCH_LED_STATE` each; a lit pixel changes colour with one `BUTTON_COLORS` with `CURRENT_COLOR`. `RECOLOUR_NEEDS_STATE` is false (measured). | probes |
 | BL-D24 | **One clock and a budget.** The engine ticks every sparkle tick, 50 ms; the front moves every front step. At most **30 messages a second** over all pixels (40 a second measured clean; headroom for the rest of the Zigbee mesh): a tick that would exceed it drops sparkle changes first, never a front pixel, a settle or the falling wipe. Late ticks still coalesce (BL-D13). | probes; BL-D13 |
 | BL-D25 | **The falling wipe at the front's pace.** BL-D8 stands, at the front step (default 120 ms): from the top pixel, the head lights white and every pixel it leaves is settled. From a rest (all dark) the head still runs down the column. | owner (kept) |
+| BL-D26 | **The tail twinkles.** BL-D21's shimmer is the gust's tail and must read as a twinkle, not a fade: every pixel the front has passed stays in the tail for its **tail time**, blinking off and on at random gaps of 2 to 4 sparkle ticks (100 to 200 ms) and relighting each time in a random sparkle colour (ice, teal or sky; sometimes the same colour, which costs one `MATCH_LED_STATE` instead of a preload and a `MATCH_LED_STATE`; sometimes a colour change while lit, one `BUTTON_COLORS` with `CURRENT_COLOR`). The gaps grow towards the end, so the tail thins out, then the pixel goes dark. Each pixel draws its own gaps, so neighbours never blink in step. The tail time replaces BL-D22's sparkle ticks: Breeze 1 300 to 500 ms, Breeze 2 500 to 800 ms, Breeze 3 700 to 1100 ms. The budget (BL-D24) drops tail changes first. | owner 2026-11-09 ("I'll want the tail of the gust to shimmer or twinkle") |
 
-**Interface changes for BL-D19 to BL-D25** (sections 3.1 and 3.2 otherwise stand):
+**Interface changes for BL-D19 to BL-D26** (sections 3.1 and 3.2 otherwise stand):
 
 ```lua
 -- links.lua
 links:paint(link, colour, with_state, preload)  -- preload: BUTTON_COLORS without
 	-- CURRENT_COLOR (a dark pixel stays dark); with_state as before
-links:light(link, lit)  -- MATCH_LED_STATE lit on a speed link 301..306 for the
+links:light(link, lit)  -- MATCH_LED_STATE (a COMMAND, boolean STATE) on a speed link 301..306 for the
 	-- animation; clears led[link] and led_speed[link]; refused elsewhere
 -- breezeleds.lua
 breezeleds.new({ ..., light = fn(link, lit) })  -- links:light
 -- constants: HEAD "ffffff"; SPARKS { "a0ffff", "00ffff", "40b0ff" }; GLINT "40b0ff";
 -- TICK_MS 50; STEP_MIN 60, STEP_MAX 400, STEP_DEFAULT 120; BUDGET_PER_S 30;
--- REST_MS and the per-strength tables of BL-D22; RECOLOUR_NEEDS_STATE false
+-- REST_MS and the per-strength tables of BL-D22 (tail times of BL-D26 in place of
+-- sparkle ticks); TAIL_GAP_TICKS 2..4; RECOLOUR_NEEDS_STATE false
 ```
 
 ## 2. Properties (driver.xml, after `Speed LED Off Color`)
@@ -127,11 +129,16 @@ b:stop()                 -- OnDriverDestroyed: cancel the timer, release all, se
 b:debug() -> table       -- phase, pixels, held, frame, step, rest range
 ```
 
-- Constants: `breezeleds.HEAD = "ffffff"`, `TRAIL = "00ffff"`,
-  `BASE = "0080ff"`, `REST_MS = { [1] = {6000, 9000}, [2] = {3500, 6000},
-  [3] = {1500, 3500} }`, `STEP_MIN = 200`, `STEP_MAX = 600`,
-  `STEP_DEFAULT = 300`, `RECOLOUR_NEEDS_STATE = true`.
-- Phases: `idle`, `enter`, `rest`, `gust`, `leave`. Active means enabled,
+- Constants (section 1a): `HEAD = "ffffff"`, `SPARKS = { "a0ffff", "00ffff", "40b0ff" }`,
+  `GLINT = "40b0ff"`, `GLINT_PERCENT = 30`, `TICK_MS = 50`, `STEP_MIN = 60`,
+  `STEP_MAX = 400`, `STEP_DEFAULT = 120`, `JITTER_PERCENT = 20`,
+  `REST_MS`, `TAIL_MS`, `DOUBLE_PERCENT` (per strength, BL-D22 and BL-D26),
+  `DOUBLE_GAP_STEPS = {2, 4}`, `TAIL_GAP_TICKS = {2, 4}`, `BUDGET_PER_S = 30`,
+  `WINDOW_MS = 1000`, `DARKEN_TICKS = 20`, `RECOLOUR_NEEDS_STATE = false`.
+  `TRAIL` and `BASE` are gone. The options add `light = fn(link, lit)` and
+  `now = fn() -> ms`; `debug()` reports `frame` as a colour, `"dark"` or
+  `"unknown"`, plus `loaded`, `tail`, `double`, `gust` and `budget`.
+- Phases: `idle`, `gust`, `rest`, `leave` (BL-D19 removed `enter`). Active means enabled,
   per_speed, online, breeze, and at least one pixel.
 - `configure`, `set_pixels` and `update` may arrive in any order and as
   often as Director likes; each re-evaluates active and applies BL-D6 to
@@ -206,23 +213,26 @@ links:pixels_list()     -- the bound speed links (301 to 306 with a known
 
 ## 5. Tests
 
-- `tests/spec/breezeleds_spec.lua`: every phase and transition of BL-D6 to
-  BL-D11 with a fake timer, random and clock; the frames of an enter wipe,
-  a gust and a leave wipe for 1, 2, 4 and 6 pixels, both bottoms; the rest
-  ranges per strength; with_state per BL-D14; late ticks (BL-D13: no burst,
-  every passed pixel settled); interruptions both ways; set_pixels while
-  active; repaint; stop; failures in paint and settle; nothing sent when
-  nothing changes.
+- `tests/spec/breezeleds_spec.lua`: every phase and transition with a fake
+  timer, random and clock; dark first (BL-D19); the front, tail and glints of
+  a gust for 1, 2, 4 and 6 pixels, both bottoms (BL-D21, BL-D26: tail pixels
+  blink more than once at gaps of 2 to 4 ticks, neighbours out of step, tail
+  times by strength); doubles; rests per strength (BL-D22); preloads and
+  lights (BL-D23); the budget (BL-D24: never over 30 in any second, tail
+  changes dropped before a front); the falling wipe (BL-D25); late ticks
+  (BL-D13); interruptions both ways; set_pixels while active; repaint; stop;
+  failures in paint, light and settle; nothing sent when nothing changes.
 - `tests/spec/links_spec.lua`: `paint`, `settle`, `pixels_list`, the held
   skips in shown, refresh, set_colors and set_also, `answer` on a held link,
   the `pixels` callback on bind, unbind and late init.
 - `tests/spec/fan_driver_spec.lua` (coordinator): with `Per speed`, Gusts and
-  four bound speed links: Breeze On from a keypad press on 311 plays the
-  rising wipe (the sends in order); a speed press during a gust plays the
-  falling wipe and ends with the pressed link lit in its colour; Off plays it
-  and lights Off at once; Breeze from a poll (the app) plays the rising wipe;
-  offline settles at once; the property Off settles at once; Keypad's own
-  writes L42 and sends no frame.
+  four bound speed links, replayed through a keypad model (what each button
+  shows): Breeze On from a press on 311 goes dark first, then the front rises
+  bottom to top, never in pure blue; a speed press plays the falling wipe once
+  and ends with the pressed link lit in its colour; Off lights at once and the
+  wipe leaves every speed button dark; Breeze from a poll (the app) plays
+  gusts; the property Off and offline settle at once and send nothing after;
+  Keypad's own writes L42 and sends no frame.
 
 ## 6. Hardware checks on the house (owner watching; each under a minute)
 

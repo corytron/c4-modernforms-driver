@@ -864,10 +864,12 @@ Written 2026-11-09 from the hardware checks HB1 to HB7 of
 [`breeze-leds-design.md`](breeze-leds-design.md#6-hardware-checks-on-the-house-owner-watching-each-under-a-minute)
 (section 6); the reasons behind each are in
 [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md). With `Breeze LED
-Animation` = `Gusts`, the buttons bound to the speed links play a rising
-wipe when Breeze starts, a white head with a teal trail over an azure
-column every few seconds while it blows, and a falling wipe once when it
-ends. On the house that is Low, Medium, Med-High and High (links 302 to
+Animation` = `Gusts`, the buttons bound to the speed links go dark when
+Breeze starts, play a shimmering gust every few seconds while it blows (a
+white front rising up the buttons with a twinkling tail, each passed button
+blinking in ice, teal and sky blue before it goes dark; section 1a of the
+contract, BL-D26 for the tail), and a
+falling wipe once when it ends. On the house that is Low, Medium, Med-High and High (links 302 to
 305); Off, Up and Down never animate, and `Speed LED Colors` is already
 `Per speed`, which the animation needs. The steps run on a `--dev` build
 of the feature branch through the dev loop ([`dev-loop.md`](dev-loop.md)),
@@ -903,30 +905,36 @@ the standing-approval sentence and names the Sets on the three new rows.
       `RECOLOUR_NEEDS_STATE` to false (BL-D14); teal only at the second
       keeps it true. Then the Windows session sets Level 4 and Level 3
       again: Medium lights in its own colour once more.
-    - **Done:** open.
+    - **Done:** 2026-11-09 with the dev command `Dev Link` (each probe
+      twice, the owner watching): a lit button repaints at once on one
+      `BUTTON_COLORS` (teal to white), so `RECOLOUR_NEEDS_STATE` is false;
+      a `BUTTON_COLORS` without `CURRENT_COLOR` leaves a dark button dark
+      and `MATCH_LED_STATE` true then shows that colour; pure blue
+      `0000ff` vanishes at night dimming; one button flickers distinctly at
+      20 changes a second, four together at 10 each stay in step (#137).
 66. **The palette, day and night (HB3).** The Windows session sets
     `Breeze LED Animation` to `Gusts`, clicks **Set**, then taps Breeze 2
-    on **Aviator 5 Breeze**. *By hand*, under a minute: watch the rising
-    wipe and two gusts in daylight; then darken the room (the lights off,
-    or a hand over the keypad's light sensor) and watch one more gust.
+    on **Aviator 5 Breeze**. *By hand*, under a minute: watch the buttons
+    go dark and two gusts in daylight; then darken the room (the lights
+    off, or a hand over the keypad's light sensor) and watch one more gust.
     - **Expect:** no `Breeze LEDs need Speed LED Colors set to Per speed`
-      in `Last Action`; the rising wipe climbs the four speed buttons and
-      leaves them azure; a gust follows every 3.5 to 6 seconds; Off stays
+      in `Last Action`; the four speed buttons go dark at once and stay
+      dark between gusts; a gust follows every 2 to 5 seconds; Off stays
       dark and Up and Down unchanged. In the dark the whole animation dims
-      with the keypad's other LEDs, and white, teal and azure stay visible
-      and distinct. Record, in the owner's words, how each colour looked
+      with the keypad's other LEDs, and white, ice, teal and sky blue stay
+      visible. Record, in the owner's words, how each colour looked
       both times, and whether the animation ran upward (step 64).
     - **Done:** open.
 67. **The step time (HB4).** The Windows session taps Breeze 3 on the
-    Breeze fan (a gust every 1.5 to 3.5 seconds). *By hand*: watch two
-    gusts at `Breeze LED Step (ms)` 300; the Windows session sets it to
-    200 and clicks **Set**; watch two more gusts while you tap Up, then
+    Breeze fan (a gust every 1 to 3 seconds). *By hand*: watch two
+    gusts at `Breeze LED Step (ms)` 120; the coordinator sets it to 80
+    through the dev loop; watch two more gusts while you tap Up, then
     Down, twice.
     - **Expect:** the gusts look clean at both steps, and the light goes
       on and off at once with each tap. Record which step looked better
-      and whether anything lagged at 200 (the light, the LEDs, a press);
+      and whether anything lagged at 80 (the light, the LEDs, a press);
       that settles the default. The Windows session then sets the row to
-      the step the owner chose (300 unless he prefers 200).
+      the step the owner chose (120 unless they prefer 80).
     - **Done:** open.
 68. **Medium during a gust (HB5).** Breeze still blowing. *By hand*: press
     Medium while a gust runs up the column.
@@ -938,20 +946,20 @@ the standing-approval sentence and names the Sets on the three new rows.
       long Medium took to light.
     - **Done:** open.
 69. **Off during a rest (HB6).** The Windows session taps Breeze 2 on the
-    Breeze fan; wait until the rising wipe has ended and the column is
-    steady azure. *By hand*: press Off.
+    Breeze fan; wait for a rest, every speed button dark between two
+    gusts. *By hand*: press Off.
     - **Expect:** the fan stops (`Status` `Online: fan off, …`); Off lights
       at once in the keypad's own colour, before the wipe reaches the
       bottom; the falling wipe runs down from the top and leaves every
       speed button dark. Record whether Off lit at the press.
     - **Done:** open.
 70. **From the Modern Forms app (HB7).** *By hand*: start Breeze in the
-    Modern Forms app, wait for the rising wipe on the keypad, then stop
+    Modern Forms app, wait for the first gust on the keypad, then stop
     the fan in the app. The Windows session reads `Status` and `Last
     Change By` after each change.
     - **Expect:** each change reaches the keypad within the poll interval
       (15 seconds, sooner in the 2-second window after a change): the
-      rising wipe, then gusts, then the falling wipe leaving every speed
+      buttons going dark, then gusts, then the falling wipe leaving every speed
       button dark and Off lit, as from Control4; `Last Change By` names the
       app. Record the delay of each. Afterwards the fan is as it was
       before step 65, `Breeze LED Bottom` as step 64 left it, `Breeze LED

@@ -35,11 +35,13 @@
 --     BUTTON_COLORS (BC27). Without breeze_blows it stays dark, and without
 --     breeze_toggle a press does nothing.
 --   * Breeze on the keypad LEDs (#137, docs/breeze-leds-design.md BL-D2 and
---     BL-D14 to BL-D16; fan/breezeleds.lua): while Breeze blows the
+--     BL-D14 to BL-D16, BL-D23; fan/breezeleds.lua): while Breeze blows the
 --     animation holds the speed links 301 to 306 that have a button bound,
 --     its pixels. It paints a held pixel through paint() (BUTTON_COLORS on =
 --     current = the frame colour, off = Speed LED Off Color, then
---     MATCH_LED_STATE true when asked) and gives it back through settle()
+--     MATCH_LED_STATE true when asked; with preload no CURRENT_COLOR, so a
+--     dark button stays dark), lights or darkens it through light()
+--     (MATCH_LED_STATE alone) and gives it back through settle()
 --     (the real state; with Per speed the link's resting colours first, lit
 --     or dark, so no frame colour stays on the button). While held(link)
 --     says true, shown, refresh, set_colors and set_also send that link
@@ -75,7 +77,8 @@
 --       log = log,              -- default common.log
 --   })
 --
---   lk:paint(link, colour, with_state)   -- a held pixel's frame (BL-D14)
+--   lk:paint(link, colour, with_state, preload)   -- a held pixel's colour (BL-D14, BL-D23)
+--   lk:light(link, lit)                  -- a held pixel lit or dark, its loaded colour (BL-D23)
 --   lk:settle(link)                      -- a pixel given back: its real state and resting colours
 --   lk:pixels_list()                     -- the bound speed links, ascending (BL-D2)
 
@@ -471,14 +474,17 @@ function links:set_colors(mode, colors, off)
 	end
 end
 
--- Breeze on the keypad LEDs (BL-D14, BL-D15) ----------------------------------------
+-- Breeze on the keypad LEDs (BL-D14, BL-D15, BL-D23) -------------------------------
 
 -- A speed link the animation holds, painted one frame colour: BUTTON_COLORS
 -- (on = current = colour, off = Speed LED Off Color) as send_colors sends it,
--- then, with with_state, MATCH_LED_STATE true. The keypad no longer shows the
--- link's real state, so nothing counts as sent for it until its settle.
--- Anything but 301 to 306 and a 6-digit hex colour is refused, sending nothing.
-function links:paint(link, colour, with_state)
+-- then, with with_state, MATCH_LED_STATE true. With preload the
+-- BUTTON_COLORS carries no CURRENT_COLOR: the colour is loaded and a dark
+-- button stays dark (measured on the house keypad, #137, 2026-11-09), to be
+-- shown by a later light(link, true). The keypad no longer shows the link's
+-- real state, so nothing counts as sent for it until its settle. Anything but
+-- 301 to 306 and a 6-digit hex colour is refused, sending nothing.
+function links:paint(link, colour, with_state, preload)
 	local n = whole(link, FIRST_SPEED, LAST_SPEED)
 	if n == nil then
 		self.log.warn("paint on link %s refused: only the speed links %d to %d are painted", tostring(link),
@@ -490,10 +496,30 @@ function links:paint(link, colour, with_state)
 		self.log.warn("paint on link %d refused: %s is not a 6-digit hex colour", n, tostring(colour))
 		return
 	end
-	self:send_colors(n, hex)
+	if preload then
+		self.log.debug("-> link %d BUTTON_COLORS on %s off %s (preload)", n, hex, self.off_color)
+		self:deliver(n, "BUTTON_COLORS", { ON_COLOR = hex, OFF_COLOR = self.off_color }, "NOTIFY")
+	else
+		self:send_colors(n, hex)
+	end
 	if with_state then
 		self:send_led(n, true)
 	end
+	self.led[n], self.led_speed[n] = nil, nil
+end
+
+-- A speed link the animation holds, lit (true) or dark (anything else) in
+-- the colour it last took: MATCH_LED_STATE alone, as a COMMAND (BL-D23). As
+-- after paint, nothing counts as sent for the link until its settle. Anything
+-- but 301 to 306 is refused, sending nothing.
+function links:light(link, lit)
+	local n = whole(link, FIRST_SPEED, LAST_SPEED)
+	if n == nil then
+		self.log.warn("light on link %s refused: only the speed links %d to %d are lit by the animation",
+			tostring(link), FIRST_SPEED, LAST_SPEED)
+		return
+	end
+	self:send_led(n, lit == true)
 	self.led[n], self.led_speed[n] = nil, nil
 end
 

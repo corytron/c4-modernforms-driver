@@ -380,6 +380,9 @@ bleds = breezeleds_mod.new({
 	settle = function(link)
 		links:settle(link)
 	end,
+	light = function(link, lit)
+		links:light(link, lit)
+	end,
 	timer = timer,
 	now = now_ms,
 	random = function(lo, hi)

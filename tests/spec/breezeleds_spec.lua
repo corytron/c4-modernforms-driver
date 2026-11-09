@@ -1,13 +1,17 @@
--- fan.breezeleds on fakes: Breeze on the keypad LEDs (#137, docs/breeze-leds-design.md section 1, BL-D6 to
--- BL-D16, and the interface of section 3.1; section 5's first bullet is this file's list). The paint and settle
--- calls are recorded in order; the timer records its ms and callback and the spec fires the callbacks by hand
--- on a fake clock; random records its bounds.
+-- fan.breezeleds on fakes: Breeze on the keypad LEDs (#137, docs/breeze-leds-design.md section 1 as revised by
+-- section 1a, BL-D19 to BL-D26, and the interfaces of sections 3.1 and 1a). The paint, light and settle calls
+-- are recorded in order and replayed on a keypad that behaves as the house keypad was measured to (#137,
+-- 2026-11-09): a colour loaded while dark stays dark, MATCH_LED_STATE shows the loaded colour or dark, and a
+-- BUTTON_COLORS with CURRENT_COLOR repaints a lit button. The timer records its ms and callback and the spec
+-- fires the callbacks by hand on a fake clock; random is scripted.
 --
--- Frames are written as pixel positions, 1 being the bottom: "2=H" paints pixel 2 HEAD with with_state false,
--- "2=H!" the same with with_state true, "~2" settles pixel 2; a pixel is mapped to its link through the order
--- the spec expects (the links ascending, or descending with bottom = 6). Most specs run with
--- RECOLOUR_NEEDS_STATE false, so a "!" marks exactly the first paint after a pixel is taken (BL-D14); the
--- shipped value, true, has its own specs.
+-- What the keypad shows is written one letter a pixel, pixel 1 (the bottom) first: "W" white (HEAD), "i", "t",
+-- "s" the sparks ice, teal and sky (SKY is also GLINT), "." dark, "~" settled, "?" unknown.
+--
+-- Unless a spec says otherwise the random answers the low end of every range, and 100 to random(1, 100) (no
+-- double gust, no glint); the step is 125 ms, so the front step is drawn at 100 ms and the front moves every
+-- second tick: it reaches pixel i at tick 2i and leaves it at tick 2i + 2. A Breeze 2 tail is then 500 ms, ten
+-- ticks: lit 2, dark 2, lit 3, dark 3.
 
 local breezeleds = require("fan.breezeleds")
 local log = require("common.log")
@@ -15,10 +19,13 @@ local log = require("common.log")
 local REAL_SINK = log.sink
 local SHIPPED_RECOLOUR = breezeleds.RECOLOUR_NEEDS_STATE
 
-local HEAD, TRAIL, BASE = breezeleds.HEAD, breezeleds.TRAIL, breezeleds.BASE
-local COLOURS = { H = HEAD, T = TRAIL, B = BASE }
+local HEAD, GLINT, SPARKS = breezeleds.HEAD, breezeleds.GLINT, breezeleds.SPARKS
+local ICE, TEAL, SKY = SPARKS[1], SPARKS[2], SPARKS[3]
+local LETTER = { [HEAD] = "W", [ICE] = "i", [TEAL] = "t", [SKY] = "s" }
 
 local HOUSE = { 302, 303, 304, 305 } -- Low, Medium, Med-High, High (BL-D2)
+local LISTS = { [1] = { 303 }, [2] = { 302, 303 }, [4] = HOUSE, [6] = { 301, 302, 303, 304, 305, 306 } }
+local STEP = 125 -- drawn at its low end, 100 ms
 
 local function fake_log()
 	local l = { lines = {} }
@@ -38,24 +45,76 @@ local function fake_log()
 	return l
 end
 
--- The module on fakes. r.calls: { "paint", link, colour, with_state } and { "settle", link } in order;
--- r.timers: every arm, { ms, cb, at, cancelled, fired }; r.randoms: every random's { lo, hi }.
--- opts: no_clock (no `now` option), no_log (the default log).
+-- The default script: the low end of every range, 100 to the percent draws.
+local function low(lo, hi)
+	if lo == 1 and hi == 100 then
+		return 100
+	end
+	return lo
+end
+
+-- A seeded random (Park and Miller): the same numbers for the same seed.
+local function seeded(seed)
+	local state = seed
+	return function(lo, hi)
+		state = (state * 16807) % 2147483647
+		return lo + state % (hi - lo + 1)
+	end
+end
+
+-- The module on fakes. r.calls: { "paint", link, colour, with_state, preload }, { "light", link, lit } and
+-- { "settle", link } in order; r.stamps: the clock of every message (a paint 1, 2 with the state; a light 1; a
+-- settle 2); r.kp: the keypad; r.timers: every arm, { ms, cb, at, cancelled, fired }; r.randoms: every random's
+-- { lo, hi }. opts: no_clock (no `now` option), no_log (the default log), no_light (no `light` option).
 local function rig(opts)
 	opts = opts or {}
-	local r = { calls = {}, timers = {}, randoms = {}, clock = 1000, log = fake_log() }
+	local r = { calls = {}, stamps = {}, timers = {}, randoms = {}, clock = 1000, log = fake_log(), kp = {} }
+	local function count(n)
+		for _ = 1, n do
+			r.stamps[#r.stamps + 1] = r.clock
+		end
+	end
+	local function pad(link)
+		local k = r.kp[link]
+		if k == nil or k.settled then
+			k = {}
+			r.kp[link] = k
+		end
+		return k
+	end
 	r.b = breezeleds.new({
-		paint = function(link, colour, with_state)
-			r.calls[#r.calls + 1] = { "paint", link, colour, with_state }
+		paint = function(link, colour, with_state, preload)
+			r.calls[#r.calls + 1] = { "paint", link, colour, with_state, preload }
+			count(with_state and 2 or 1)
 			if r.fail_paint and r.fail_paint(link, colour) then
 				error("paint refused")
 			end
+			local k = pad(link)
+			k.loaded = colour
+			if with_state then
+				k.lit = true
+			end
+			if k.lit and (with_state or not preload) then
+				k.current = colour
+			end
 		end,
+		light = not opts.no_light and function(link, lit)
+			r.calls[#r.calls + 1] = { "light", link, lit }
+			count(1)
+			if r.fail_light and r.fail_light(link, lit) then
+				error("light refused")
+			end
+			local k = pad(link)
+			k.lit = lit
+			k.current = lit and k.loaded or nil
+		end or nil,
 		settle = function(link)
 			r.calls[#r.calls + 1] = { "settle", link }
+			count(2)
 			if r.fail_settle and r.fail_settle(link) then
 				error("settle refused")
 			end
+			r.kp[link] = { settled = true }
 		end,
 		timer = function(ms, cb)
 			if r.fail_timer then
@@ -73,12 +132,14 @@ local function rig(opts)
 			if r.fail_random then
 				error("no random")
 			end
-			if r.pick then
-				return r.pick(lo, hi)
-			end
-			return lo
+			return (r.pick or low)(lo, hi)
 		end,
-		now = not opts.no_clock and function() return r.clock end or nil,
+		now = not opts.no_clock and function()
+			if r.fail_clock then
+				error("no clock")
+			end
+			return r.clock
+		end or nil,
 		log = not opts.no_log and r.log or nil,
 	})
 	return r
@@ -118,31 +179,70 @@ local function tick(r, late)
 	return take(r)
 end
 
--- "2=H!" and "~2" through the pixel order to calls.
-local function calls_of(order, frame)
-	local out = {}
-	for token in frame:gmatch("%S+") do
-		local settled = token:match("^~(%d+)$")
-		if settled then
-			out[#out + 1] = { "settle", (assert(order[tonumber(settled)], token)) }
-		else
-			local pos, colour, bang = token:match("^(%d+)=(%u)(!?)$")
-			assert(pos and COLOURS[colour], "bad token " .. token)
-			out[#out + 1] = { "paint", (assert(order[tonumber(pos)], token)), COLOURS[colour], bang == "!" }
-		end
+local function ticks(r, n)
+	for _ = 1, n do
+		tick(r)
 	end
-	return out
 end
 
--- frames[1] against `first` (the calls of the call that started it; nil: the next tick's), then one tick each.
-local function play(r, order, frames, first)
-	if first == nil then
-		first = tick(r)
+-- What the keypad shows on the pixels of `order`, one letter each.
+local function look(r, order)
+	local out = {}
+	for i, link in ipairs(order) do
+		local k = r.kp[link]
+		if k == nil or k.lit == nil then
+			out[i] = k and k.settled and "~" or "?"
+		elseif k.lit then
+			out[i] = LETTER[k.current] or "?"
+		else
+			out[i] = "."
+		end
 	end
-	assert.same(calls_of(order, frames[1]), first, "frame 1")
-	for i = 2, #frames do
-		assert.same(calls_of(order, frames[i]), tick(r), "frame " .. i)
+	return table.concat(out)
+end
+
+-- The ticks of a gust until its rest: what the keypad shows after each (looks[n] after tick n) and every call.
+local function run_gust(r, order, cap)
+	local looks, calls = {}, {}
+	for n = 1, cap or 400 do
+		for _, call in ipairs(tick(r)) do
+			calls[#calls + 1] = call
+		end
+		if r.b:debug().phase ~= "gust" then
+			return looks, calls
+		end
+		looks[n] = look(r, order)
 	end
+	error("the gust never ended")
+end
+
+-- The most messages in any one second.
+local function max_window(stamps)
+	local most, first = 0, 1
+	for last = 1, #stamps do
+		while stamps[last] - stamps[first] >= 1000 do
+			first = first + 1
+		end
+		if last - first + 1 > most then
+			most = last - first + 1
+		end
+	end
+	return most
+end
+
+-- Where the fronts are now, from the gust debug() shows: one pixel per front step (BL-D21).
+local function fronts_now(r)
+	local g, at = r.b:debug().gust, {}
+	if g == nil then
+		return at
+	end
+	for f = 1, 2 do
+		local x = g.offsets[f] ~= nil and g.tick * breezeleds.TICK_MS - g.offsets[f] or -1
+		if x >= 0 then
+			at[math.floor(x / g.step)] = true
+		end
+	end
+	return at
 end
 
 local function reversed(list)
@@ -154,38 +254,25 @@ local function reversed(list)
 end
 
 local function shuffled(list)
-	local out = {}
-	for i = #list, 1, -1 do
-		out[#out + 1] = list[i]
-	end
+	local out = reversed(list)
 	out[#out + 1] = list[1] -- a duplicate
 	return out
 end
 
--- Configured, bound and blowing: the rising wipe's first frame is returned.
+-- Configured, bound and blowing: the calls of the start are returned.
 local function start(r, list, bottom, strength)
-	r.b:configure({ enabled = true, per_speed = true, bottom = bottom or 1, step = 300 })
+	r.b:configure({ enabled = true, per_speed = true, bottom = bottom or 1, step = STEP })
 	r.b:set_pixels(list or HOUSE)
 	r.b:update({ breeze = true, strength = strength or 2, online = true })
 	return take(r)
 end
 
--- Through the rising wipe to the first rest.
+-- Through the first gust to its rest.
 local function to_rest(r, list, bottom, strength)
 	start(r, list, bottom, strength)
-	for _ = 1, #(list or HOUSE) do
-		tick(r)
-	end
+	run_gust(r, bottom == 6 and reversed(list or HOUSE) or list or HOUSE)
 	assert.equal("rest", r.b:debug().phase)
 	take(r)
-end
-
--- A gust's first `steps` steps (the rest's expiry is the first).
-local function into_gust(r, steps)
-	for _ = 1, steps do
-		tick(r)
-	end
-	assert.equal("gust", r.b:debug().phase)
 end
 
 local function held_list(r, list)
@@ -196,35 +283,41 @@ local function held_list(r, list)
 	return out
 end
 
-local FRAMES = {
-	[1] = {
-		enter = { "1=H!", "1=B" },
-		gust = { "1=H", "1=T", "1=B" },
-		leave = { "1=H", "~1" },
-	},
-	[2] = {
-		enter = { "1=H!", "1=B 2=H!", "2=B" },
-		gust = { "1=H", "1=T 2=H", "1=B 2=T", "2=B" },
-		leave = { "2=H", "1=H ~2", "~1" },
-	},
-	[4] = {
-		enter = { "1=H!", "1=B 2=H!", "2=B 3=H!", "3=B 4=H!", "4=B" },
-		gust = { "1=H", "1=T 2=H", "1=B 2=T 3=H", "2=B 3=T 4=H", "3=B 4=T", "4=B" },
-		leave = { "4=H", "3=H ~4", "2=H ~3", "1=H ~2", "~1" },
-	},
-	[6] = {
-		enter = { "1=H!", "1=B 2=H!", "2=B 3=H!", "3=B 4=H!", "4=B 5=H!", "5=B 6=H!", "6=B" },
-		gust = { "1=H", "1=T 2=H", "1=B 2=T 3=H", "2=B 3=T 4=H", "3=B 4=T 5=H", "4=B 5=T 6=H", "5=B 6=T",
-			"6=B" },
-		leave = { "6=H", "5=H ~6", "4=H ~5", "3=H ~4", "2=H ~3", "1=H ~2", "~1" },
-	},
-}
+local function darks(list)
+	local out = {}
+	for _, link in ipairs(list) do
+		out[#out + 1] = { "light", link, false }
+	end
+	return out
+end
 
-local LISTS = { [1] = { 303 }, [2] = { 302, 303 }, [4] = HOUSE, [6] = { 301, 302, 303, 304, 305, 306 } }
+local function settles(list)
+	local out = {}
+	for _, link in ipairs(list) do
+		out[#out + 1] = { "settle", link }
+	end
+	return out
+end
+
+-- The calls to one link.
+local function calls_to(calls, link)
+	local out = {}
+	for _, call in ipairs(calls) do
+		if call[2] == link then
+			out[#out + 1] = call
+		end
+	end
+	return out
+end
+
+-- The house's first gust at Breeze 2, as the defaults draw it (worked out in the file's header).
+local HOUSE_GUST = {
+	"....", "W...", "W...", "iW..", "iW..", ".iW.", ".iW.", "i.iW", "i.iW", "ii.i",
+	".i.i", ".ii.", "..i.", "..ii", "...i", "...i", "....", "....", "....",
+}
 
 describe("fan.breezeleds", function()
 	before_each(function()
-		breezeleds.RECOLOUR_NEEDS_STATE = false
 		log.sink = function() end
 	end)
 
@@ -233,322 +326,623 @@ describe("fan.breezeleds", function()
 		log.sink = REAL_SINK
 	end)
 
-	describe("the constants (section 3.1)", function()
-		it("ships the palette, the rest ranges, the step bounds and RECOLOUR_NEEDS_STATE true", function()
+	describe("the constants (section 1a's interface block)", function()
+		it("ships the palette, the tick, the step bounds, the budget and the strength tables", function()
 			assert.equal("ffffff", HEAD)
-			assert.equal("00ffff", TRAIL)
-			assert.equal("0080ff", BASE)
-			assert.same({ [1] = { 6000, 9000 }, [2] = { 3500, 6000 }, [3] = { 1500, 3500 } }, breezeleds.REST_MS)
-			assert.equal(200, breezeleds.STEP_MIN)
-			assert.equal(600, breezeleds.STEP_MAX)
-			assert.equal(300, breezeleds.STEP_DEFAULT)
-			assert.is_true(SHIPPED_RECOLOUR)
+			assert.same({ "a0ffff", "00ffff", "40b0ff" }, SPARKS)
+			assert.equal("40b0ff", GLINT)
+			assert.equal(50, breezeleds.TICK_MS)
+			assert.equal(60, breezeleds.STEP_MIN)
+			assert.equal(400, breezeleds.STEP_MAX)
+			assert.equal(120, breezeleds.STEP_DEFAULT)
+			assert.equal(30, breezeleds.BUDGET_PER_S)
+			assert.same({ [1] = { 4000, 8000 }, [2] = { 2000, 5000 }, [3] = { 1000, 3000 } }, breezeleds.REST_MS)
+			assert.same({ [1] = { 300, 500 }, [2] = { 500, 800 }, [3] = { 700, 1100 } }, breezeleds.TAIL_MS)
+			assert.same({ [1] = 10, [2] = 25, [3] = 40 }, breezeleds.DOUBLE_PERCENT)
+			assert.same({ 2, 4 }, breezeleds.TAIL_GAP_TICKS)
+			assert.same({ 2, 4 }, breezeleds.DOUBLE_GAP_STEPS)
+			assert.is_false(SHIPPED_RECOLOUR)
+		end)
+
+		it("never uses pure blue or anything darker than sky (BL-D20)", function()
+			for _, colour in ipairs({ HEAD, GLINT, ICE, TEAL, SKY }) do
+				assert.not_equal("0000ff", colour)
+				assert.is_truthy(colour:match("^%x%x%x%x%x%x$"))
+			end
 		end)
 	end)
 
-	describe("frames: the rising wipe, a gust and the falling wipe (BL-D6 to BL-D8)", function()
+	describe("dark first (BL-D19)", function()
+		it("takes every pixel and sends each dark at once; the first gust starts with nothing lit", function()
+			local r = rig()
+			local first = start(r, shuffled(HOUSE))
+			assert.same(darks(HOUSE), first)
+			assert.same({ true, true, true, true }, held_list(r, HOUSE))
+			assert.equal("gust", r.b:debug().phase)
+			assert.equal("....", look(r, HOUSE))
+			assert.equal(50, pending(r).ms, "the gust ticks at once")
+		end)
+
+		it("the front enters pixel 1 one front step later: preloaded white, then lit", function()
+			local r = rig()
+			start(r)
+			assert.same({}, tick(r))
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
+			assert.equal("W...", look(r, HOUSE))
+		end)
+
+		it("starts from the highest speed with the bottom at speed 6", function()
+			local r = rig()
+			assert.same(darks({ 305, 304, 303, 302 }), start(r, HOUSE, 6))
+			tick(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, tick(r))
+		end)
+	end)
+
+	describe("a gust (BL-D21, BL-D26)", function()
+		it("plays the house's gust: a white front rising, the twinkling tail behind it, then dark", function()
+			local r = rig()
+			start(r)
+			local looks = run_gust(r, HOUSE)
+			assert.same(HOUSE_GUST, looks)
+			assert.equal("....", look(r, HOUSE))
+			assert.equal("rest", r.b:debug().phase)
+			assert.equal(0, r.b:debug().budget.dropped)
+		end)
+
 		for _, n in ipairs({ 1, 2, 4, 6 }) do
 			for _, bottom in ipairs({ 1, 6 }) do
-				local order = bottom == 6 and reversed(LISTS[n]) or LISTS[n]
-				it(string.format("plays them over %d pixel(s) with the bottom at speed %d", n, bottom), function()
+				it(string.format("rises bottom to top over %d pixel(s) with the bottom at speed %d", n, bottom), function()
 					local r = rig()
-					local frames = FRAMES[n]
-
-					-- Breeze starts: every pixel is taken at once, the head is on pixel 1.
-					local first = start(r, shuffled(LISTS[n]), bottom)
-					for _, link in ipairs(order) do
-						assert.is_true(r.b:held(link), "taken at the start of the enter")
-					end
+					local order = bottom == 6 and reversed(LISTS[n]) or LISTS[n]
+					start(r, shuffled(LISTS[n]), bottom)
 					assert.same(order, r.b:debug().pixels)
-					play(r, order, frames.enter, first)
-					assert.equal("rest", r.b:debug().phase)
-					assert.equal(3500, pending(r).ms, "the rest random(lo, hi) gave")
-					assert.same({ 3500, 6000 }, r.randoms[#r.randoms])
-
-					-- The rest's expiry is the gust's first step; the gust is N + 2 steps, then a rest.
-					assert.equal(n + 2, #frames.gust)
-					play(r, order, frames.gust)
-					assert.equal("rest", r.b:debug().phase)
-					assert.equal(2, #r.randoms)
-
-					-- Breeze ends: the falling wipe, each pixel settled as the head leaves it, then idle.
-					r.b:update({ breeze = false, strength = nil, online = true })
-					play(r, order, frames.leave, take(r))
-					assert.equal("idle", r.b:debug().phase)
-					assert.is_nil(pending(r), "nothing pending once idle")
-					for _, link in ipairs(order) do
-						assert.is_false(r.b:held(link))
+					local looks, calls = run_gust(r, order)
+					for i = 1, n do
+						for t = 1, #looks do
+							local white = looks[t]:sub(i, i) == "W"
+							assert.equal(t == 2 * i or t == 2 * i + 1, white,
+								string.format("pixel %d white at ticks %d and %d only (tick %d)", i, 2 * i, 2 * i + 1, t))
+						end
 					end
+					for _, call in ipairs(calls) do
+						if call[1] == "paint" then
+							assert.is_truthy(call[3] == HEAD or LETTER[call[3]], "only white and the sparks")
+						end
+					end
+					assert.equal(string.rep(".", n), look(r, order), "every pixel dark at the end")
+					assert.same({ 2000, 5000 }, r.randoms[#r.randoms], "then a rest")
 				end)
 			end
 		end
 
-		it("sends the house's links themselves: Low to High rising, High to Low falling, reversed for Speed 6",
-			function()
-				local r = rig()
-				local first = start(r, HOUSE, 1)
-				assert.same({ { "paint", 302, HEAD, true } }, first)
-				assert.same({ { "paint", 302, BASE, false }, { "paint", 303, HEAD, true } }, tick(r))
+		it("leaves each passed pixel in a spark colour, never white, never pure blue", function()
+			local r = rig()
+			r.pick = seeded(11)
+			start(r, LISTS[6], 1, 3)
+			for _ = 1, 3 do
+				local looks = run_gust(r, LISTS[6])
+				for _, frame in ipairs(looks) do
+					assert.is_nil(frame:find("?", 1, true), "never unknown")
+				end
+				tick(r) -- the rest
+			end
+		end)
 
-				local top = rig()
-				first = start(top, HOUSE, 6)
-				assert.same({ { "paint", 305, HEAD, true } }, first)
-				assert.same({ { "paint", 305, BASE, false }, { "paint", 304, HEAD, true } }, tick(top))
+		describe("messages (BL-D23)", function()
+			it("preloads a dark pixel's colour and lights it; recolours a lit one; darkens with a light", function()
+				local r = rig()
+				start(r)
+				ticks(r, 3)
+				assert.same({ { "paint", 302, ICE, false, false }, { "paint", 303, HEAD, false, true },
+					{ "light", 303, true } }, tick(r), "the front moves on: 302 recoloured while lit, 303 lit white")
+				tick(r)
+				local calls = tick(r)
+				assert.same({ "light", 302, false }, calls_to(calls, 302)[1], "a blink off: one light")
+				tick(r)
+				assert.same({ { "light", 302, true } }, calls_to(tick(r), 302), "relit in the colour it holds: one light")
 			end)
 
-		it("steps at the step time; a gust waits for its rest", function()
-			local r = rig()
-			start(r)
-			assert.equal(300, pending(r).ms)
-			r.b:configure({ step = 450 })
-			assert.equal(300, pending(r).ms, "a step change waits for the next arm")
-			tick(r)
-			assert.equal(450, pending(r).ms)
+			it("a relight in a new colour: a preload, then the light", function()
+				local r = rig()
+				local colours = { 1, 2 }
+				r.pick = function(lo, hi)
+					if lo == 1 and hi == #SPARKS then
+						return table.remove(colours, 1) or 1
+					end
+					return low(lo, hi)
+				end
+				start(r, { 303 })
+				ticks(r, 7)
+				assert.same({ { "paint", 303, TEAL, false, true }, { "light", 303, true } }, tick(r))
+			end)
+
+			it("with RECOLOUR_NEEDS_STATE true a lit recolour carries the state", function()
+				breezeleds.RECOLOUR_NEEDS_STATE = true
+				local r = rig()
+				start(r)
+				ticks(r, 3)
+				assert.same({ "paint", 302, ICE, true, false }, tick(r)[1])
+			end)
+
+			it("sends nothing for a tick that changes nothing", function()
+				local r = rig()
+				start(r)
+				assert.same({}, tick(r), "the front below pixel 1")
+				tick(r)
+				assert.same({}, tick(r), "the front still on pixel 1")
+			end)
+		end)
+
+		describe("the tail (BL-D26)", function()
+			it("blinks a tail pixel off and on more than once (Breeze 3)", function()
+				local r = rig()
+				start(r, { 302, 303 }, 1, 3)
+				local _, calls = run_gust(r, { 302, 303 })
+				for _, link in ipairs({ 302, 303 }) do
+					local relights, offs = 0, 0
+					for _, call in ipairs(calls_to(calls, link)) do
+						if call[1] == "light" and call[3] then
+							relights = relights + 1
+						elseif call[1] == "light" then
+							offs = offs + 1
+						end
+					end
+					assert.is_true(relights >= 3, link .. ": lit by the front, then relit at least twice")
+					assert.is_true(offs >= 2, link .. ": off at least twice")
+				end
+			end)
+
+			it("blinks at gaps of 2 to 4 ticks, each pixel its own", function()
+				local r = rig()
+				local seed = seeded(5)
+				r.pick = function(lo, hi)
+					if (lo == 1 and hi == 100) or lo == 100 then
+						return low(lo, hi) -- no double, no glint, the front step 100 ms
+					end
+					return seed(lo, hi)
+				end
+				start(r, { 304 }, 1, 3)
+				local gaps = 0
+				for _ = 1, 8 do
+					local looks = run_gust(r, { 304 })
+					-- The changes after the front left (tick 4), the last one aside (the tail's end may be sooner).
+					local changes, last = { 4 }, looks[4]
+					for t = 5, #looks do
+						if (looks[t] == ".") ~= (last == ".") then
+							changes[#changes + 1] = t
+						end
+						last = looks[t]
+					end
+					for k = 2, #changes - 1 do
+						local gap = changes[k] - changes[k - 1]
+						assert.is_true(gap >= 2 and gap <= 4, "a gap of " .. gap .. " ticks")
+						gaps = gaps + 1
+					end
+					tick(r)
+				end
+				assert.is_true(gaps >= 8, "enough gaps seen")
+				for _, range in ipairs(r.randoms) do
+					if range[2] == 4 and range[1] ~= 1 then
+						assert.is_true(range[1] >= 2 and range[1] <= 4)
+					end
+				end
+			end)
+
+			it("grows its gaps towards the end: the gap's low end rises over the tail", function()
+				local r = rig()
+				start(r, { 303 }, 1, 3)
+				run_gust(r, { 303 })
+				local lows = {}
+				for _, range in ipairs(r.randoms) do
+					if range[2] == 4 and range[1] >= 2 then
+						lows[#lows + 1] = range[1]
+					end
+				end
+				-- 700 ms, 14 ticks, the gaps at their low end: at ticks 0, 2, 4, 6, 9 and 12 of the tail.
+				assert.same({ 2, 2, 2, 3, 3, 4 }, lows)
+			end)
+
+			it("does not blink neighbours in step, and the same seed plays the same gust", function()
+				local function play(seed)
+					local r = rig()
+					r.pick = seeded(seed)
+					start(r, HOUSE, 1, 3)
+					local looks, calls = run_gust(r, HOUSE)
+					return looks, calls
+				end
+				local looks, calls = play(42)
+				local again, calls_again = play(42)
+				assert.same(looks, again)
+				assert.same(calls, calls_again)
+				-- Each pixel's blinks, as ticks after the front left it.
+				local patterns = {}
+				for i = 1, #HOUSE do
+					local left
+					for t = 1, #looks do
+						if left == nil and t > 1 and looks[t - 1]:sub(i, i) == "W" and looks[t]:sub(i, i) ~= "W" then
+							left = t
+						end
+					end
+					local pattern, was = {}, true
+					for t = left or #looks + 1, #looks do
+						local lit = looks[t]:sub(i, i) ~= "."
+						if lit ~= was then
+							pattern[#pattern + 1] = t - left
+						end
+						was = lit
+					end
+					patterns[i] = table.concat(pattern, ",")
+				end
+				for i = 2, #HOUSE do
+					assert.not_equal(patterns[i - 1], patterns[i], "pixels " .. (i - 1) .. " and " .. i)
+				end
+			end)
+
+			for strength, range in ipairs({ { 300, 500 }, { 500, 800 }, { 700, 1100 } }) do
+				it(string.format("lasts %d to %d ms at Breeze %d", range[1], range[2], strength), function()
+					for _, at in ipairs({ "low", "high" }) do
+						local r = rig()
+						r.pick = function(lo, hi)
+							if lo == range[1] and hi == range[2] then
+								return at == "low" and lo or hi
+							end
+							return low(lo, hi)
+						end
+						start(r, { 303 }, 1, strength)
+						local looks = run_gust(r, { 303 })
+						local ms = at == "low" and range[1] or range[2]
+						-- The front leaves at tick 4; the rest begins when the tail's time is out.
+						assert.equal(4 + ms / 50 - 1, #looks, at .. " end")
+						local seen = false
+						for _, drawn in ipairs(r.randoms) do
+							seen = seen or (drawn[1] == range[1] and drawn[2] == range[2])
+						end
+						assert.is_true(seen, "the tail time drawn in its strength's range")
+					end
+				end)
+			end
+		end)
+
+		describe("double gusts (BL-D21, BL-D22)", function()
+			-- The first percent draw is the double: `answer` to it, 100 to the rest.
+			local function double_pick(answer)
+				local draws = 0
+				return function(lo, hi)
+					if lo == 1 and hi == 100 then
+						draws = draws + 1
+						return draws == 1 and answer or 100
+					end
+					return low(lo, hi)
+				end
+			end
+
+			it("runs a second front 2 front steps behind the first", function()
+				local r = rig()
+				r.pick = double_pick(1)
+				start(r)
+				assert.same({ 0, 200 }, r.b:debug().gust.offsets)
+				local looks = run_gust(r, HOUSE)
+				for i = 1, 4 do
+					local whites = {}
+					for t = 1, #looks do
+						if looks[t]:sub(i, i) == "W" then
+							whites[#whites + 1] = t
+						end
+					end
+					assert.same({ 2 * i, 2 * i + 1, 2 * i + 4, 2 * i + 5 }, whites, "pixel " .. i .. " white twice")
+				end
+				assert.equal("....", look(r, HOUSE))
+			end)
+
+			for strength, percent in ipairs({ 10, 25, 40 }) do
+				it(string.format("happens with %d %% at Breeze %d", percent, strength), function()
+					local r = rig()
+					r.pick = double_pick(percent)
+					start(r, HOUSE, 1, strength)
+					assert.equal(200, r.b:debug().gust.offsets[2])
+					local s = rig()
+					s.pick = double_pick(percent + 1)
+					start(s, HOUSE, 1, strength)
+					assert.is_nil(s.b:debug().gust.offsets[2])
+				end)
+			end
+
+			it("is a single gust when both fronts would not fit the budget", function()
+				local r = rig()
+				r.pick = double_pick(1)
+				start(r, LISTS[6])
+				assert.is_nil(r.b:debug().gust.offsets[2], "6 dark-first and 36 for two fronts over 6 pixels")
+				assert.is_true(r.log.has("debug", "no room in the budget for a second front"))
+			end)
+		end)
+
+		describe("glints (BL-D21)", function()
+			it("may glint the pixel two above the leading front for one tick, in sky", function()
+				local r = rig()
+				local draws = 0
+				r.pick = function(lo, hi)
+					if lo == 1 and hi == 100 then
+						draws = draws + 1
+						return draws == 1 and 100 or 1 -- no double; every glint
+					end
+					return low(lo, hi)
+				end
+				start(r)
+				tick(r)
+				local calls = tick(r)
+				assert.same({ { "paint", 304, GLINT, false, true }, { "light", 304, true } }, calls_to(calls, 304))
+				assert.equal("W.s.", look(r, HOUSE))
+				assert.same({ { "light", 304, false } }, tick(r), "for one tick")
+				tick(r)
+				assert.equal("iW.s", look(r, HOUSE), "the front on pixel 2: pixel 4 glints")
+				tick(r)
+				assert.equal("iW..", look(r, HOUSE))
+			end)
+
+			it("draws no glint where there is no pixel two above the front", function()
+				local r = rig()
+				start(r, { 302, 303 })
+				run_gust(r, { 302, 303 })
+				local percents = 0
+				for _, drawn in ipairs(r.randoms) do
+					if drawn[1] == 1 and drawn[2] == 100 then
+						percents = percents + 1
+					end
+				end
+				assert.equal(1, percents, "the double's draw only")
+			end)
 		end)
 	end)
 
-	describe("with_state (BL-D14)", function()
-		it("ships true for every paint: both messages each time", function()
-			breezeleds.RECOLOUR_NEEDS_STATE = true
-			local r = rig()
-			local all = start(r)
-			local function add(calls)
-				for _, call in ipairs(calls) do
-					all[#all + 1] = call
-				end
-			end
-			for _ = 1, 4 + 6 do -- the enter, then a gust
-				add(tick(r))
-			end
-			r.b:update({ breeze = false })
-			add(take(r))
-			for _ = 1, 4 do -- the leave
-				add(tick(r))
-			end
-			local paints = 0
-			for _, call in ipairs(all) do
-				if call[1] == "paint" then
-					paints = paints + 1
-					assert.is_true(call[4], "with_state on every paint while RECOLOUR_NEEDS_STATE is true")
-				end
-			end
-			assert.equal(8 + 12 + 4, paints, "8 for the enter, 12 for a gust of 4, 4 heads for the leave")
-		end)
-
-		it("is true for a pixel's first paint after it is taken again, false for a recolour", function()
-			local r = rig()
-			to_rest(r)
-			r.b:update({ online = false })
-			take(r)
-			r.b:update({ online = true })
-			assert.same(calls_of(HOUSE, "1=H!"), take(r), "taken again: the first paint carries the state")
-			assert.same(calls_of(HOUSE, "1=B 2=H!"), tick(r))
-		end)
-	end)
-
-	describe("rests (BL-D7)", function()
-		local function rest_of(strength)
-			local r = rig()
-			to_rest(r, HOUSE, 1, strength)
-			return r.randoms[#r.randoms], pending(r).ms
+	describe("rests (BL-D19, BL-D22)", function()
+		for strength, range in ipairs({ { 4000, 8000 }, { 2000, 5000 }, { 1000, 3000 } }) do
+			it(string.format("are dark and last %d to %d ms at Breeze %d, with no ticking", range[1], range[2], strength),
+				function()
+					local r = rig()
+					to_rest(r, HOUSE, 1, strength)
+					assert.equal("....", look(r, HOUSE))
+					assert.same(range, r.randoms[#r.randoms])
+					assert.equal(range[1], pending(r).ms, "one timer for the whole rest")
+					local armed = #r.timers
+					assert.same({}, tick(r), "the next gust starts dark")
+					assert.equal("gust", r.b:debug().phase)
+					assert.equal(armed + 1, #r.timers)
+					assert.equal(50, pending(r).ms)
+				end)
 		end
 
-		it("rests 6 to 9 s at strength 1, 3.5 to 6 s at 2, 1.5 to 3.5 s at 3", function()
-			assert.same({ 6000, 9000 }, (rest_of(1)))
-			assert.same({ 3500, 6000 }, (rest_of(2)))
-			assert.same({ 1500, 3500 }, (rest_of(3)))
-		end)
-
-		it("rests as strength 2 when the strength is unknown or not 1 to 3", function()
+		it("rest as Breeze 2 when the strength is unknown or not 1 to 3", function()
+			for _, strength in ipairs({ 7, 0, 2.5, "x" }) do
+				local r = rig()
+				to_rest(r, HOUSE, 1, strength)
+				assert.same({ 2000, 5000 }, r.randoms[#r.randoms])
+				assert.same({ 500, 800 }, r.b:debug().tail)
+			end
 			local r = rig()
-			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = 300 })
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP })
 			r.b:set_pixels(HOUSE)
 			r.b:update({ breeze = true, online = true })
-			for _ = 1, 4 do
-				tick(r)
-			end
-			assert.same({ 3500, 6000 }, r.randoms[1])
-			assert.same({ 3500, 6000 }, (rest_of(7)))
-			assert.same({ 3500, 6000 }, (rest_of(0)))
-			assert.same({ 3500, 6000 }, (rest_of(2.5)))
+			run_gust(r, HOUSE)
+			assert.same({ 2000, 5000 }, r.randoms[#r.randoms])
 		end)
 
-		it("arms the time random gave, held within the range", function()
+		it("arm the time random gave, held within the range", function()
 			local r = rig()
-			r.pick = function(_, hi) return hi end
+			r.pick = function(lo, hi)
+				if lo == 2000 then
+					return hi
+				end
+				return low(lo, hi)
+			end
 			to_rest(r)
-			assert.equal(6000, pending(r).ms)
-			local low = rig()
-			low.pick = function() return 10 end
-			to_rest(low)
-			assert.equal(3500, pending(low).ms, "below the range: its low end")
+			assert.equal(5000, pending(r).ms)
+			local s = rig()
+			s.pick = function(lo, hi)
+				if lo == 2000 then
+					return 10
+				end
+				return low(lo, hi)
+			end
+			to_rest(s)
+			assert.equal(2000, pending(s).ms, "below the range: its low end")
 		end)
 
-		it("takes a strength change from the next rest, without re-arming", function()
+		it("take a strength change from the next gust: the running gust keeps its tails", function()
 			local r = rig()
-			to_rest(r, HOUSE, 1, 1)
-			local resting = pending(r)
-			assert.same({ 6000, 9000 }, r.randoms[#r.randoms])
+			start(r, HOUSE, 1, 1)
+			ticks(r, 4)
 			r.b:update({ breeze = true, strength = 3, online = true })
-			assert.same({}, take(r))
-			assert.equal(resting, pending(r), "the rest keeps its timer")
-			assert.equal(1, #r.randoms)
-			into_gust(r, 3)
-			for _ = 1, 3 do
-				tick(r)
+			assert.same({}, take(r), "nothing sent")
+			run_gust(r, HOUSE)
+			for _, drawn in ipairs(r.randoms) do
+				assert.is_false(drawn[1] == 700, "no Breeze 3 tail in this gust")
 			end
-			assert.equal("rest", r.b:debug().phase)
-			assert.same({ 1500, 3500 }, r.randoms[#r.randoms], "the next rest takes the new strength")
-			into_gust(r, 3)
-			r.b:update({ breeze = true, strength = 1, online = true })
-			assert.same({}, take(r), "mid-gust: nothing sent")
-			for _ = 1, 3 do
-				tick(r)
+			assert.same({ 1000, 3000 }, r.randoms[#r.randoms], "the rest takes the new strength")
+			tick(r)
+			run_gust(r, HOUSE)
+			local seen = false
+			for _, drawn in ipairs(r.randoms) do
+				seen = seen or drawn[1] == 700
 			end
-			assert.same({ 6000, 9000 }, r.randoms[#r.randoms])
-			assert.same({ 6000, 9000 }, r.b:debug().rest)
+			assert.is_true(seen, "the next gust's tails are Breeze 3's")
 		end)
 
-		it("keeps the strength on an update without breeze (the phase listener sends online alone)", function()
+		it("keep the strength on an update without breeze (the phase listener sends online alone)", function()
 			local r = rig()
 			to_rest(r, HOUSE, 1, 3)
 			r.b:update({ online = true })
-			assert.same({ 1500, 3500 }, r.b:debug().rest)
+			assert.same({ 1000, 3000 }, r.b:debug().rest)
 			r.b:update({ breeze = true })
-			assert.same({ 3500, 6000 }, r.b:debug().rest, "with breeze, a missing strength is unknown")
+			assert.same({ 2000, 5000 }, r.b:debug().rest, "with breeze, a missing strength is unknown")
 		end)
 	end)
 
-	describe("late ticks (BL-D13: no burst)", function()
-		it("applies every step that fell due at once, each pixel only its final colour", function()
+	describe("the budget (BL-D24)", function()
+		it("never sends more than 30 messages in any second, and never drops a front or leaves white behind",
+			function()
+				for _, seed in ipairs({ 3, 17, 29 }) do
+					local r = rig()
+					r.pick = seeded(seed)
+					start(r, LISTS[6], 1, 3)
+					local gusts = 0
+					while gusts < 12 do
+						local before = r.b:debug().phase
+						tick(r)
+						local phase = r.b:debug().phase
+						if phase == "gust" then
+							local at, shows = fronts_now(r), look(r, LISTS[6])
+							for i = 1, 6 do
+								assert.equal(at[i] == true, shows:sub(i, i) == "W",
+									string.format("seed %d: pixel %d is white exactly while a front is on it", seed, i))
+							end
+						elseif before == "gust" then
+							gusts = gusts + 1
+						end
+					end
+					assert.is_true(max_window(r.stamps) <= 30, "seed " .. seed .. ": " .. max_window(r.stamps))
+					assert.is_true(r.b:debug().budget.dropped > 0, "tail changes were dropped")
+				end
+			end)
+
+		it("drops tail changes, never the head: a busy tail freezes while the front runs on time", function()
 			local r = rig()
-			start(r)
-			assert.same(calls_of(HOUSE, "1=B 2=B! 3=B! 4=H!"), tick(r, 600), "three steps due")
-			assert.equal(300, pending(r).ms, "back on the cadence")
-			local s = rig()
-			start(s)
-			assert.same(calls_of(HOUSE, "1=B 2=B! 3=B! 4=H!"), tick(s, 700))
-			assert.equal(200, pending(s).ms, "the next step when it falls due, not a full step later")
+			local colour = 0
+			r.pick = function(lo, hi)
+				if lo == 1 and hi == #SPARKS then
+					colour = colour % #SPARKS + 1 -- a new colour at every relight: two messages each
+					return colour
+				elseif lo == 700 then
+					return hi
+				end
+				return low(lo, hi)
+			end
+			start(r, LISTS[6], 1, 3)
+			local looks = run_gust(r, LISTS[6])
+			for i = 1, 6 do
+				assert.equal("W", looks[2 * i]:sub(i, i), "pixel " .. i .. " white on time")
+			end
+			assert.is_true(r.b:debug().budget.dropped > 0)
+			assert.is_true(max_window(r.stamps) <= 30)
 		end)
 
-		it("ends an enter in its rest when more steps fell due than it had left", function()
+		it("never drops a settle: the falling wipe settles every pixel, whatever the window holds", function()
 			local r = rig()
-			start(r)
-			assert.same(calls_of(HOUSE, "1=B 2=B! 3=B! 4=B!"), tick(r, 5000))
-			assert.equal("rest", r.b:debug().phase)
-			assert.equal(1, #r.randoms, "the rest armed once")
+			r.pick = seeded(3)
+			start(r, LISTS[6], 1, 3)
+			ticks(r, 12)
+			r.b:update({ breeze = false })
+			local calls = take(r)
+			for _ = 1, 6 do
+				for _, call in ipairs(tick(r)) do
+					calls[#calls + 1] = call
+				end
+			end
+			local settled = {}
+			for _, call in ipairs(calls) do
+				if call[1] == "settle" then
+					settled[#settled + 1] = call[2]
+				end
+			end
+			assert.same(reversed(LISTS[6]), settled)
+			assert.equal("idle", r.b:debug().phase)
 		end)
+	end)
 
-		it("jumps into a gust when its rest's timer fires late", function()
+	describe("the falling wipe (BL-D8, BL-D25)", function()
+		it("from a rest: the head runs down the dark column, settling each pixel it leaves", function()
 			local r = rig()
 			to_rest(r)
-			assert.same(calls_of(HOUSE, "2=T 3=H"), tick(r, 600))
-			assert.equal(300, pending(r).ms)
-			assert.same(calls_of(HOUSE, "2=B 3=B 4=T"), tick(r, 300), "two more: the head above the top")
+			local resting = pending(r)
+			r.b:update({ breeze = false, strength = 2, online = true })
+			assert.is_true(resting.cancelled)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, take(r))
+			assert.equal("leave", r.b:debug().phase)
+			assert.equal(STEP, pending(r).ms, "at the step itself, not jittered")
+			assert.same({ { "paint", 304, HEAD, false, true }, { "light", 304, true }, { "settle", 305 } }, tick(r))
+			assert.same({ { "paint", 303, HEAD, false, true }, { "light", 303, true }, { "settle", 304 } }, tick(r))
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true }, { "settle", 303 } }, tick(r))
+			assert.same({ { "settle", 302 } }, tick(r))
+			assert.equal("idle", r.b:debug().phase)
+			assert.is_nil(pending(r), "nothing pending once idle")
+			assert.same({ false, false, false, false }, held_list(r, HOUSE))
 		end)
 
-		it("ends a gust in its rest", function()
+		it("from the top at speed 6 when the bottom is the highest speed", function()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 2)
-			take(r)
-			assert.same(calls_of(HOUSE, "1=B 2=B"), tick(r, 4000))
-			assert.equal("rest", r.b:debug().phase)
+			to_rest(r, HOUSE, 6)
+			r.b:update({ breeze = false })
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, take(r))
+			assert.same({ { "paint", 303, HEAD, false, true }, { "light", 303, true }, { "settle", 302 } }, tick(r))
 		end)
 
-		it("settles every pixel a leave wipe passed", function()
+		it("from a gust: at once from the top; a pixel not reached keeps what it shows until the head passes",
+			function()
+				local r = rig()
+				start(r)
+				ticks(r, 8)
+				assert.equal("i.iW", look(r, HOUSE))
+				local gusting = pending(r)
+				r.b:update({ breeze = false })
+				assert.is_true(gusting.cancelled)
+				assert.same({}, take(r), "305 shows the head already")
+				assert.equal(STEP, pending(r).ms)
+				assert.same({ { "paint", 304, HEAD, false, false }, { "settle", 305 } }, tick(r), "lit: one recolour")
+				assert.equal("i.W~", look(r, HOUSE), "the tail frozen below the head")
+				assert.same({ { "paint", 303, HEAD, false, true }, { "light", 303, true }, { "settle", 304 } }, tick(r))
+				assert.same({ { "paint", 302, HEAD, false, false }, { "settle", 303 } }, tick(r))
+				assert.same({ { "settle", 302 } }, tick(r))
+				assert.equal("~~~~", look(r, HOUSE))
+				assert.equal("idle", r.b:debug().phase)
+			end)
+
+		for _, n in ipairs({ 1, 2, 6 }) do
+			it(string.format("settles each of %d pixel(s) once, top to bottom", n), function()
+				local r = rig()
+				to_rest(r, LISTS[n])
+				r.b:update({ breeze = false })
+				local calls = take(r)
+				while r.b:debug().phase == "leave" do
+					for _, call in ipairs(tick(r)) do
+						calls[#calls + 1] = call
+					end
+				end
+				local settled = {}
+				for _, call in ipairs(calls) do
+					if call[1] == "settle" then
+						settled[#settled + 1] = call[2]
+					end
+				end
+				assert.same(reversed(LISTS[n]), settled)
+			end)
+		end
+
+		it("takes a step change from its next arm", function()
 			local r = rig()
 			to_rest(r)
 			r.b:update({ breeze = false })
-			assert.same(calls_of(HOUSE, "4=H"), take(r))
-			assert.same(calls_of(HOUSE, "1=H ~2 ~3 ~4"), tick(r, 600))
-			assert.same(calls_of(HOUSE, "~1"), tick(r))
-			assert.equal("idle", r.b:debug().phase)
-
-			local s = rig()
-			to_rest(s)
-			s.b:update({ breeze = false })
-			take(s)
-			assert.same(calls_of(HOUSE, "~1 ~2 ~3 ~4"), tick(s, 60000), "past the end: every pixel, once")
-			assert.equal("idle", s.b:debug().phase)
-			assert.is_nil(pending(s))
-		end)
-
-		it("steps one at a time without a clock", function()
-			local r = rig({ no_clock = true })
-			start(r)
-			assert.same(calls_of(HOUSE, "1=B 2=H!"), tick(r, 5000))
+			r.b:configure({ step = 300 })
+			assert.equal(STEP, pending(r).ms)
+			tick(r)
 			assert.equal(300, pending(r).ms)
-		end)
-
-		it("ignores a callback whose timer was cancelled", function()
-			local r = rig()
-			start(r)
-			local old = pending(r)
-			r.b:update({ online = false })
-			take(r)
-			assert.is_true(old.cancelled)
-			old.cb()
-			assert.same({}, take(r))
-			assert.equal("idle", r.b:debug().phase)
 		end)
 	end)
 
 	describe("interruptions (BL-D10)", function()
-		it("leave during the enter: the falling wipe from the top at once; unreached pixels keep their frame",
-			function()
-				local r = rig()
-				start(r)
-				tick(r) -- 302 BASE, 303 HEAD, 304 and 305 held, not painted
-				r.b:update({ breeze = false })
-				assert.same(calls_of(HOUSE, "4=H!"), take(r))
-				assert.same(calls_of(HOUSE, "3=H! ~4"), tick(r))
-				assert.same(calls_of(HOUSE, "~3"), tick(r), "303 shows HEAD already")
-				assert.same(calls_of(HOUSE, "1=H ~2"), tick(r))
-				assert.same(calls_of(HOUSE, "~1"), tick(r))
-				assert.equal("idle", r.b:debug().phase)
-			end)
-
-		it("leave during a gust: the falling wipe from the top at once", function()
+		it("Breeze again during the leave: every pixel taken back and dark at once, then a new gust", function()
 			local r = rig()
 			to_rest(r)
-			into_gust(r, 3) -- 302 BASE, 303 TRAIL, 304 HEAD
-			local gusting = pending(r)
 			r.b:update({ breeze = false })
-			assert.is_true(gusting.cancelled)
-			assert.same(calls_of(HOUSE, "4=H"), take(r))
-			assert.same(calls_of(HOUSE, "~4"), tick(r))
-			assert.same(calls_of(HOUSE, "2=H ~3"), tick(r))
-			assert.same(calls_of(HOUSE, "1=H ~2"), tick(r))
-			assert.same(calls_of(HOUSE, "~1"), tick(r))
+			tick(r) -- 305 settled, the head on 304
+			take(r)
+			r.b:update({ breeze = true, strength = 2 })
+			assert.same(darks(HOUSE), take(r))
+			assert.same({ true, true, true, true }, held_list(r, HOUSE))
+			assert.equal("gust", r.b:debug().phase)
+			assert.equal("....", look(r, HOUSE))
+			tick(r)
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
 		end)
-
-		it("leave during a rest, Off or a speed alike: the falling wipe", function()
-			local r = rig()
-			to_rest(r)
-			r.b:update({ breeze = false, online = true })
-			assert.same(calls_of(HOUSE, "4=H"), take(r))
-			assert.equal("leave", r.b:debug().phase)
-		end)
-
-		it("Breeze again during the leave: the rising wipe from pixel 1, taking back settled pixels as it passes",
-			function()
-				local r = rig()
-				to_rest(r)
-				r.b:update({ breeze = false })
-				take(r)
-				tick(r) -- 304 HEAD, 305 settled
-				r.b:update({ breeze = true, strength = 2 })
-				assert.same(calls_of(HOUSE, "1=H"), take(r))
-				assert.same({ true, true, true, false }, held_list(r, HOUSE), "305 stays with the links")
-				assert.equal("enter", r.b:debug().phase)
-				assert.same(calls_of(HOUSE, "1=B 2=H"), tick(r))
-				assert.same(calls_of(HOUSE, "2=B"), tick(r), "304 shows HEAD already")
-				assert.same(calls_of(HOUSE, "3=B 4=H!"), tick(r), "305 taken back: its first paint again")
-				assert.is_true(r.b:held(305))
-				assert.same(calls_of(HOUSE, "4=B"), tick(r))
-				assert.equal("rest", r.b:debug().phase)
-			end)
 
 		it("the newest shown state wins: leave, Breeze, leave again", function()
 			local r = rig()
@@ -556,29 +950,33 @@ describe("fan.breezeleds", function()
 			r.b:update({ breeze = false })
 			tick(r)
 			r.b:update({ breeze = true })
-			take(r) -- 302 HEAD; 303 BASE, 304 HEAD held; 305 with the links
+			take(r)
 			r.b:update({ breeze = false })
-			assert.same({}, take(r), "the top held pixel, 304, shows HEAD already")
-			assert.equal(3, r.b:debug().head)
-			assert.same(calls_of(HOUSE, "2=H ~3"), tick(r))
-			assert.same(calls_of(HOUSE, "~2"), tick(r), "302 shows HEAD already")
-			assert.same(calls_of(HOUSE, "~1"), tick(r))
-			assert.equal("idle", r.b:debug().phase)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, take(r))
+			assert.equal("leave", r.b:debug().phase)
+			assert.equal(4, r.b:debug().head)
+		end)
+
+		it("leave right after the dark-first: the wipe from the top", function()
+			local r = rig()
+			start(r)
+			r.b:update({ breeze = false })
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, take(r))
 		end)
 	end)
 
 	describe("settling at once, no wipe (BL-D11)", function()
 		local function gusting()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 2)
+			start(r)
+			ticks(r, 5)
 			take(r)
 			return r, pending(r)
 		end
 
-		local SETTLED = calls_of(HOUSE, "~1 ~2 ~3 ~4")
+		local SETTLED = settles(HOUSE)
 
-		it("when the fan goes offline, and plays the rising wipe again when it is back in Breeze", function()
+		it("when the fan goes offline, and dark first again when it is back in Breeze", function()
 			local r, timer = gusting()
 			r.b:update({ online = false })
 			assert.same(SETTLED, take(r))
@@ -586,8 +984,8 @@ describe("fan.breezeleds", function()
 			assert.is_nil(pending(r))
 			assert.equal("idle", r.b:debug().phase)
 			r.b:update({ online = true })
-			assert.same(calls_of(HOUSE, "1=H!"), take(r))
-			assert.equal("enter", r.b:debug().phase)
+			assert.same(darks(HOUSE), take(r))
+			assert.equal("gust", r.b:debug().phase)
 		end)
 
 		it("when Breeze ends and the fan goes offline in one update", function()
@@ -608,11 +1006,12 @@ describe("fan.breezeleds", function()
 			assert.same(SETTLED, take(r))
 		end)
 
-		it("during the enter, the pixels the head never reached included", function()
+		it("during a rest", function()
 			local r = rig()
-			start(r)
+			to_rest(r)
 			r.b:update({ online = false })
 			assert.same(SETTLED, take(r))
+			assert.is_nil(pending(r))
 		end)
 
 		it("during the leave: what is still held", function()
@@ -622,7 +1021,7 @@ describe("fan.breezeleds", function()
 			tick(r)
 			take(r)
 			r.b:update({ online = false })
-			assert.same(calls_of(HOUSE, "~1 ~2 ~3"), take(r))
+			assert.same(settles({ 302, 303, 304 }), take(r))
 			assert.is_nil(pending(r))
 		end)
 
@@ -636,16 +1035,114 @@ describe("fan.breezeleds", function()
 		end)
 	end)
 
-	describe("set_pixels while running (BL-D16)", function()
-		it("takes a new pixel during a rest and paints it BASE with the state", function()
+	describe("late ticks (BL-D13: no burst)", function()
+		it("applies the tick that fell due last, each pixel only its final state", function()
+			local on_time = rig()
+			start(on_time)
+			ticks(on_time, 9)
+			local late = rig()
+			start(late)
+			local calls = tick(late, 400) -- tick 9 instead of tick 1
+			assert.equal(look(on_time, HOUSE), look(late, HOUSE))
+			assert.equal("i.iW", look(late, HOUSE))
+			for _, link in ipairs(HOUSE) do
+				local paints, lights = 0, 0
+				for _, call in ipairs(calls_to(calls, link)) do
+					if call[1] == "paint" then
+						paints = paints + 1
+					else
+						lights = lights + 1
+					end
+				end
+				assert.is_true(paints <= 1 and lights <= 1, link .. ": its final state only")
+			end
+			assert.equal(50, pending(late).ms, "back on the cadence")
+			local off = rig()
+			start(off)
+			tick(off, 420)
+			assert.equal(30, pending(off).ms, "the next tick when it falls due, not a full tick later")
+		end)
+
+		it("ends a gust in its rest when it fell due after the gust", function()
+			local r = rig()
+			start(r)
+			ticks(r, 9)
+			tick(r, 5000)
+			assert.equal("....", look(r, HOUSE))
+			assert.equal("rest", r.b:debug().phase)
+			assert.same({ 2000, 5000 }, r.randoms[#r.randoms], "the rest armed once")
+		end)
+
+		it("starts the gust at the time a late rest fires, from its first tick", function()
+			local r = rig()
+			to_rest(r)
+			assert.same({}, tick(r, 3000))
+			assert.equal(0, r.b:debug().gust.tick)
+			tick(r)
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
+		end)
+
+		it("settles every pixel a late wipe passed, top down", function()
+			local r = rig()
+			to_rest(r)
+			r.b:update({ breeze = false })
+			take(r)
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true }, { "settle", 305 },
+				{ "settle", 304 }, { "settle", 303 } }, tick(r, 2 * STEP))
+			assert.same({ { "settle", 302 } }, tick(r))
+			assert.equal("idle", r.b:debug().phase)
+
+			local s = rig()
+			to_rest(s)
+			s.b:update({ breeze = false })
+			take(s)
+			assert.same(settles(reversed(HOUSE)), tick(s, 60000), "past the end: every pixel, once")
+			assert.equal("idle", s.b:debug().phase)
+			assert.is_nil(pending(s))
+		end)
+
+		it("steps one tick at a time without a clock", function()
+			local r = rig({ no_clock = true })
+			start(r)
+			tick(r, 5000)
+			assert.equal(1, r.b:debug().gust.tick)
+			assert.equal(50, pending(r).ms)
+		end)
+
+		it("ignores a callback whose timer was cancelled", function()
+			local r = rig()
+			start(r)
+			local old = pending(r)
+			r.b:update({ online = false })
+			take(r)
+			assert.is_true(old.cancelled)
+			old.cb()
+			assert.same({}, take(r))
+			assert.equal("idle", r.b:debug().phase)
+		end)
+	end)
+
+	describe("set_pixels while active (BL-D16)", function()
+		it("takes a pixel bound during a rest and sends it dark at once; the rest goes on", function()
 			local r = rig()
 			to_rest(r)
 			local resting = pending(r)
 			r.b:set_pixels({ 305, 301, 304, 303, 302 })
-			assert.same({ { "paint", 301, BASE, true } }, take(r))
+			assert.same({ { "light", 301, false } }, take(r))
 			assert.is_true(r.b:held(301))
-			assert.equal(resting, pending(r), "the rest goes on")
+			assert.equal(resting, pending(r))
 			assert.same({ 301, 302, 303, 304, 305 }, r.b:debug().pixels)
+		end)
+
+		it("takes a pixel bound during a gust dark; the gust runs on over the longer column", function()
+			local r = rig()
+			start(r)
+			ticks(r, 3)
+			take(r)
+			r.b:set_pixels({ 302, 303, 304, 305, 306 })
+			assert.same({ { "light", 306, false } }, take(r))
+			local looks = run_gust(r, { 302, 303, 304, 305, 306 })
+			assert.equal("W", looks[10 - 3]:sub(5, 5), "the front reaches 306 at tick 10")
 		end)
 
 		it("drops a removed pixel without any call", function()
@@ -655,50 +1152,10 @@ describe("fan.breezeleds", function()
 			assert.same({}, take(r))
 			assert.is_false(r.b:held(305))
 			assert.equal("rest", r.b:debug().phase)
-			into_gust(r, 1)
-			for _ = 1, 4 do
-				tick(r)
-			end
-			assert.equal("rest", r.b:debug().phase, "the gust is now 3 + 2 steps")
-		end)
-
-		it("paints a pixel bound above the rising head BASE, then the head passes it", function()
-			local r = rig()
-			start(r, { 302, 303, 304 })
-			r.b:set_pixels({ 302, 303, 304, 306 })
-			assert.same({ { "paint", 306, BASE, true } }, take(r))
-			local order = { 302, 303, 304, 306 }
-			assert.same(calls_of(order, "1=B 2=H!"), tick(r))
-			assert.same(calls_of(order, "2=B 3=H!"), tick(r))
-			assert.same(calls_of(order, "3=B 4=H"), tick(r))
-			assert.same(calls_of(order, "4=B"), tick(r))
-		end)
-
-		it("paints a pixel bound during a gust its frame colour; the gust grows by one step", function()
-			local r = rig()
-			to_rest(r)
-			into_gust(r, 2) -- 302 TRAIL, 303 HEAD
-			take(r)
-			r.b:set_pixels({ 302, 303, 304, 305, 306 })
-			assert.same({ { "paint", 306, BASE, true } }, take(r))
-			local order = { 302, 303, 304, 305, 306 }
-			assert.same(calls_of(order, "1=B 2=T 3=H"), tick(r))
-			assert.same(calls_of(order, "2=B 3=T 4=H"), tick(r))
-			assert.same(calls_of(order, "3=B 4=T 5=H"), tick(r))
-			assert.same(calls_of(order, "4=B 5=T"), tick(r))
-			assert.same(calls_of(order, "5=B"), tick(r))
-			assert.equal("rest", r.b:debug().phase)
-		end)
-
-		it("repaints the pixels a new order moved, from the same head position", function()
-			local r = rig()
-			to_rest(r)
-			into_gust(r, 2) -- 302 TRAIL, 303 HEAD
-			take(r)
-			r.b:set_pixels({ 301, 302, 303, 304, 305 })
-			-- 301 joins as pixel 1, the trail; 302 becomes the head; 303 goes back to BASE.
-			assert.same({ { "paint", 301, TRAIL, true }, { "paint", 302, HEAD, false }, { "paint", 303, BASE, false } },
-				take(r))
+			tick(r)
+			local looks = run_gust(r, { 302, 303, 304 })
+			assert.same({}, calls_to(r.calls, 305))
+			assert.equal(3, #looks[1])
 		end)
 
 		it("does not take a pixel bound during the leave: Breeze has ended", function()
@@ -708,22 +1165,22 @@ describe("fan.breezeleds", function()
 			take(r)
 			r.b:set_pixels({ 301, 302, 303, 304, 305 })
 			assert.is_false(r.b:held(301))
-			-- 301 is pixel 1 now: the head is still at pixel 4 (304), so 305 above it is settled.
-			assert.same({ { "paint", 304, HEAD, false }, { "settle", 305 } }, take(r))
-			assert.same({ { "paint", 303, HEAD, false }, { "settle", 304 } }, tick(r))
-			assert.same({ { "paint", 302, HEAD, false }, { "settle", 303 } }, tick(r))
+			-- 301 is pixel 1 now: the head stays at pixel 4 (304), so 305 above it is settled.
+			assert.same({ { "paint", 304, HEAD, false, true }, { "light", 304, true }, { "settle", 305 } }, take(r))
+			assert.same({ { "paint", 303, HEAD, false, true }, { "light", 303, true }, { "settle", 304 } }, tick(r))
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true }, { "settle", 303 } }, tick(r))
 			assert.same({ { "settle", 302 } }, tick(r), "301 is not held: nothing shown there")
 			assert.equal("idle", r.b:debug().phase)
 		end)
 
-		it("starts the rising wipe when the first pixel is bound while Breeze blows", function()
+		it("starts with the dark-first when the first pixel is bound while Breeze blows", function()
 			local r = rig()
-			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = 300 })
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP })
 			r.b:update({ breeze = true, strength = 2, online = true })
 			assert.same({}, take(r))
 			assert.is_nil(pending(r))
 			r.b:set_pixels({ 304 })
-			assert.same({ { "paint", 304, HEAD, true } }, take(r))
+			assert.same({ { "light", 304, false } }, take(r))
 		end)
 
 		it("keeps only the speed links 301 to 306, each once", function()
@@ -734,46 +1191,44 @@ describe("fan.breezeleds", function()
 	end)
 
 	describe("repaint (BL-D15)", function()
-		it("paints a held pixel its frame colour with the state, during a rest", function()
-			local r = rig()
-			to_rest(r)
-			assert.is_true(r.b:repaint(303))
-			assert.same({ { "paint", 303, BASE, true } }, take(r))
-		end)
-
-		it("paints the head and the trail where they are", function()
+		it("sends a dark pixel dark, and forgets its loaded colour", function()
 			local r = rig()
 			start(r)
+			ticks(r, 5)
+			assert.equal("iW..", look(r, HOUSE))
+			assert.is_true(r.b:repaint(304))
+			assert.same({ { "light", 304, false } }, take(r))
+			assert.is_nil(r.b:debug().loaded[304])
+		end)
+
+		it("sends a lit pixel its colour with the state", function()
+			local r = rig()
+			start(r)
+			ticks(r, 5)
 			r.b:repaint(302)
-			assert.same({ { "paint", 302, HEAD, true } }, take(r))
-			local s = rig()
-			to_rest(s)
-			into_gust(s, 2)
-			take(s)
-			s.b:repaint(302)
-			s.b:repaint(303)
-			assert.same({ { "paint", 302, TRAIL, true }, { "paint", 303, HEAD, true } }, take(s))
+			r.b:repaint(303)
+			assert.same({ { "paint", 302, ICE, true, false }, { "paint", 303, HEAD, true, false } }, take(r))
 		end)
 
-		it("paints a held pixel the rising head has not reached BASE; the head passes it as a recolour", function()
+		it("relights a pixel whose colour it forgot with a preload", function()
 			local r = rig()
 			start(r)
-			assert.is_true(r.b:repaint(305))
-			assert.same({ { "paint", 305, BASE, true } }, take(r))
-			tick(r)
-			tick(r)
-			assert.same(calls_of(HOUSE, "3=B 4=H"), tick(r), "305 painted already: no state")
+			ticks(r, 6) -- 302 dark, ice loaded
+			r.b:repaint(302)
+			take(r)
+			ticks(r, 1)
+			assert.same({ { "paint", 302, ICE, false, true }, { "light", 302, true } }, calls_to(tick(r), 302))
 		end)
 
-		it("paints a pixel the falling head has not reached its last frame", function()
+		it("sends a pixel the falling head has not reached what it shows", function()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 3) -- 303 TRAIL
+			start(r)
+			ticks(r, 8) -- i.iW
 			r.b:update({ breeze = false })
 			take(r)
+			r.b:repaint(302)
 			r.b:repaint(303)
-			r.b:repaint(305)
-			assert.same({ { "paint", 303, TRAIL, true }, { "paint", 305, HEAD, true } }, take(r))
+			assert.same({ { "paint", 302, ICE, true, false }, { "light", 303, false } }, take(r))
 		end)
 
 		it("does nothing for a link it does not hold", function()
@@ -792,8 +1247,8 @@ describe("fan.breezeleds", function()
 	describe("stop (BL-D17)", function()
 		it("cancels the timer, forgets every hold and sends nothing", function()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 2)
+			start(r)
+			ticks(r, 5)
 			take(r)
 			local timer = pending(r)
 			r.b:stop()
@@ -821,21 +1276,47 @@ describe("fan.breezeleds", function()
 	end)
 
 	describe("failures (every option through pcall)", function()
-		it("logs a paint that fails and paints the pixel again at its next frame", function()
+		it("logs a paint that fails; the pixel is sent again at the next tick", function()
 			local r = rig()
-			local failed = false
-			r.fail_paint = function()
-				if not failed then
-					failed = true
-					return true
-				end
-				return false
-			end
+			start(r)
+			tick(r)
+			r.fail_paint = function(link, colour) return link == 302 and colour == HEAD end
+			local calls
+			assert.has_no.errors(function() calls = tick(r) end)
+			assert.same({ { "paint", 302, HEAD, false, true } }, calls, "no light after a failed preload")
+			assert.is_true(r.log.has("warn", "link 302 could not be painted ffffff"))
+			r.fail_paint = nil
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
+			assert.equal("W...", look(r, HOUSE))
+		end)
+
+		it("logs a light that fails; a pixel whose state is unknown is painted with the state", function()
+			local r = rig()
+			start(r)
+			tick(r)
+			r.fail_light = function(link, lit) return link == 302 and lit end
+			assert.has_no.errors(function() tick(r) end)
+			assert.is_true(r.log.has("warn", "link 302 could not be lit"))
+			r.fail_light = nil
+			assert.same({ { "paint", 302, HEAD, true, false } }, tick(r))
+		end)
+
+		it("rests anyway when a pixel cannot be darkened, after waiting for it", function()
+			local r = rig()
+			start(r, { 303 })
+			r.fail_light = function(_, lit) return not lit end
+			local looks = run_gust(r, { 303 })
+			assert.equal("rest", r.b:debug().phase)
+			assert.equal(4 + 10 + breezeleds.DARKEN_TICKS, #looks + 1, "the tail, then DARKEN_TICKS ticks")
+			assert.is_true(r.log.has("debug", "a pixel still not dark"))
+			assert.is_true(r.log.has("warn", "link 303 could not be darkened"))
+		end)
+
+		it("works on without the light option, logging each light it could not send", function()
+			local r = rig({ no_light = true })
 			assert.has_no.errors(function() start(r) end)
-			assert.is_true(r.log.has("warn", "link 302 could not be painted"))
-			assert.is_true(r.b:held(302))
-			assert.is_not_nil(pending(r), "the animation goes on")
-			assert.same(calls_of(HOUSE, "1=B! 2=H!"), tick(r), "302 never got a frame: the next carries the state")
+			assert.is_true(r.log.has("warn", "link 302 could not be darkened: not given"))
+			assert.has_no.errors(function() ticks(r, 30) end)
 		end)
 
 		it("logs a settle that fails and goes on with the wipe", function()
@@ -846,12 +1327,10 @@ describe("fan.breezeleds", function()
 			take(r)
 			local calls
 			assert.has_no.errors(function() calls = tick(r) end)
-			assert.same(calls_of(HOUSE, "3=H ~4"), calls)
+			assert.same({ "settle", 305 }, calls[3])
 			assert.is_true(r.log.has("warn", "link 305 could not be settled"))
 			assert.is_false(r.b:held(305))
-			tick(r)
-			tick(r)
-			tick(r)
+			ticks(r, 3)
 			assert.equal("idle", r.b:debug().phase)
 		end)
 
@@ -863,26 +1342,45 @@ describe("fan.breezeleds", function()
 			assert.is_false(r.b:debug().pending)
 			r.fail_timer = false
 			r.b:update({ breeze = false })
-			assert.same(calls_of(HOUSE, "4=H!"), take(r))
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, take(r))
 		end)
 
-		it("rests the middle of the range when random fails", function()
+		it("takes the middle of every range when random fails, and warns once", function()
 			local r = rig()
 			r.fail_random = true
 			assert.has_no.errors(function() to_rest(r) end)
-			assert.equal(4750, pending(r).ms)
-			assert.is_true(r.log.has("warn", "no random rest"))
+			assert.equal(3500, pending(r).ms)
+			assert.is_true(r.log.has("warn", "no random number"))
+			local warned = 0
+			for _, line in ipairs(r.log.lines) do
+				if line.text:find("no random number", 1, true) then
+					warned = warned + 1
+				end
+			end
+			assert.equal(1, warned)
+		end)
+
+		it("goes on by its own time when the clock fails", function()
+			local r = rig()
+			start(r)
+			r.fail_clock = true
+			assert.has_no.errors(function() tick(r, 500) end)
+			assert.is_true(r.log.has("warn", "the clock failed"))
+			assert.equal(1, r.b:debug().gust.tick, "one tick: the time armed")
+			r.fail_clock = nil
+			tick(r)
+			assert.equal(2, r.b:debug().gust.tick)
 		end)
 
 		it("logs through common.log when no log is given, and a cancel that fails", function()
 			local lines = {}
 			log.sink = function(line) lines[#lines + 1] = line end
 			local r = rig({ no_log = true })
-			r.fail_paint = function() return true end
+			r.fail_light = function() return true end
 			start(r)
 			local found = false
 			for _, line in ipairs(lines) do
-				if line:find("could not be painted", 1, true) then
+				if line:find("could not be darkened", 1, true) then
 					found = true
 				end
 			end
@@ -896,7 +1394,7 @@ describe("fan.breezeleds", function()
 	describe("calls that change nothing send nothing", function()
 		local function same_again(r)
 			local timer, armed = pending(r), #r.timers
-			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = 300 })
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP })
 			r.b:set_pixels({ 305, 304, 303, 302, 302 })
 			r.b:update({ breeze = r.b:debug().breeze, strength = 2, online = true })
 			assert.same({}, take(r))
@@ -908,20 +1406,18 @@ describe("fan.breezeleds", function()
 			local r = rig()
 			start(r)
 			same_again(r)
-			tick(r)
-			same_again(r)
-			for _ = 1, 3 do
-				tick(r)
-			end
-			assert.equal("rest", r.b:debug().phase)
-			same_again(r)
-			into_gust(r, 2)
+			ticks(r, 5)
 			take(r)
+			same_again(r)
+			run_gust(r, HOUSE)
+			take(r)
+			assert.equal("rest", r.b:debug().phase)
 			same_again(r)
 			r.b:update({ breeze = false, strength = 2, online = true })
 			take(r)
 			same_again(r)
 			tick(r)
+			take(r)
 			same_again(r)
 		end)
 
@@ -933,29 +1429,42 @@ describe("fan.breezeleds", function()
 			assert.same({}, take(r))
 		end)
 
-		it("a step change sends nothing and re-arms nothing", function()
+		it("a step change sends nothing, re-arms nothing, and applies from the next gust", function()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 1)
-			take(r)
+			start(r)
+			tick(r)
 			local timer = pending(r)
-			r.b:configure({ step = 500 })
+			r.b:configure({ step = 300 })
 			assert.same({}, take(r))
 			assert.equal(timer, pending(r))
+			assert.equal(100, r.b:debug().gust.step, "the running gust keeps its front step")
+			run_gust(r, HOUSE)
 			tick(r)
-			assert.equal(500, pending(r).ms)
+			assert.equal(240, r.b:debug().gust.step, "the next gust's: 300 less 20 %")
 		end)
 
 		it("a step outside the range is held within it", function()
 			local r = rig()
-			r.b:configure({ step = 100 })
-			assert.equal(200, r.b:debug().step)
+			r.b:configure({ step = 10 })
+			assert.equal(60, r.b:debug().step)
 			r.b:configure({ step = 900 })
-			assert.equal(600, r.b:debug().step)
-			r.b:configure({ step = "450" })
-			assert.equal(450, r.b:debug().step)
+			assert.equal(400, r.b:debug().step)
+			r.b:configure({ step = "150" })
+			assert.equal(150, r.b:debug().step)
 			r.b:configure({ step = "fast" })
-			assert.equal(300, r.b:debug().step)
+			assert.equal(120, r.b:debug().step)
+		end)
+
+		it("a front step is never shorter than a tick, so the front never skips a pixel", function()
+			local r = rig()
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = 60 })
+			r.b:set_pixels(LISTS[6])
+			r.b:update({ breeze = true, strength = 2, online = true })
+			assert.equal(50, r.b:debug().gust.step, "60 less 20 % is 48: held at 50")
+			local looks = run_gust(r, LISTS[6])
+			for i = 1, 6 do
+				assert.equal("W", looks[i]:sub(i, i))
+			end
 		end)
 	end)
 
@@ -963,7 +1472,7 @@ describe("fan.breezeleds", function()
 		local ALL = { enabled = true, per_speed = true, online = true, breeze = true, pixels = true }
 
 		for missing in pairs(ALL) do
-			it("without " .. missing .. ": nothing sent, nothing armed, and the rising wipe once it comes", function()
+			it("without " .. missing .. ": nothing sent, nothing armed, and the dark-first once it comes", function()
 				local r = rig()
 				r.b:configure({ enabled = missing ~= "enabled", per_speed = missing ~= "per_speed", bottom = 1 })
 				if missing ~= "pixels" then
@@ -981,19 +1490,9 @@ describe("fan.breezeleds", function()
 				else
 					r.b:configure({ [missing] = true })
 				end
-				assert.same(calls_of(HOUSE, "1=H!"), take(r))
+				assert.same(darks(HOUSE), take(r))
 			end)
 		end
-
-		it("turns on while Breeze blows: the rising wipe at once (BL31)", function()
-			local r = rig()
-			r.b:configure({ enabled = false, per_speed = true })
-			r.b:set_pixels(HOUSE)
-			r.b:update({ breeze = true, strength = 2, online = true })
-			assert.same({}, take(r))
-			r.b:configure({ enabled = true })
-			assert.same(calls_of(HOUSE, "1=H!"), take(r))
-		end)
 
 		it("Breeze ending while idle sends nothing", function()
 			local r = rig()
@@ -1005,40 +1504,32 @@ describe("fan.breezeleds", function()
 	end)
 
 	describe("the bottom (BL-D4)", function()
-		it("changed during a gust: the cycle restarts with a rest, every pixel BASE, no wipe", function()
+		it("changed during a gust: what is lit goes dark, then a rest", function()
 			local r = rig()
-			to_rest(r)
-			into_gust(r, 2) -- 302 TRAIL, 303 HEAD
+			start(r)
+			ticks(r, 4) -- iW..
 			take(r)
 			local timer = pending(r)
 			r.b:configure({ bottom = 6 })
-			assert.same({ { "paint", 303, BASE, false }, { "paint", 302, BASE, false } }, take(r))
+			assert.same({ { "light", 303, false }, { "light", 302, false } }, take(r))
 			assert.is_true(timer.cancelled)
 			assert.equal("rest", r.b:debug().phase)
-			assert.equal(2, #r.randoms)
 			assert.same({ 305, 304, 303, 302 }, r.b:debug().pixels)
-			assert.same(calls_of({ 305, 304, 303, 302 }, "1=H"), tick(r), "the next gust rises from 305")
-		end)
-
-		it("changed during the enter: a rest with every pixel BASE", function()
-			local r = rig()
-			start(r)
-			r.b:configure({ bottom = 6 })
-			-- New order 305, 304, 303, 302: none painted yet but 302, which was the head.
-			assert.same({ { "paint", 305, BASE, true }, { "paint", 304, BASE, true }, { "paint", 303, BASE, true },
-				{ "paint", 302, BASE, false } }, take(r))
-			assert.equal("rest", r.b:debug().phase)
+			tick(r)
+			tick(r)
+			assert.same({ { "paint", 305, HEAD, false, true }, { "light", 305, true } }, tick(r), "rising from 305")
 		end)
 
 		it("changed during a rest: the rest starts again, nothing sent", function()
 			local r = rig()
 			to_rest(r)
 			local timer = pending(r)
+			local draws = #r.randoms
 			r.b:configure({ bottom = 6 })
 			assert.same({}, take(r))
 			assert.is_true(timer.cancelled)
 			assert.is_not_nil(pending(r))
-			assert.equal(2, #r.randoms)
+			assert.equal(draws + 1, #r.randoms)
 		end)
 
 		it("changed during the leave: what is still held is settled at once", function()
@@ -1048,8 +1539,7 @@ describe("fan.breezeleds", function()
 			tick(r)
 			take(r)
 			r.b:configure({ bottom = 6 })
-			-- The new order lists 304, 303, 302 from the bottom.
-			assert.same({ { "settle", 304 }, { "settle", 303 }, { "settle", 302 } }, take(r))
+			assert.same(settles({ 304, 303, 302 }), take(r))
 			assert.equal("idle", r.b:debug().phase)
 			assert.is_nil(pending(r))
 		end)
@@ -1066,23 +1556,25 @@ describe("fan.breezeleds", function()
 	end)
 
 	describe("debug", function()
-		it("shows the phase, the pixels in order, the held set, the step, the rest range and the frame", function()
+		it("shows the phase, the pixels in order, what each shows, the ranges, the gust and the budget", function()
 			local r = rig()
 			r.b:configure({ enabled = true, per_speed = true, bottom = 6, step = 250 })
 			r.b:set_pixels(HOUSE)
 			r.b:update({ breeze = true, strength = 3, online = true })
-			for _ = 1, 4 do
-				tick(r)
-			end
-			into_gust(r, 2)
+			ticks(r, 9)
 			local d = r.b:debug()
 			assert.equal("gust", d.phase)
-			assert.equal(2, d.head)
 			assert.same({ 305, 304, 303, 302 }, d.pixels)
 			assert.same({ [302] = true, [303] = true, [304] = true, [305] = true }, d.held)
+			assert.same({ [305] = ICE, [304] = HEAD, [303] = "dark", [302] = "dark" }, d.frame)
+			assert.same({ [305] = ICE, [304] = HEAD }, d.loaded)
 			assert.equal(250, d.step)
-			assert.same({ 1500, 3500 }, d.rest)
-			assert.same({ [305] = TRAIL, [304] = HEAD, [303] = BASE, [302] = BASE }, d.frame)
+			assert.same({ 1000, 3000 }, d.rest)
+			assert.same({ 700, 1100 }, d.tail)
+			assert.equal(40, d.double)
+			assert.same({ tick = 9, step = 200, offsets = { 0 }, strength = 3, dropped = 0 }, d.gust)
+			assert.equal(30, d.budget.limit)
+			assert.is_true(d.budget.sent > 0)
 			assert.is_true(d.active)
 			assert.is_true(d.pending)
 			assert.equal(6, d.bottom)
@@ -1094,8 +1586,9 @@ describe("fan.breezeleds", function()
 			assert.equal("idle", d.phase)
 			assert.same({}, d.pixels)
 			assert.same({}, d.held)
-			assert.equal(300, d.step)
-			assert.same({ 3500, 6000 }, d.rest)
+			assert.equal(120, d.step)
+			assert.same({ 2000, 5000 }, d.rest)
+			assert.is_nil(d.gust)
 			assert.is_false(d.active)
 			assert.is_false(d.pending)
 		end)
