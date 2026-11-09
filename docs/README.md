@@ -53,6 +53,12 @@ specification, and `status.md` says what of them is live.
   current with a summary as its first item; a pick that takes the fan at
   once (another fan on a device that has its fan waits for Use Selected
   Fan); the Find Fans action removed; the checks on the house.
+- [`breeze-leds-design.md`](breeze-leds-design.md): Breeze on the keypad
+  LEDs (#137): the driver plays gusts in white, teal and azure on the
+  bound speed links while Breeze blows, a rising wipe in and a falling wipe
+  out, only under Per speed, colours only so the keypad's ambient dimming
+  applies; the properties, the module interfaces, the tests and the checks
+  on the house.
 - [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
   "Breeze is on" means (the fan runs with Breeze), the programming
   commands, variable, events and condition, the Fan Breeze link (311), the
