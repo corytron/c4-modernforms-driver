@@ -8,13 +8,14 @@ page disagree about the present, this page and the code win.
 driver is gone.** Build 124 of v1.3 was released and installed on
 2026-11-08 (deploy issue #126, the round in Discussion #132, the
 announcement in Discussion #127): fan mode and Breeze mode exclude each
-other (the owner's finding on his fan), so the fan shows fan mode only, a
+other (the owner's finding on their fan), so the fan shows fan mode only, a
 fan speed ends Breeze and an off stops the fan; Breeze is a second fan
 device, the Breeze fan (`modernforms_breeze_fan.c4z`, Breeze 1 to 3, #121,
 [`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)).
 The 1.2 Breeze switch was deleted (nothing named it) and Add Breeze Fan
 added the Breeze fan, which the room's Navigator list already shows right
-after the fan. The owner's look on the phone is still to come.
+after the fan. On their phone the owner confirmed Breeze 1, 2, 3 and off,
+with the main fan showing off while Breeze runs (#121).
 
 Before it, build 115 of v1.2 "Thumper" was released and installed in place on
 2026-11-07 (deploy issue #117, the round in Discussion #119, the
