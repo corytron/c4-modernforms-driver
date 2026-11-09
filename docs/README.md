@@ -165,6 +165,10 @@ Read-only research written before a feature's contract, in the same style.
   from the fan's side (#141): what one level step costs (measured), the
   step rate a fade can have, the corner cases on both sides with a decision
   each, and a hardware probe plan.
+- [`light-fades-design.md`](light-fades-design.md): the contract for the
+  simulated light fades (#141): the decisions LF-D1 to LF-D24, the rule for
+  every tap, hold and command, the interfaces of each module, who owns
+  which file, and the checks on the house.
 
 ## Start here
 
