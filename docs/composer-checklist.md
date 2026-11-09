@@ -866,9 +866,9 @@ Written 2026-11-09 from the hardware checks HB1 to HB7 of
 [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md). With `Breeze LED
 Animation` = `Gusts`, the buttons bound to the speed links go dark when
 Breeze starts, play a shimmering gust every few seconds while it blows (a
-white front rising up the buttons with a twinkling tail, each passed button
-blinking in ice, teal and sky blue before it goes dark; section 1a of the
-contract, BL-D26 for the tail), and a
+white front rising up the buttons with a twinkling tail of ice, teal and
+sky blue that travels up with it and follows it off the top; section 1a of
+the contract, BL-D26 and BL-D27 for the tail), and a
 falling wipe once when it ends. On the house that is Low, Medium, Med-High and High (links 302 to
 305); Off, Up and Down never animate, and `Speed LED Colors` is already
 `Per speed`, which the animation needs. The steps run on a `--dev` build

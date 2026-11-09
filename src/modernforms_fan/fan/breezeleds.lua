@@ -1,5 +1,5 @@
 -- fan/breezeleds.lua: Breeze on the keypad LEDs (#137). The contract is docs/breeze-leds-design.md: section 1
--- (BL-D1 to BL-D18) as revised by section 1a (BL-D19 to BL-D26, which replace BL-D5 to BL-D7, BL-D12, BL-D14
+-- (BL-D1 to BL-D18) as revised by section 1a (BL-D19 to BL-D27, which replace BL-D5 to BL-D7, BL-D12, BL-D14
 -- and BL-D22's sparkle ticks), this module's interface (section 3.1 and section 1a's interface block) and what
 -- the owner sees; the reasons are docs/edge-cases-breeze-leds.md (BL1 to BL70), docs/breeze-leds-sdk-research.md
 -- section 6 and the keypad probes of #137 (2026-11-09).
@@ -9,16 +9,22 @@
 -- the front HEAD (white), the tail's SPARKS (ice, teal, sky) and the glint GLINT (sky); full values only.
 --
 --   idle   nothing held, nothing sent.
---   gust   (BL-D21, BL-D26) a front rises from below pixel 1, one pixel per front step: the step property drawn
---          once a gust within +-JITTER_PERCENT (never under TICK_MS, so the front never skips a pixel on time).
---          The pixel a front is on is HEAD. A pixel a front has passed is in its tail for a tail time drawn in
---          TAIL_MS[strength]: lit at once in a SPARKS colour, then blinking off and on at gaps drawn in
---          TAIL_GAP_TICKS (the gap's low end rises over the tail, so the gaps grow and the tail thins out),
---          relighting each time in a SPARKS colour drawn again; then dark. Each pixel draws its own tail, so
---          neighbours never blink in step. When the leading front reaches pixel p, pixel p + 2 may glint GLINT
---          for one tick (GLINT_PERCENT; once a pixel a gust). With DOUBLE_PERCENT[strength] a second front
---          follows DOUBLE_GAP_STEPS (2 to 4) front steps behind. Every other pixel is dark. When every front is
---          past the top, every tail over and every pixel dark: a rest.
+--   gust   (BL-D21, BL-D26, BL-D27) a front rises from below pixel 1, one position per front step (the step
+--          property drawn once a gust within +-JITTER_PERCENT, never under TICK_MS, so the front never skips a
+--          pixel on time), and runs on past the top, unseen, at the same pace. The pixel a front is on is HEAD.
+--          Behind each front runs its tail: the pixels its head passed within the last L front steps, L = the
+--          gust's tail time (drawn once a gust in TAIL_MS[strength]) over its front step, rounded, at least 1.
+--          A pixel joins the tail lit in a SPARKS colour as the head leaves it, then blinks off and on at gaps
+--          drawn in TAIL_GAP_TICKS, relighting each time in a SPARKS colour drawn again; the gap's low end rises
+--          with the pixel's place in the tail, so the back edge blinks least; each pixel draws its own gaps, so
+--          neighbours never blink in step. A dark tail pixel relights only while the pixel above it shows lit,
+--          is that front's head, or lies past the top, so a twinkle never travels down. The pixel the back edge
+--          leaves goes dark and stays dark for the rest of the gust (unless a later front's head reaches it). So
+--          no tail twinkles without its head ahead of it, on the column or just past its top. When the leading
+--          front reaches pixel p, pixel p + 2 may glint GLINT for one tick (GLINT_PERCENT; once a pixel a gust).
+--          With DOUBLE_PERCENT[strength] a second front follows DOUBLE_GAP_STEPS (2 to 4) front steps behind,
+--          with its own tail; a pixel belongs to the tail of the latest front that passed it. Every other pixel
+--          is dark. When every back edge has passed the top (N + 1 + L steps for N pixels): a rest.
 --   rest   (BL-D19, BL-D22) every pixel dark, nothing sent and no ticking: one timer for a time drawn in
 --          REST_MS[strength], then the next gust.
 --   leave  (BL-D8, BL-D25) the falling wipe, once, when Breeze ends while online and everything else still
@@ -30,7 +36,7 @@
 -- sent dark at once, and the first gust starts at once; its front enters pixel 1 one front step later, so the
 -- dark shows first. Active means enabled, per_speed, online, breeze and at least one pixel. Any other way out
 -- of active settles every held pixel at once, with no wipe (BL-D11). Leave during a gust or a rest starts the
--- falling wipe from the top at once (BL-D10). The strength is read when a gust starts (its tails and double)
+-- falling wipe from the top at once (BL-D10). The strength is read when a gust starts (its tail and double)
 -- and when a rest is armed; a step change applies from the next gust, and in the wipe from the next arm.
 --
 -- Messages (BL-D23): what the keypad shows is kept per pixel (lit, dark or unknown, and the colour loaded) and
@@ -45,24 +51,28 @@
 -- time, which follows the `now` clock and never runs backwards (without a clock, or while it fails, a tick
 -- advances it by the time the timer was armed for). The budget is a sliding window: every message is stamped
 -- with that time (a paint 1, 2 with the state; a light 1; a settle 2, its colours and its state) and at most
--- BUDGET_PER_S may fall in any WINDOW_MS. Always sent and counted: the front (a pixel a front is on, and a
--- pixel a front has left that still shows HEAD), the dark-first, settles, the wipe and repaints. A tail change,
--- a glint and the darkening of a pixel whose tail is over are sent only when the window has room for them on
--- top of a reserve for the fronts still due in the next WINDOW_MS (2 an arrival, 1 a recolour as a front
--- leaves a pixel), so a gust's own fronts always fit; otherwise they are dropped for this tick (the darkening
--- first in line, then tail changes going dark, then relights, the youngest first, then glints, which light
--- only with room to darken them at the next tick), and what is still wanted is tried again at the next tick.
--- A double gust runs only when both fronts fit the budget with what the window holds; otherwise the gust is
--- single (a 6-pixel column never doubles: 2 x 18). So only calls from outside (a leave, a new pixel, a repaint)
--- can push a window past the budget. A late tick never bursts: the gust is evaluated at the tick that fell due
--- last, each pixel sent only its final state within the budget, and the wipe settles every pixel it passed. A
--- gust whose last darkening cannot be sent waits up to DARKEN_TICKS ticks, then rests anyway (and darkens).
+-- BUDGET_PER_S may fall in any WINDOW_MS. Always sent and counted: the heads, a pixel a front has left that
+-- still shows HEAD, the darkening behind a tail's back edge (BL-D27: skipping it would leave a tail without its
+-- head), the dark-first, settles, the wipe and repaints. A tail pixel going dark, a relight, a glint and the
+-- darkening of a glint are sent only when the window has room for them on top of a reserve for what the gust
+-- itself must still send in the next WINDOW_MS (its schedule, worst case: 2 an arrival, 1 a recolour as a
+-- head leaves a pixel, 1 a back-edge darkening), so a gust's own musts always fit; otherwise they are dropped
+-- for this tick (a glint's darkening first in line, then tail pixels going dark, then relights, top down, then
+-- glints, which light only with room to darken them at the next tick), and what is still wanted is tried
+-- again at the next tick; a relight that has to wait is checked against the pixel above again. A double gust
+-- runs only when its schedule, with what the window holds, keeps every second within the budget; otherwise it
+-- is single (4 pixels always fit after the first gust, whose dark-first counts too; 5 and 6 pixels fit only
+-- at slow steps). So only calls from outside (a leave, a new pixel, a repaint) can push a window past the
+-- budget. A late tick never bursts: the gust is evaluated at the tick that fell due last (the heads, tails and
+-- back edges where they are then; a blink that fell due in between happens once), each pixel sent only its
+-- final state, and the wipe settles every pixel it passed. A gust whose last darkening cannot be sent (a send
+-- that fails) waits up to DARKEN_TICKS ticks, then rests anyway (and darkens).
 --
--- Randomness: random(lo, hi), integers, inclusive. A gust draws its step (lo, hi = the step -+20 %), its double
--- (random(1, 100) <= DOUBLE_PERCENT) and, if double, its gap (random(2, 4)). Each tick the leading front reaches a
--- new pixel p with p + 2 on the column draws the glint (random(1, 100) <= GLINT_PERCENT). Then, bottom to top,
--- a pixel seen passed by a front for the first time draws its tail: the time (TAIL_MS), its first colour
--- (random(1, #SPARKS)), then each gap (random(lo, 4)) and each relight's colour, until the tail time is out. A
+-- Randomness: random(lo, hi), integers, inclusive. A gust draws its step (lo, hi = the step -+20 %), its tail
+-- time (TAIL_MS), its double (random(1, 100) <= DOUBLE_PERCENT) and, if double, its gap (random(2, 4)). Each tick
+-- the leading front reaches a new pixel p with p + 2 on the column draws the glint (random(1, 100) <=
+-- GLINT_PERCENT). Then, top down, a pixel joining a tail draws its colour (random(1, #SPARKS)) and its first gap
+-- (random(low, 4)); a blink off draws its gap; and, top down again, a relight draws its colour and its gap. A
 -- rest draws its length (REST_MS). A random that fails or answers no number takes the middle of the range.
 --
 -- Choices where the contract is silent (each covered by tests/spec/breezeleds_spec.lua):
@@ -539,9 +549,9 @@ function Leds:release(link)
 	end
 end
 
--- Gusts (BL-D21, BL-D22, BL-D26) -----------------------------------------------------------------------------
+-- Gusts (BL-D21, BL-D22, BL-D26, BL-D27) ---------------------------------------------------------------------
 
--- The front f's position at tick n: 0 below pixel 1, then one pixel per front step.
+-- The front f's position at tick n: 0 below pixel 1, then one pixel per front step, on past the top unseen.
 local function front_at(g, f, n)
 	local x = n * breezeleds.TICK_MS - g.offsets[f]
 	if x < 0 then
@@ -550,40 +560,93 @@ local function front_at(g, f, n)
 	return math.floor(x / g.fstep)
 end
 
--- The tick at which front f reaches pixel i (i = 1, 2, ...); pixel i + 1's is when it leaves pixel i.
+-- The tick at which front f reaches position i (i = 1, 2, ..., past the top too); i + 1's is when it leaves i.
 local function arrival(g, f, i)
 	return ceil_div(i * g.fstep + g.offsets[f], breezeleds.TICK_MS)
 end
 
--- A tail (BL-D26): its length in ticks and its changes { at = tick within it, lit, colour }, lit first.
-function Leds:draw_tail(g)
-	local range = breezeleds.TAIL_MS[g.strength]
-	local ticks = math.max(1, round(self:draw(range[1], range[2]) / breezeleds.TICK_MS))
-	local sparks = breezeleds.SPARKS
-	local changes = { { at = 0, lit = true, colour = sparks[self:draw(1, #sparks)] } }
-	local lo, hi = breezeleds.TAIL_GAP_TICKS[1], breezeleds.TAIL_GAP_TICKS[2]
-	local at, lit = 0, true
-	while true do
-		-- The gap's low end rises from lo to hi over the tail: the gaps grow, the tail thins out.
-		local low = math.min(hi, lo + math.floor((hi - lo + 1) * at / ticks))
-		at = at + self:draw(low, hi)
-		if at >= ticks then
-			break
-		end
-		lit = not lit
-		changes[#changes + 1] = { at = at, lit = lit, colour = lit and sparks[self:draw(1, #sparks)] or nil }
-	end
-	return { ticks = ticks, changes = changes }
+local WINDOW_TICKS = math.floor(breezeleds.WINDOW_MS / breezeleds.TICK_MS)
+
+function Leds:spark()
+	return breezeleds.SPARKS[self:draw(1, #breezeleds.SPARKS)]
 end
 
-local function tail_state(tail, age)
-	local state = tail.changes[1]
-	for _, change in ipairs(tail.changes) do
-		if change.at <= age then
-			state = change
+-- A blink's gap for a pixel at place k of a tail of `length` (1 just behind the head, `length` the back edge):
+-- the low end rises from TAIL_GAP_TICKS' low to its high towards the back edge, which blinks least (BL-D27).
+function Leds:gap(k, length)
+	local lo, hi = breezeleds.TAIL_GAP_TICKS[1], breezeleds.TAIL_GAP_TICKS[2]
+	local low = math.min(hi, lo + math.floor((hi - lo + 1) * (k - 1) / length))
+	return self:draw(low, hi)
+end
+
+-- The gust's always-sent messages, worst case, by tick (BL-D24, BL-D27): for every front and pixel its arrival
+-- (2: a preload and a light), the recolour as it leaves the pixel (1, 2 with RECOLOUR_NEEDS_STATE) and the
+-- darkening as its tail's back edge leaves the pixel (1), unless a later front has passed the pixel by then (that
+-- front's tail holds it). { [tick] = count }.
+function Leds:schedule(g)
+	local recolour = breezeleds.RECOLOUR_NEEDS_STATE == true and 2 or 1
+	local at, count, offsets = {}, #self.order, g.offsets
+	local function add(tick, n)
+		at[tick] = (at[tick] or 0) + n
+	end
+	for f = 1, #offsets do
+		local overtaken = false
+		for later = f + 1, #offsets do
+			overtaken = overtaken or offsets[later] - offsets[f] <= g.length * g.fstep
+		end
+		for i = 1, count do
+			add(arrival(g, f, i), 2)
+			add(arrival(g, f, i + 1), recolour)
+			if not overtaken then
+				add(arrival(g, f, i + g.length + 1), 1)
+			end
 		end
 	end
-	return state.lit, state.colour
+	return at
+end
+
+function Leds:schedule_of(g)
+	if g.count ~= #self.order or g.at == nil then
+		g.count, g.at = #self.order, self:schedule(g)
+	end
+	return g.at
+end
+
+-- What the schedule still holds after tick n within the window: the reserve (BL-D24).
+function Leds:due(g, n)
+	local at, sum = self:schedule_of(g), 0
+	for t = n + 1, n + WINDOW_TICKS - 1 do
+		sum = sum + (at[t] or 0)
+	end
+	return sum
+end
+
+-- The most messages any one-second window would hold if the schedule ran from tick 0 now, with what the window
+-- already holds.
+function Leds:peak(g)
+	self:prune()
+	local at, last = self:schedule_of(g), 0
+	for t in pairs(at) do
+		if t > last then
+			last = t
+		end
+	end
+	local most = 0
+	for m = 0, last do
+		local sum, cut = 0, self.vt + m * breezeleds.TICK_MS - breezeleds.WINDOW_MS
+		for _, stamp in ipairs(self.window) do
+			if stamp > cut then
+				sum = sum + 1
+			end
+		end
+		for t = math.max(0, m - WINDOW_TICKS + 1), m do
+			sum = sum + (at[t] or 0)
+		end
+		if sum > most then
+			most = sum
+		end
+	end
+	return most
 end
 
 function Leds:start_gust()
@@ -592,36 +655,37 @@ function Leds:start_gust()
 	local lo = round(step * (100 - breezeleds.JITTER_PERCENT) / 100)
 	local hi = round(step * (100 + breezeleds.JITTER_PERCENT) / 100)
 	local fstep = math.max(breezeleds.TICK_MS, self:draw(lo, hi))
+	local range = breezeleds.TAIL_MS[strength]
+	local tail_ms = self:draw(range[1], range[2])
 	local offsets = { 0 }
 	if self:chance(breezeleds.DOUBLE_PERCENT[strength]) then
 		offsets[2] = self:draw(breezeleds.DOUBLE_GAP_STEPS[1], breezeleds.DOUBLE_GAP_STEPS[2]) * fstep
 	end
-	self.gust = {
+	local g = {
 		t0 = self.vt, -- tick 0
 		n = -1, -- the tick last applied
 		fstep = fstep,
+		tail_ms = tail_ms,
+		length = math.max(1, round(tail_ms / fstep)), -- L: the tail, in front steps (BL-D27)
 		offsets = offsets,
 		strength = strength,
-		tails = {}, -- [f][i] = the tail front f left on pixel i
+		tails = {}, -- [f][i] = pixel i's blinking in front f's tail: { lit, colour, next }
 		glints = {}, -- [i] = the tick pixel i glints
 		lead = 0, -- the leading front's position at the tick last applied
 		waited = 0, -- ticks spent after the gust waiting to darken
 		dropped = 0,
 	}
-	local g = self.gust
-	if offsets[2] ~= nil then
+	self.gust = g
+	if offsets[2] ~= nil and self:peak(g) > breezeleds.BUDGET_PER_S then
 		-- A double gust only when both fronts fit the budget with what the window holds (BL-D24).
-		self:prune()
-		if #self.window + self:fronts_cost(g, -1, math.huge) > breezeleds.BUDGET_PER_S then
-			self:say("debug", "no room in the budget for a second front: a single gust")
-			offsets[2] = nil
-		end
+		self:say("debug", "no room in the budget for a second front: a single gust")
+		offsets[2], g.at = nil, nil
 	end
 	for f = 1, #offsets do
 		g.tails[f] = {}
 	end
 	self.phase = "gust"
-	self:say("debug", "a gust: a front step of %d ms%s, strength %d", fstep,
+	self:say("debug", "a gust: a front step of %d ms, a tail of %d step(s)%s, strength %d", fstep, g.length,
 		offsets[2] and string.format(", a second front %d steps behind", offsets[2] / fstep) or "", strength)
 	self:gust_at(0)
 end
@@ -638,41 +702,30 @@ function Leds:gust_tick()
 	self:gust_at(n)
 end
 
--- What the fronts may still send after tick `from` up to tick `to`: 2 for each arrival (a preload and a light,
--- or a paint with the state) and a recolour for each pixel a front leaves white behind it.
-function Leds:fronts_cost(g, from, to)
-	local recolour = breezeleds.RECOLOUR_NEEDS_STATE == true and 2 or 1
-	local cost = 0
-	for f = 1, #g.offsets do
-		for i = 1, #self.order do
-			local a, leaves = arrival(g, f, i), arrival(g, f, i + 1)
-			if a > from and a <= to then
-				cost = cost + 2
-			end
-			if leaves > from and leaves <= to then
-				cost = cost + recolour
-			end
-		end
+-- Whether pixel i of a tail may relight now (BL-D27): the pixel above is past the top, is that front's head, or
+-- shows lit; so a twinkle never travels downwards.
+function Leds:may_relight(w, pos)
+	local above = self.order[w.i + 1]
+	if above == nil or pos[w.front] == w.i + 1 then
+		return true
 	end
-	return cost
+	local s = self.shows[above]
+	return s ~= nil and s.lit == true
 end
 
 -- The gust at tick n: what every pixel wants, sent within the budget (BL-D24), then the next tick or the rest.
 function Leds:gust_at(n)
 	local g, order = self.gust, self.order
-	local count = #order
+	local count, length = #order, g.length
 	g.n = n
-	local front, over = {}, true
+	local pos, over = {}, true
 	for f = 1, #g.offsets do
-		local p = front_at(g, f, n)
-		if p >= 1 and p <= count then
-			front[p] = true
-		end
-		if p <= count then
-			over = false
+		pos[f] = front_at(g, f, n)
+		if pos[f] <= count + length then
+			over = false -- a back edge still on the column (BL-D27)
 		end
 	end
-	local lead = front_at(g, 1, n)
+	local lead = pos[1]
 	if lead > g.lead then
 		g.lead = lead
 		local target = lead + 2
@@ -680,76 +733,96 @@ function Leds:gust_at(n)
 			g.glints[target] = n
 		end
 	end
-	-- What each pixel wants, by class. Always sent: the front, and a pixel a front has left that still shows
-	-- HEAD (the front moving on). Dropped first when the budget is short, in this order: a pixel to darken, a
-	-- tail change (going dark before relighting, so a starved tail thins out; the youngest first), a glint
-	-- (only with room to darken it at the next tick too).
-	local musts, darks, tails, glints = {}, {}, {}, {}
-	for i, link in ipairs(order) do
-		local lit, colour, age = true, HEAD, nil
-		if not front[i] then
-			local passed
+	-- Each pixel, top down: a front's head; in the tail of the latest front that passed it (within `length`
+	-- steps of its head); behind that tail (dark, for good this gust); or ahead of every front (dark, or a glint).
+	-- Always sent: the heads, a pixel still showing HEAD, and the darkening behind a tail's back edge.
+	local musts, aheads, tails = {}, {}, {}
+	for i = count, 1, -1 do
+		local link = order[i]
+		local head, front = false, nil
+		for f = 1, #g.offsets do
+			head = head or pos[f] == i
+		end
+		if not head then
 			for f = #g.offsets, 1, -1 do
-				if front_at(g, f, n) > i then
-					passed = f
+				if pos[f] > i then
+					front = f
 					break
-				end
-			end
-			if passed ~= nil then
-				local tail = g.tails[passed][i]
-				if tail == nil then
-					tail = self:draw_tail(g)
-					tail.from = arrival(g, passed, i + 1)
-					g.tails[passed][i] = tail
-				end
-				age = n - tail.from
-				if age < tail.ticks then
-					over = false
-					lit, colour = tail_state(tail, age)
-				else
-					age = nil
-				end
-			end
-			if age == nil then
-				if g.glints[i] == n then
-					lit, colour = true, breezeleds.GLINT
-				else
-					lit, colour = false, nil
 				end
 			end
 		end
 		local s = self.shows[link]
-		local want = { link = link, lit = lit, colour = colour, age = age, i = i }
-		if front[i] or (s ~= nil and s.lit == true and s.colour == HEAD) then
+		local white = s ~= nil and s.lit == true and s.colour == HEAD
+		local want = { link = link, i = i, front = front }
+		if head then
+			want.lit, want.colour = true, HEAD
 			musts[#musts + 1] = want
-		elseif age ~= nil then
-			tails[#tails + 1] = want
-		elseif lit then
-			glints[#glints + 1] = want
+		elseif front ~= nil and pos[front] - i <= length then
+			local k = pos[front] - i
+			local t = g.tails[front][i]
+			if t == nil then
+				t = { lit = true, colour = self:spark() } -- the head just left: lit in a spark at once
+				t.next = n + self:gap(k, length)
+				g.tails[front][i] = t
+			elseif t.lit and n >= t.next then
+				t.lit = false
+				t.next = n + self:gap(k, length)
+			end
+			want.k, want.t = k, t
+			if white then
+				want.lit, want.colour = t.lit, t.colour
+				musts[#musts + 1] = want
+			else
+				tails[#tails + 1] = want
+			end
+		elseif front ~= nil then
+			want.lit = false
+			musts[#musts + 1] = want
 		else
-			darks[#darks + 1] = want
+			want.lit = g.glints[i] == n
+			want.colour = want.lit and breezeleds.GLINT or nil
+			if white then
+				musts[#musts + 1] = want
+			else
+				aheads[#aheads + 1] = want
+			end
 		end
 	end
-	table.sort(tails, function(a, b)
-		if a.lit ~= b.lit then
-			return not a.lit
-		elseif a.age ~= b.age then
-			return a.age < b.age
-		end
-		return a.i < b.i
-	end)
 	self.reserve = 0
 	for _, w in ipairs(musts) do
 		self:apply(w.link, w.lit, w.colour, true)
 	end
-	self.reserve = self:fronts_cost(g, n, n + math.floor(breezeleds.WINDOW_MS / breezeleds.TICK_MS))
-	for _, list in ipairs({ darks, tails }) do
-		for _, w in ipairs(list) do
-			self:apply(w.link, w.lit, w.colour, false)
+	-- Dropped first when the budget is short, in this order: a pixel ahead to darken, a tail pixel going dark,
+	-- a relight (top down, so the pixel above is settled first), a glint (only with room to darken it next).
+	self.reserve = self:due(g, n)
+	for _, w in ipairs(aheads) do
+		if not w.lit then
+			self:apply(w.link, false, nil, false)
 		end
 	end
-	for _, w in ipairs(glints) do
-		self:apply(w.link, w.lit, w.colour, false, 1)
+	for _, w in ipairs(tails) do
+		if not w.t.lit then
+			self:apply(w.link, false, nil, false)
+		end
+	end
+	for _, w in ipairs(tails) do
+		local t, s = w.t, self:record(w.link)
+		if not t.lit and n >= t.next and s.lit == false and self:may_relight(w, pos) then
+			t.lit, t.colour = true, self:spark()
+			t.next = n + self:gap(w.k, length)
+		end
+		if t.lit then
+			if s.lit ~= true and not self:may_relight(w, pos) then
+				t.lit = false -- the pixel above went dark first: wait for it
+			else
+				self:apply(w.link, true, t.colour, false)
+			end
+		end
+	end
+	for _, w in ipairs(aheads) do
+		if w.lit then
+			self:apply(w.link, true, w.colour, false, 1)
+		end
 	end
 	self.reserve = 0
 	if over then
@@ -1052,6 +1125,8 @@ function Leds:debug()
 		gust = g and {
 			tick = g.n,
 			step = g.fstep,
+			tail = g.tail_ms,
+			length = g.length,
 			offsets = { g.offsets[1], g.offsets[2] },
 			strength = g.strength,
 			dropped = g.dropped,
