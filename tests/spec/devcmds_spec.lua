@@ -274,8 +274,8 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Fan_State", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request", "Dev_Search" },
-					names)
+				assert.same({ "Dev_Fan_State", "Dev_Link", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request",
+					"Dev_Search" }, names)
 				assert.is_function(env.stop)
 			end)
 
@@ -287,6 +287,7 @@ describe("fan.devcmds", function()
 				commands.Dev_Names_Plan({ MODE = "forced" })
 				commands.Dev_Press({ LINK = "303", ACTION = "tap" })
 				commands.Dev_Proxy({ BINDING = "5001", COMMAND = "ON" })
+				commands.Dev_Link({ LINK = "303", KIND = "state", STATE = "true" })
 				commands.Dev_Request({ BODY = '{"queryDynamicShadowData":1}' })
 				commands.Dev_Search()
 				commands.Dev_Press(nil)
@@ -777,6 +778,52 @@ describe("fan.devcmds", function()
 			env.commands.Dev_Press({ LINK = "200", ACTION = "tap" })
 			assert.same({ "200 DO_PUSH", "200 DO_CLICK" }, injected(env))
 			assert.has_no.errors(function() env.stop() end)
+		end)
+	end)
+
+	-- #137's hardware probes: raw keypad LED messages on a fan link.
+	describe("Dev Link", function()
+		-- A links module that records what it was asked to deliver.
+		local function recording_links()
+			local sent = {}
+			return { deliver = function(_, link, command, params, kind)
+				sent[#sent + 1] = { link, command, params, kind }
+			end, debug = function() return { leds = {}, bound = 0 } end }, sent
+		end
+
+		it("sends BUTTON_COLORS with the current colour by default, or without it for CURRENT=none", function()
+			local lk, sent = recording_links()
+			local env = new_commands({ links = lk })
+			env.commands.Dev_Link({ LINK = "304", KIND = "colors", ON = "FFFFFF" })
+			env.commands.Dev_Link({ LINK = "304", KIND = "colors", ON = "00ffff", OFF = "000000", CURRENT = "none" })
+			assert.same({ 304, "BUTTON_COLORS", { ON_COLOR = "ffffff", OFF_COLOR = "000000", CURRENT_COLOR = "ffffff" },
+				"NOTIFY" }, sent[1])
+			assert.same({ 304, "BUTTON_COLORS", { ON_COLOR = "00ffff", OFF_COLOR = "000000" }, "NOTIFY" }, sent[2])
+		end)
+
+		it("sends MATCH_LED_STATE, and a flicker of COUNT states EVERY ms apart on the controller's timers", function()
+			local lk, sent = recording_links()
+			local env = new_commands({ links = lk })
+			env.commands.Dev_Link({ LINK = "303", KIND = "state", STATE = "false" })
+			assert.same({ 303, "MATCH_LED_STATE", { STATE = false }, "COMMAND" }, sent[1])
+			env.commands.Dev_Link({ LINK = "303", KIND = "flicker", COUNT = "3", EVERY = "50" })
+			assert.same({ STATE = true }, sent[2][3])
+			assert.equal(2, #sent, "the first state goes at once, the rest on timers")
+			env.clock.advance(50)
+			assert.same({ STATE = false }, sent[3][3])
+			env.clock.advance(50)
+			assert.same({ STATE = true }, sent[4][3])
+			assert.equal(4, #sent)
+		end)
+
+		it("refuses a light link, an unknown kind and a bad colour, and sends nothing", function()
+			local lk, sent = recording_links()
+			local env = new_commands({ links = lk })
+			env.commands.Dev_Link({ LINK = "200", KIND = "state", STATE = "true" })
+			env.commands.Dev_Link({ LINK = "303", KIND = "blink" })
+			env.commands.Dev_Link({ LINK = "303", KIND = "colors", ON = "teal" })
+			env.commands.Dev_Link({ LINK = "303", KIND = "state", STATE = "yes" })
+			assert.same({}, sent)
 		end)
 	end)
 

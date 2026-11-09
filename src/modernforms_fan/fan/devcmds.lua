@@ -659,6 +659,82 @@ function devcmds.new(opts)
 		send(binding, command, forwarded)
 	end
 
+	-- LINK 300..308 | 311 and KIND colors | state | flicker: raw keypad LED
+	-- messages on one of the fan's links, for the Breeze LED hardware probes
+	-- (#137, docs/breeze-leds-design.md section 6). colors: BUTTON_COLORS with ON,
+	-- OFF (default 000000) and CURRENT (default ON; "none" leaves it out).
+	-- state: MATCH_LED_STATE with STATE true | false. flicker: MATCH_LED_STATE
+	-- true, false, true, ... COUNT times, EVERY ms apart, the first at once. The
+	-- links' own bookkeeping is not told: set Speed LED Colors again afterwards.
+	local function dev_link(params)
+		params = type(params) == "table" and params or {}
+		local link = whole(params.LINK)
+		if not (link and link >= 300 and PRESS_LINKS[link]) then
+			return refuse("Dev Link", string.format("LINK %s is not a fan link (300 to 308, 311)", plain(params.LINK, 30)))
+		end
+		local lk = opts.links
+		if not (type(lk) == "table" and type(lk.deliver) == "function") then
+			return refuse("Dev Link", "no links module is wired")
+		end
+		local function deliver(command, p, kind)
+			local ok, err = pcall(lk.deliver, lk, link, command, p, kind)
+			if not ok then
+				log.warn("Dev Link: link %d %s failed: %s", link, command, plain(err, 80))
+			end
+		end
+		local function hex(value)
+			return type(value) == "string" and value:match("^%s*#?(%x%x%x%x%x%x)%s*$") or nil
+		end
+		local kind = type(params.KIND) == "string" and params.KIND:lower():match("^%s*(%a+)%s*$") or nil
+		if kind == "colors" then
+			local on, off = hex(params.ON), params.OFF == nil and "000000" or hex(params.OFF)
+			if not (on and off) then
+				return refuse("Dev Link", "ON and OFF must be 6-digit hex colours")
+			end
+			local p = { ON_COLOR = on:lower(), OFF_COLOR = off:lower() }
+			local current = params.CURRENT
+			if current == nil then
+				p.CURRENT_COLOR = p.ON_COLOR
+			elseif not (type(current) == "string" and current:lower() == "none") then
+				p.CURRENT_COLOR = hex(current) and hex(current):lower() or nil
+				if p.CURRENT_COLOR == nil then
+					return refuse("Dev Link", "CURRENT must be a 6-digit hex colour or none")
+				end
+			end
+			log.always("Dev Link: link %d BUTTON_COLORS %s", link, describe(p))
+			deliver("BUTTON_COLORS", p, "NOTIFY")
+		elseif kind == "state" then
+			local state = type(params.STATE) == "string" and params.STATE:lower() or nil
+			if state ~= "true" and state ~= "false" then
+				return refuse("Dev Link", "STATE must be true or false")
+			end
+			log.always("Dev Link: link %d MATCH_LED_STATE %s", link, state)
+			deliver("MATCH_LED_STATE", { STATE = state == "true" }, "COMMAND")
+		elseif kind == "flicker" then
+			local count, why = bounded(params.COUNT, devcmds.COUNT_DEFAULT, 1, devcmds.COUNT_MAX, "COUNT")
+			if not count then
+				return refuse("Dev Link", why)
+			end
+			local every
+			every, why = bounded(params.EVERY, devcmds.EVERY_DEFAULT_MS, devcmds.EVERY_MIN_MS, devcmds.EVERY_MAX_MS,
+				"EVERY")
+			if not every then
+				return refuse("Dev Link", why)
+			end
+			log.always("Dev Link: link %d flicker x%d every %d ms", link, count, every)
+			for i = 1, count do
+				local state = i % 2 == 1
+				if i == 1 then
+					deliver("MATCH_LED_STATE", { STATE = state }, "COMMAND")
+				else
+					set_timer((i - 1) * every, function() deliver("MATCH_LED_STATE", { STATE = state }, "COMMAND") end)
+				end
+			end
+		else
+			return refuse("Dev Link", string.format("KIND %s is not colors, state or flicker", plain(params.KIND, 30)))
+		end
+	end
+
 	-- BODY: one of the two queries, or a body fan/wire.lua builds; sent through
 	-- opts.request (the model's queue, the transport behind it) and the answer
 	-- logged normalized.
@@ -750,6 +826,7 @@ function devcmds.new(opts)
 	return {
 		Dev_Fan_State = dev_fan_state,
 		Dev_Names_Plan = dev_names_plan,
+		Dev_Link = dev_link,
 		Dev_Press = dev_press,
 		Dev_Proxy = dev_proxy,
 		Dev_Request = dev_request,
