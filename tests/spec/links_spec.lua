@@ -116,13 +116,18 @@ end
 -- no_timer, no_list, no_breeze (no breeze_toggle and no breeze_blows, as
 -- when fan/breeze.lua is not wired). Breeze: r.blows is what breeze_blows
 -- answers (false by default), r.toggles counts breeze_toggle's calls and
--- r.blows_asked breeze_blows'.
+-- r.blows_asked breeze_blows'. Breeze LEDs (breeze-leds-design section 3.2),
+-- wired only with opts.leds: r.held[link] = true holds a link (r.hold_all
+-- holds every link held is asked about), r.held_asked lists those links,
+-- r.repaints the links repaint was called for and r.pixel_lists every list
+-- pixels took; opts.held, opts.repaint and opts.pixels replace the recorders.
 local function rig(opts)
 	opts = opts or {}
 	local r = {
 		clock = { t = 100000 }, timers = {}, sent = {}, handlers = {}, registered = {}, listed = {}, reads = {},
 		proxy_sent = {}, project = opts.project or {}, names = opts.names or {}, texts = fake_texts(),
 		model = fake_model(opts.shown), blows = false, toggles = 0, blows_asked = 0,
+		held = {}, hold_all = false, held_asked = {}, repaints = {}, pixel_lists = {},
 	}
 	local function on(binding, command, handler)
 		r.registered[#r.registered + 1] = binding .. " " .. command
@@ -165,6 +170,12 @@ local function rig(opts)
 			r.blows_asked = r.blows_asked + 1
 			return r.blows
 		end or nil,
+		held = opts.leds and (opts.held or function(link)
+			r.held_asked[#r.held_asked + 1] = link
+			return r.hold_all or r.held[link] == true
+		end) or nil,
+		repaint = opts.leds and (opts.repaint or function(link) r.repaints[#r.repaints + 1] = link end) or nil,
+		pixels = opts.leds and (opts.pixels or function(list) r.pixel_lists[#r.pixel_lists + 1] = list end) or nil,
 		log = log,
 	})
 
@@ -1973,6 +1984,531 @@ describe("fan.links", function()
 				r.project[BREEZE] = { [457] = "x" }
 				r.advance(links.REREAD_MS)
 				assert.same({ "1 of 13 links bound", "Fan Breeze: Second Keypad (457)" }, r.listed[#r.listed])
+			end)
+		end)
+	end)
+
+	-- Breeze on the keypad LEDs (#137, breeze-leds-design BL-D2, BL-D14 to
+	-- BL-D16 and section 3.2): fan/breezeleds.lua holds the bound speed links,
+	-- paints them through paint and gives them back through settle; the links
+	-- send a held link nothing of their own.
+	describe("Breeze on the keypad LEDs (#137, breeze-leds-design section 3.2)", function()
+		local function fan_mode_3()
+			return { fan_on = true, speed = 3, wind = false }
+		end
+		local function blowing()
+			return { fan_on = true, speed = 3, wind = true, wind_speed = 2 }
+		end
+
+		-- The sends since the last clear to one link.
+		local function sent_to(r, link)
+			local out = {}
+			for _, s in ipairs(r.sent) do
+				if s.link == link then
+					out[#out + 1] = s
+				end
+			end
+			return out
+		end
+
+		describe("paint (BL-D14)", function()
+			it("with state: BUTTON_COLORS as a NOTIFY, then MATCH_LED_STATE true as a COMMAND", function()
+				local r = rig({ shown = blowing() })
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.clear()
+				r.lk:paint(302, "0080FF", true)
+				assert.same({ "302 BUTTON_COLORS", "302 MATCH_LED_STATE" }, r.trace())
+				assert.equal("NOTIFY", r.sent[1].kind)
+				assert.same({ ON_COLOR = "0080ff", OFF_COLOR = "101010", CURRENT_COLOR = "0080ff" }, r.sent[1].params,
+					"on and current the frame colour in lower case, off Speed LED Off Color")
+				assert.equal("COMMAND", r.sent[2].kind)
+				assert.same({ STATE = true }, r.sent[2].params)
+			end)
+
+			it("without state: BUTTON_COLORS alone", function()
+				local r = rig({ shown = blowing() })
+				r.lk:paint(305, "ffffff", false)
+				r.lk:paint(306, "00ffff")
+				assert.same({ "305 BUTTON_COLORS", "306 BUTTON_COLORS" }, r.trace())
+				assert.equal("000000", r.sent[1].params.OFF_COLOR, "black until Speed LED Off Color is set")
+			end)
+
+			it("leaves nothing counted as sent for the link: its next state goes out whole", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", COLORS, "000000")
+				r.lk:shown(r.model:shown())
+				assert.is_true(r.lk:debug().leds[303])
+				r.lk:paint(303, "00ffff", true)
+				r.lk:paint(304, "0080ff", true)
+				assert.is_nil(r.lk:debug().leds[303])
+				assert.is_nil(r.lk:debug().leds[304])
+				r.clear()
+				r.lk:shown(r.model:shown())
+				assert.same({ "303 BUTTON_COLORS", "303 MATCH_LED_STATE", "304 MATCH_LED_STATE" }, r.trace(),
+					"the same shown state sends both again: 303 in its own colour, 304 dark")
+				assert.equal("ffff00", r.sent[1].params.ON_COLOR)
+			end)
+
+			it("refuses anything but the speed links 301 to 306, with a warning, and sends nothing", function()
+				local r = rig({ shown = blowing() })
+				local lines = capture_log()
+				for _, link in ipairs({ 300, 307, 308, BREEZE, 200, 201, 202, 309, 0, 302.5, "abc" }) do
+					r.lk:paint(link, "ffffff", true)
+				end
+				r.lk:paint(nil, "ffffff", true)
+				assert.same({}, r.sent)
+				assert.is_true(contains(lines, "[WARN] paint on link 300 refused"))
+				assert.is_true(contains(lines, "[WARN] paint on link 311 refused"))
+				assert.is_true(contains(lines, "[WARN] paint on link nil refused"))
+			end)
+
+			it("refuses a colour that is not 6-digit hex, with a warning, and sends nothing", function()
+				local r = rig({ shown = blowing() })
+				local lines = capture_log()
+				for _, colour in ipairs({ "fff", "#0080ff", "0080ff0", "12345g", "", 33023 }) do
+					r.lk:paint(302, colour, true)
+				end
+				r.lk:paint(302, nil, true)
+				assert.same({}, r.sent)
+				assert.is_true(contains(lines, "[WARN] paint on link 302 refused: #0080ff is not a 6-digit hex colour"))
+				assert.is_true(contains(lines, "[WARN] paint on link 302 refused: nil is not a 6-digit hex colour"))
+			end)
+		end)
+
+		describe("settle (BL-D8, BL-D11)", function()
+			it("sends the real state, colours first under Per speed, whatever was sent before", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.lk:shown(r.model:shown())
+				r.lk:paint(303, "ffffff", true)
+				r.clear()
+				r.lk:settle(303)
+				assert.same({ "303 BUTTON_COLORS", "303 MATCH_LED_STATE" }, r.trace())
+				assert.same({ ON_COLOR = "ffff00", OFF_COLOR = "101010", CURRENT_COLOR = "ffff00" }, r.sent[1].params)
+				assert.same({ STATE = true }, r.sent[2].params)
+				assert.is_true(r.lk:debug().leds[303])
+				r.clear()
+				r.lk:settle(302)
+				assert.same({ "302 BUTTON_COLORS", "302 MATCH_LED_STATE" }, r.trace(),
+					"a dark link too, though it was sent dark already")
+				assert.same({ STATE = false }, r.sent[2].params)
+				r.clear()
+				r.lk:settle(303)
+				assert.same({ "303 BUTTON_COLORS", "303 MATCH_LED_STATE" }, r.trace(), "again, though nothing changed")
+			end)
+
+			it("Per speed, dark: its own speed's colour, then STATE false", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.lk:shown(r.model:shown())
+				r.lk:paint(305, "0080ff", true)
+				r.clear()
+				r.lk:settle(305)
+				assert.same({ "305 BUTTON_COLORS", "305 MATCH_LED_STATE" }, r.trace())
+				assert.equal("NOTIFY", r.sent[1].kind)
+				assert.same({ ON_COLOR = "00ffff", OFF_COLOR = "101010", CURRENT_COLOR = "00ffff" }, r.sent[1].params,
+					"speed 5's colour as its on colour: no frame colour left behind")
+				assert.equal("COMMAND", r.sent[2].kind)
+				assert.same({ STATE = false }, r.sent[2].params)
+				assert.is_false(r.lk:debug().leds[305])
+				r.clear()
+				r.lk:shown(r.model:shown())
+				assert.same({}, r.sent, "counted as sent: the same state sends nothing")
+				r.model.shown_state = { fan_on = true, speed = 5, wind = false }
+				r.lk:shown(r.model:shown())
+				assert.same({ "303 MATCH_LED_STATE", "305 BUTTON_COLORS", "305 MATCH_LED_STATE" }, r.trace(),
+					"lit later as push_led lights it")
+			end)
+
+			it("Per speed, lit: the colour of the speed it is lit at, then STATE true", function()
+				local r = rig({ shown = { fan_on = true, speed = 4, wind = false } })
+				r.lk:set_colors("per_speed", COLORS, "000000")
+				r.lk:shown(r.model:shown())
+				r.lk:paint(304, "ffffff", true)
+				r.clear()
+				r.lk:settle(304)
+				assert.same({ "304 BUTTON_COLORS", "304 MATCH_LED_STATE" }, r.trace())
+				assert.same({ ON_COLOR = "00ff00", OFF_COLOR = "000000", CURRENT_COLOR = "00ff00" }, r.sent[1].params)
+				assert.same({ STATE = true }, r.sent[2].params)
+				r.clear()
+				r.lk:shown(r.model:shown())
+				assert.same({}, r.sent, "state and colour counted as sent")
+			end)
+
+			it("Per speed, dark, no colour set for its own speed: STATE alone", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", { "ff0000", nil, "ffff00" }, "000000")
+				r.lk:paint(302, "00ffff", true)
+				r.clear()
+				r.lk:settle(302)
+				assert.same({ "302 MATCH_LED_STATE" }, r.trace())
+				assert.same({ STATE = false }, r.sent[1].params)
+			end)
+
+			it("the keypad's own colours: STATE alone, lit or dark", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("keypad", COLORS, "101010")
+				r.lk:paint(303, "ffffff", true)
+				r.lk:paint(304, "ffffff", true)
+				r.clear()
+				r.lk:settle(303)
+				r.lk:settle(304)
+				assert.same({ "303 MATCH_LED_STATE", "304 MATCH_LED_STATE" }, r.trace())
+				assert.same({ "303:true", "304:false" }, r.leds())
+			end)
+
+			it("follows the mode at the call: settled under Per speed, then switched to the keypad's own", function()
+				local r = rig({ shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", COLORS, "000000")
+				r.lk:paint(306, "0080ff", true)
+				r.clear()
+				r.lk:settle(306)
+				r.lk:set_colors("keypad", COLORS, "000000")
+				assert.same({ "306 BUTTON_COLORS", "306 MATCH_LED_STATE" }, r.trace(), "the switch itself sends nothing")
+				assert.equal("0000ff", r.sent[1].params.ON_COLOR)
+			end)
+
+			it("works while held still says the link is held, and does not ask held", function()
+				local r = rig({ leds = true, shown = fan_mode_3() })
+				r.lk:set_colors("per_speed", COLORS, "000000")
+				r.held[303] = true
+				r.lk:paint(303, "0080ff", true)
+				r.clear()
+				r.held_asked = {}
+				r.lk:settle(303)
+				assert.same({ "303 BUTTON_COLORS", "303 MATCH_LED_STATE" }, r.trace())
+				assert.equal("ffff00", r.sent[1].params.ON_COLOR)
+				assert.same({}, r.held_asked)
+			end)
+
+			it("uses the colours and the Also Lit At row set while the link was held", function()
+				local r = rig({ leds = true, shown = blowing() })
+				r.held[302] = true
+				r.lk:shown(r.model:shown())
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				r.lk:set_also(2, 1)
+				r.model.shown_state = { fan_on = true, speed = 1, wind = false }
+				r.lk:shown(r.model:shown())
+				assert.same({}, sent_to(r, 302), "held all along: nothing of its own")
+				r.clear()
+				r.lk:settle(302)
+				assert.same({ "302 BUTTON_COLORS", "302 MATCH_LED_STATE" }, r.trace())
+				assert.same({ ON_COLOR = "ff0000", OFF_COLOR = "101010", CURRENT_COLOR = "ff0000" }, r.sent[1].params,
+					"lit at speed 1 by Also Lit At, in speed 1's colour")
+			end)
+
+			it("sends nothing while the state is unknown, and refuses anything but 301 to 306", function()
+				local r = rig({ shown = {} })
+				local lines = capture_log()
+				r.lk:settle(303)
+				assert.same({}, r.sent)
+				r.model.shown_state = fan_mode_3()
+				r.lk:settle(300)
+				r.lk:settle(BREEZE)
+				r.lk:settle(200)
+				assert.same({}, r.sent)
+				assert.is_true(contains(lines, "[WARN] settle on link 300 refused"))
+				assert.is_true(contains(lines, "[WARN] settle on link 311 refused"))
+			end)
+		end)
+
+		describe("pixels_list (BL-D2)", function()
+			it("the speed links with a known keypad, ascending; never Off, Toggle, Cycle, Breeze or the light", function()
+				local r = rig({
+					names = { [456] = "Example Keypad" },
+					project = {
+						[305] = { [456] = "x" }, [302] = { [456] = "x", [457] = "x" }, [304] = { [457] = "x" },
+						[300] = { [456] = "x" }, [307] = { [456] = "x" }, [308] = { [456] = "x" },
+						[BREEZE] = { [456] = "x" }, [200] = { [456] = "x" }, [301] = {},
+					},
+				})
+				assert.same({}, r.lk:pixels_list(), "nothing read yet")
+				r.lk:late_init()
+				assert.same({ 302, 304, 305 }, r.lk:pixels_list())
+			end)
+
+			it("a keypad known only from Director's table, or by a bind naming no button, counts", function()
+				local r = rig({ names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
+				r.lk:late_init()
+				r.lk:binding_changed(306, true, 457, nil)
+				assert.same({ 303, 306 }, r.lk:pixels_list())
+				assert.same({ "2 of 13 links bound", "Fan Speed 3: Example Keypad (456)", "Fan Speed 6: device 457" },
+					r.listed[#r.listed], "the links the Keypad Links property lists")
+			end)
+
+			it("#92 an unbind that leaves a keypad known only from the table keeps the pixel until the reread", function()
+				local r = rig({ names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
+				r.lk:late_init()
+				r.lk:binding_changed(303, false, 456, 3)
+				assert.same({ 303 }, r.lk:pixels_list(), "another button of that keypad may still be bound")
+				assert.same({ "1 of 13 links bound", "Fan Speed 3: Example Keypad (456)" }, r.listed[#r.listed])
+				r.project[303] = {}
+				r.advance(links.REREAD_MS)
+				assert.same({}, r.lk:pixels_list())
+				assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
+			end)
+
+			it("an unbound link, a link that answered nil twice and a link that lost its last button are none", function()
+				local r = rig({ names = { [456] = "Example Keypad" }, project = { [302] = {} } })
+				r.lk:late_init()
+				assert.same({}, r.lk:pixels_list(), "302 answered an empty table, the rest nil")
+				r.advance(links.SECOND_LOOK_MS)
+				assert.same({}, r.lk:pixels_list())
+				r.lk:binding_changed(304, true, 456, 4)
+				assert.same({ 304 }, r.lk:pixels_list())
+				r.lk:binding_changed(304, false, 456, 4)
+				assert.same({}, r.lk:pixels_list())
+			end)
+		end)
+
+		describe("the pixels callback (section 3.2)", function()
+			it("late init hands the list once, even an empty one; a second look that finds nothing hands none", function()
+				local r = rig({ leds = true })
+				r.lk:late_init()
+				assert.same({ {} }, r.pixel_lists)
+				r.advance(links.SECOND_LOOK_MS)
+				assert.same({ {} }, r.pixel_lists)
+			end)
+
+			it("late init hands the list though it did not change since the last one", function()
+				local r = rig({ leds = true, names = { [456] = "Example Keypad" } })
+				r.lk:binding_changed(303, true, 456, 3)
+				assert.same({ { 303 } }, r.pixel_lists, "a bind before late init")
+				r.project[303] = { [456] = "x" }
+				r.lk:late_init()
+				assert.same({ { 303 }, { 303 } }, r.pixel_lists)
+			end)
+
+			it("a bind and an unbind on a speed link hand the new list; the unbind sends the link nothing", function()
+				local r = rig({ leds = true, shown = blowing(), names = { [456] = "Example Keypad" } })
+				r.lk:late_init()
+				r.lk:binding_changed(305, true, 456, 5)
+				r.project[305] = { [456] = "x" }
+				r.lk:binding_changed(302, true, 456, 2)
+				r.project[302] = { [456] = "x" }
+				assert.same({ {}, { 305 }, { 302, 305 } }, r.pixel_lists)
+				r.clear()
+				r.project[305] = nil
+				r.lk:binding_changed(305, false, 456, 5)
+				assert.same({ 302 }, r.pixel_lists[#r.pixel_lists])
+				assert.same({}, r.sent)
+			end)
+
+			it("a speed link that gains a button mid-animation is a pixel before its answer, which repaint gives", function()
+				local r
+				r = rig({
+					leds = true, shown = blowing(), names = { [456] = "Example Keypad" },
+					pixels = function(list)
+						r.pixel_lists[#r.pixel_lists + 1] = list
+						for _, link in ipairs(list) do
+							r.held[link] = true -- what breezeleds:set_pixels does while it animates
+						end
+					end,
+				})
+				r.lk:late_init()
+				r.clear()
+				r.lk:binding_changed(304, true, 456, 4)
+				assert.same({ 304 }, r.pixel_lists[#r.pixel_lists])
+				assert.same({ 304 }, r.repaints, "answered by the animation")
+				assert.same({}, r.sent, "not with the real state")
+			end)
+
+			it("is not called again when the list did not change", function()
+				local r = rig({ leds = true, names = { [456] = "Example Keypad", [457] = "Second Keypad" } })
+				r.lk:late_init()
+				r.lk:binding_changed(303, true, 456, 3)
+				local calls = #r.pixel_lists
+				r.project[303] = { [456] = "x" }
+				r.lk:binding_changed(303, true, 457, 3)
+				r.lk:binding_changed(303, true, 456, 3)
+				r.lk:binding_changed(300, true, 456, 1)
+				r.lk:binding_changed(307, true, 456, 7)
+				r.lk:binding_changed(BREEZE, true, 456, 8)
+				r.lk:binding_changed(201, true, 456, 2)
+				assert.equal(calls, #r.pixel_lists, "a second keypad, the same bind, links that are no pixels")
+				assert.same({ 303 }, r.pixel_lists[#r.pixel_lists])
+			end)
+
+			it("the second look and the reread hand the list when it changed", function()
+				local second = false
+				local r = rig({
+					leds = true, names = { [456] = "Example Keypad" },
+					project = {
+						[303] = { [456] = "x" },
+						[305] = function() return second and { [456] = "x" } or nil end,
+					},
+				})
+				r.lk:late_init()
+				assert.same({ { 303 } }, r.pixel_lists)
+				second = true
+				r.advance(links.SECOND_LOOK_MS)
+				assert.same({ { 303 }, { 303, 305 } }, r.pixel_lists, "the second look found 305")
+				r.lk:binding_changed(303, false, 456, 3)
+				assert.equal(2, #r.pixel_lists, "kept until the reread")
+				r.project[303] = {}
+				r.advance(links.REREAD_MS)
+				assert.equal(3, #r.pixel_lists)
+				assert.same({ 305 }, r.pixel_lists[3], "the reread dropped 303")
+			end)
+		end)
+
+		describe("held links (BL-D15)", function()
+			it("shown sends a held speed link nothing; the rest follow the state as before", function()
+				local r = rig({ leds = true })
+				for link = 302, 305 do
+					r.held[link] = true
+				end
+				r.lk:shown(fan_mode_3())
+				assert.same({ "300:false", "301:false", "306:false", "307:true", "308:true", "311:false" }, r.leds())
+				assert.same({ 301, 302, 303, 304, 305, 306 }, r.held_asked, "held is asked about the speed links alone")
+			end)
+
+			it("refresh sends a held speed link nothing", function()
+				local r = rig({ leds = true, shown = fan_mode_3() })
+				r.held[303], r.held[306] = true, true
+				r.lk:refresh()
+				assert.same({
+					"300:false", "301:false", "302:false", "304:false", "305:false", "307:true", "308:true", "311:false",
+				}, r.leds())
+			end)
+
+			it("set_colors keeps its tables while a lit link is held, and sends it nothing", function()
+				local r = rig({ leds = true, shown = fan_mode_3() })
+				r.lk:shown(r.model:shown())
+				r.held[303] = true
+				r.clear()
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				assert.same({}, r.sent)
+				assert.equal("per_speed", r.lk.mode)
+				assert.equal("ffff00", r.lk.colors[3])
+				assert.equal("101010", r.lk.off_color)
+				r.lk:paint(303, "0080ff", true)
+				assert.equal("101010", r.sent[1].params.OFF_COLOR, "a paint takes the new off colour")
+				r.held[303] = nil
+				r.clear()
+				r.lk:set_colors("per_speed", COLORS, "101010")
+				assert.same({ "303 BUTTON_COLORS", "303 MATCH_LED_STATE" }, r.trace(), "released: it follows again")
+			end)
+
+			it("set_also keeps the row while the link is held, and sends it nothing", function()
+				local r = rig({ leds = true, shown = fan_mode_3() })
+				r.lk:shown(r.model:shown())
+				r.held[302] = true
+				r.clear()
+				r.lk:set_also(2, 3)
+				assert.same({}, r.sent)
+				assert.equal(3, r.lk.also[2])
+				r.lk:settle(302)
+				assert.same({ "302:true" }, r.leds(), "the settle shows the row: lit at speed 3")
+			end)
+
+			it("REQUEST_BUTTON_COLORS and a bind on a held link call repaint instead of sending the real state", function()
+				local r = rig({ leds = true, shown = blowing(), names = { [456] = "Example Keypad" } })
+				r.lk:late_init()
+				r.held[303] = true
+				r.clear()
+				r.recv(303, "REQUEST_BUTTON_COLORS")
+				r.lk:binding_changed(303, true, 456, 3)
+				assert.same({ 303, 303 }, r.repaints)
+				assert.same({}, r.sent)
+				r.recv(304, "REQUEST_BUTTON_COLORS")
+				assert.same({ "304:false" }, r.leds(), "a link not held is answered as before")
+				assert.same({ 303, 303 }, r.repaints)
+			end)
+
+			it("300, 307, 308 and 311 are never held: held is not asked about them and they follow the state", function()
+				local r = rig({ leds = true, shown = blowing(), names = { [456] = "Example Keypad" } })
+				r.hold_all = true
+				r.blows = true
+				r.lk:shown(r.model:shown())
+				assert.same({ "300:false", "307:false", "308:false", "311:true" }, r.leds())
+				r.clear()
+				r.lk:refresh()
+				for _, link in ipairs({ 300, 307, 308, BREEZE }) do
+					r.recv(link, "REQUEST_BUTTON_COLORS")
+				end
+				r.lk:binding_changed(308, true, 456, 1)
+				r.lk:binding_changed(200, true, 456, 2)
+				assert.same({
+					"300:false", "307:false", "308:false", "311:true", "300:false", "307:false", "308:false", "311:true",
+					"308:false",
+				}, r.leds())
+				assert.same({}, r.repaints)
+				assert.equal(12, #r.held_asked, "the six speed links on the shown state and on the refresh")
+				for _, link in ipairs(r.held_asked) do
+					assert.is_true(link >= 301 and link <= 306, "held asked about " .. tostring(link))
+				end
+			end)
+		end)
+
+		describe("absent and failing callbacks (logged, never raised)", function()
+			it("absent, or no functions: nothing held, nothing repainted, no list", function()
+				local sent = {}
+				local lk = links.new({
+					model = fake_model(fan_mode_3()), fan = fake_fan(), on = function() end,
+					now = function() return 0 end, log = log, held = true, repaint = "x", pixels = {},
+					send = function(link, command) sent[#sent + 1] = link .. " " .. command end,
+				})
+				assert.has_no.errors(function()
+					lk:late_init()
+					lk:shown(fan_mode_3())
+					lk:answer(303)
+				end)
+				assert.equal(11, #sent, "ten on the shown state, one answer")
+			end)
+
+			it("a held link with no repaint wired is sent nothing on a request", function()
+				local sent = {}
+				local lk = links.new({
+					model = fake_model(blowing()), fan = fake_fan(), on = function() end,
+					now = function() return 0 end, log = log, held = function(link) return link == 303 end,
+					send = function(link, command) sent[#sent + 1] = link .. " " .. command end,
+				})
+				lk:answer(303)
+				lk:answer(304)
+				assert.same({ "304 MATCH_LED_STATE" }, sent)
+			end)
+
+			it("a held that raises is warned about, and the link is treated as not held", function()
+				local r = rig({ leds = true, held = function() error("animation broke") end })
+				local lines = capture_log()
+				assert.has_no.errors(function() r.lk:shown(fan_mode_3()) end)
+				assert.equal(10, #r.leds(), "every link follows the state")
+				assert.is_true(contains(lines, "[WARN] link 301: whether the Breeze animation holds it could not be read"))
+				assert.is_false(contains(lines, "link 300: whether"), "never asked about 300")
+			end)
+
+			it("a repaint that raises is logged as an error: nothing sent, nothing raised", function()
+				local r = rig({ leds = true, shown = blowing(), repaint = function() error("no frame") end })
+				r.held[302] = true
+				local lines = capture_log()
+				assert.has_no.errors(function()
+					r.recv(302, "REQUEST_BUTTON_COLORS")
+					r.lk:binding_changed(302, true, 456, 2)
+				end)
+				assert.same({}, r.sent)
+				assert.is_true(contains(lines, "[ERROR] link 302: the Breeze animation could not repaint it"))
+			end)
+
+			it("a pixels that raises is logged as an error and offered again at the next change", function()
+				local fail, offered = true, {}
+				local r = rig({
+					leds = true, names = { [456] = "Example Keypad" },
+					pixels = function(list)
+						offered[#offered + 1] = list
+						if fail then
+							error("not ready")
+						end
+					end,
+				})
+				local lines = capture_log()
+				assert.has_no.errors(function() r.lk:late_init() end)
+				assert.is_true(contains(lines, "[ERROR] the Breeze animation could not take the pixels"))
+				fail = false
+				r.lk:binding_changed(200, true, 456, 1)
+				assert.same({ {}, {} }, offered, "the same list, offered again: the first was not taken")
+				r.lk:binding_changed(201, true, 456, 2)
+				assert.equal(2, #offered, "taken: not offered again")
 			end)
 		end)
 	end)
