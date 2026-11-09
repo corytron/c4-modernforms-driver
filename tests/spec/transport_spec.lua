@@ -930,6 +930,89 @@ describe("fan.transport", function()
 		end)
 	end)
 
+	describe("a request's own gap (#141 LF-D7)", function()
+		local function fade_request(gap)
+			return { kind = "command", path = wire.PATH, body = '{"lightBrightness":40}', gap_ms = gap }
+		end
+
+		it("waits the request's gap_ms after its answer instead of GAP_MS", function()
+			t:send(fade_request(100), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			assert.is_true(t:busy())
+			clock.advance(99)
+			assert.is_true(t:busy())
+			assert.equal(0, idle.count)
+			clock.advance(1)
+			assert.is_false(t:busy())
+			assert.equal(1, idle.count)
+		end)
+
+		it("does the same after a failure", function()
+			t:send(fade_request(100), collect)
+			fail(c4.last_transfer(), 28, "Timeout was reached")
+			clock.advance(100)
+			assert.is_false(t:busy())
+			assert.equal(1, idle.count)
+		end)
+
+		it("may be longer than GAP_MS", function()
+			t:send(fade_request(600), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			clock.advance(599)
+			assert.is_true(t:busy())
+			clock.advance(1)
+			assert.is_false(t:busy())
+		end)
+
+		it("takes 0 as 1 ms, the smallest delay a timer is given", function()
+			t:send(fade_request(0), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			assert.is_true(t:busy(), "the gap timer is armed, however short")
+			assert.equal(1, clock.armed())
+			clock.advance(1)
+			assert.is_false(t:busy())
+			assert.equal(1, idle.count)
+		end)
+
+		it("keeps GAP_MS for a request without one, and for one that is not a number >= 0", function()
+			for _, bad in ipairs({ -5, "soon", 0 / 0, math.huge, true }) do
+				local slot = transport.new({
+					now = clock.now, timer = clock.timer, url = function() return c4:url() end,
+					on_idle = function() idle.count = idle.count + 1 end, log = log,
+				})
+				slot:set_address(ADDRESS)
+				slot:send(fade_request(bad), collect)
+				answer(c4.last_transfer(), 200, mf.STATE)
+				clock.advance(249)
+				assert.is_true(slot:busy(), tostring(bad))
+				clock.advance(1)
+				assert.is_false(slot:busy(), tostring(bad))
+			end
+		end)
+
+		it("does not carry one request's gap into the next request's", function()
+			t:send(fade_request(100), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			clock.advance(100)
+			t:send(command_request(), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			clock.advance(249)
+			assert.is_true(t:busy())
+			clock.advance(1)
+			assert.is_false(t:busy())
+		end)
+
+		it("uses the transport's GAP_MS field when set, as the dev probes do", function()
+			local saved = transport.GAP_MS
+			transport.GAP_MS = 40
+			t:send(state_request(), collect)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			clock.advance(40)
+			transport.GAP_MS = saved
+			assert.is_false(t:busy())
+		end)
+	end)
+
 	describe("a request that is not one", function()
 		local function refused(name, req, cb)
 			it("refuses " .. name .. " as 'bad request': nothing is sent, nothing is numbered, the slot stays free", function()

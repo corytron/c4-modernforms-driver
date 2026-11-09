@@ -72,6 +72,9 @@
 --   dev.on_hold(h, up, on)   a keypad hold began ("Keypad press, click and release" below)
 --   dev.on_finish(h)         the release of a hold that began
 --   dev.on_end_hold(h)       optional: a press ended, whatever ended it
+--   dev.ramp_active()        optional: true while a brightness fade a press can stop runs
+--                            (#141 LF-D12); the default, false, leaves only the double-tap window
+--   dev.on_ramp_stop(button) optional: stop that fade now (#141 LF-D12); the default does nothing
 --
 -- The instance: prop(), notify(), device_id(), result(), proxy_id(),
 -- after_late_init(), late_init(), binding_changed(), replay_bindings(),
@@ -128,6 +131,27 @@ local HOLD_AFTER_MS = 400
 local DIM_AFTER_ON_MS = 600
 local CLICK_GUARD_MS = 1000
 
+-- #141 LF-D12, ported from the Hue project's #421 D4: a press within
+-- DOUBLE_TAP_MS of the previous press on the same button is part of a double
+-- or triple tap, which is the keypad's event (its programming), not a second
+-- command. Composer puts that window at about half a second [assumed here:
+-- the Hue project read it in Composer Pro's help, docs/tap-stop-research-c4.md
+-- section 1.4; the keypad's real one is measured on the house]. Fixed, no
+-- property.
+device.DOUBLE_TAP_MS = 600
+local DOUBLE_TAP_MS = device.DOUBLE_TAP_MS
+
+-- Milliseconds since the epoch on the controller's clock [verified: API
+-- 34/_2, C4:GetTime, OS 3.2.3], else os.time(). C4 is looked up at the call:
+-- the runtime's.
+local function now_ms()
+	local ok, ms = pcall(C4.GetTime, C4)
+	if ok and type(ms) == "number" then
+		return ms
+	end
+	return os.time() * 1000
+end
+
 -- The keypad settings the light_v2 proxy sends when the dealer edits them in
 -- Composer [verified: proxy-protocol reference, light_v2 SET_PRESET_LEVEL
 -- {LEVEL}, SET_CLICK_RATE_* and SET_HOLD_RATE_* {RATE ms}]: the persisted key,
@@ -142,17 +166,28 @@ local CLICK_GUARD_MS = 1000
 -- its 1 s minimum), while "5000" or 5000 is stored as sent [verified:
 -- hardware, OS 3.4.2, the Hue project's Composer rounds 41 and 42]. A driver
 -- takes the ones its driver.xml declares (opts.settings).
+--
+-- #141 LF-D3: both click rates default to 3000 ms, what a tap's fade takes
+-- through Click Rates (Composer shows the Ramp Up and Ramp Down fields once
+-- the driver declares click_rates). #141 LF-D4: brightness_rate is the
+-- proxy's Default Brightness Rate, told to the driver with
+-- UPDATE_BRIGHTNESS_RATE_DEFAULT {RATE ms} [verified: light_v2 commands
+-- reference, UPDATE_BRIGHTNESS_RATE_DEFAULT]. It has no notify: the command
+-- returns nothing, the driver only keeps the value. Until the proxy sends
+-- one, 750 ms [assumed: the rate the house's proxy is believed to use].
 local SETTINGS = {
 	preset = { key = "preset_level", default = 100, command = "SET_PRESET_LEVEL", param = "LEVEL",
 		notify = "PRESET_LEVEL", min = 1, max = 100 },
-	click_up = { key = "click_rate_up", default = 250, command = "SET_CLICK_RATE_UP", param = "RATE",
+	click_up = { key = "click_rate_up", default = 3000, command = "SET_CLICK_RATE_UP", param = "RATE",
 		notify = "CLICK_RATE_UP", min = 0, max = 86400000 },
-	click_down = { key = "click_rate_down", default = 250, command = "SET_CLICK_RATE_DOWN", param = "RATE",
+	click_down = { key = "click_rate_down", default = 3000, command = "SET_CLICK_RATE_DOWN", param = "RATE",
 		notify = "CLICK_RATE_DOWN", min = 0, max = 86400000 },
 	hold_up = { key = "hold_rate_up", default = 5000, command = "SET_HOLD_RATE_UP", param = "RATE",
 		notify = "HOLD_RATE_UP", min = 0, max = 86400000 },
 	hold_down = { key = "hold_rate_down", default = 5000, command = "SET_HOLD_RATE_DOWN", param = "RATE",
 		notify = "HOLD_RATE_DOWN", min = 0, max = 86400000 },
+	brightness_rate = { key = "brightness_rate_default", default = 750, command = "UPDATE_BRIGHTNESS_RATE_DEFAULT",
+		param = "RATE", min = 0, max = 86400000 },
 }
 
 -- Parsing ------------------------------------------------------------------
@@ -467,8 +502,12 @@ function device.new(opts)
 	end
 
 	-- The proxy hears the value in use, so Composer shows what the driver
-	-- does (and a later edit back to the old value is sent at all).
+	-- does (and a later edit back to the old value is sent at all). A setting
+	-- without a notify (#141 LF-D4's brightness rate) has nothing to answer.
 	local function report_setting(name)
+		if not SETTINGS[name].notify then
+			return
+		end
 		local value = tostring(dev.setting(name))
 		log.debug("-> proxy %s %s", SETTINGS[name].notify, value)
 		C4:SendToProxy(proxy_binding, SETTINGS[name].notify, value)
@@ -526,7 +565,12 @@ function device.new(opts)
 
 	for _, name in ipairs(setting_names) do
 		local s = SETTINGS[name]
-		proxy_handlers[s.command] = function(_, params) save_setting(name, params[s.param]) end
+		proxy_handlers[s.command] = function(_, params)
+			if not s.notify then
+				log.debug("%s %s", s.command, tostring(params[s.param]))
+			end
+			save_setting(name, params[s.param])
+		end
 	end
 
 	-- Keypad press, click and release ----------------------------------------
@@ -541,12 +585,44 @@ function device.new(opts)
 	-- armed before dev.on_finish runs, so a failing hook still leaves the
 	-- keypad's click ignored. The on state a hold starts from is
 	-- dev.is_on() == true when the hold time passes.
+	--
+	-- Each press is judged as it arrives, and its click follows the verdict
+	-- (#141 LF-D12, ported from the Hue project's #421 D4 and D5):
+	--   * The double-tap window. A press within DOUBLE_TAP_MS of the previous
+	--     press on the same button, by the controller's clock, is part of a
+	--     double or triple tap: the keypad's own event, for its programming.
+	--     Its record is marked multi: it starts and stops nothing (a running
+	--     fade goes on) and its click is swallowed. The window is per button
+	--     and runs press to press, so a third tap is measured from the second.
+	--     A press that became a hold opens no window: a hold is no tap.
+	--   * The stop. Otherwise, while dev.ramp_active(), the press calls
+	--     dev.on_ramp_stop(button) at once, on the push [verified: keypad
+	--     proxy reference, Button Link bindings, DO_PUSH, as the Hue project
+	--     read it], and is marked stopped: its click is swallowed. Any button
+	--     stops, the other one and the toggle too; the light does not reverse.
+	--     A stop is no hold release, so it arms no guard.
+	--   * Either way the hold timer then starts as before: a multi or stopped
+	--     press held past HOLD_AFTER_MS becomes a hold, and a stopped one holds
+	--     from the level the stop applied.
+	-- A click finds its press as the live record, or as the one a release
+	-- ended before its hold time (PUSH, RELEASE, CLICK). A click with neither
+	-- (a route that sends only the click) is judged at the click by the same
+	-- two rules, and counts as that button's press for the window. The hold's
+	-- release-as-click and the guard come first, as before. On the proxy route
+	-- every action is echoed before it gets here, a swallowed one too.
 
 	local noun = opts.noun or "device"
-	local hold = nil  -- { button, timer, held, ... } while a button is down; the hooks add their own fields
+	local hold = nil  -- { button, timer, held, multi, stopped, ... } while a button is down; hooks add fields
 	local guard = nil -- { button, timer } for CLICK_GUARD_MS after a hold's release
+	local released = nil  -- the press a release ended before its hold time, while its click may follow
+	local last_press = {} -- button -> controller ms of its last press that opens a window (#141 LF-D12)
 
 	function dev.on_end_hold() end
+
+	-- The light (#141 LF-D12) replaces these: without a fade to stop, only the
+	-- window is left.
+	function dev.ramp_active() return false end
+	function dev.on_ramp_stop() end
 
 	-- True while `h` is the press in progress: no release, click or new press since.
 	function dev.holding(h)
@@ -581,9 +657,29 @@ function device.new(opts)
 		guard = g
 	end
 
-	-- The hold timer fired with the button still down.
+	-- #141 LF-D12 for a press, or for a click with no press on record: within
+	-- the window of the button's previous press it is multi; else, while a
+	-- fade runs, it stops the fade and is stopped. Its time is the button's
+	-- last press either way.
+	local function judge(h)
+		local now = now_ms()
+		local prev = last_press[h.button]
+		last_press[h.button] = now
+		if prev and now >= prev and now - prev < DOUBLE_TAP_MS then
+			h.multi = true
+			log.debug("button %d %d ms after its last press: part of a double tap", h.button, now - prev)
+		elseif dev.ramp_active() then
+			h.stopped = true
+			log.debug("button %d stops the fade", h.button)
+			dev.on_ramp_stop(h.button)
+		end
+	end
+
+	-- The hold timer fired with the button still down. A hold is no tap: the
+	-- next press on the button opens a window of its own (#141 LF-D12).
 	local function start_hold(h)
 		h.held = true
+		last_press[h.button] = nil
 		local on = dev.is_on() == true
 		local up = h.button == BUTTON_TOP or (h.button ~= BUTTON_BOTTOM and not on)
 		if not up and not on then
@@ -616,30 +712,50 @@ function device.new(opts)
 	function dev.button_action(button, action)
 		if action == ACT_PRESS then
 			end_hold()
+			released = nil
+			-- The record is the press in progress before the stop runs, so a
+			-- stop that fails (logged by dispatch) still swallows the click.
 			local h = { button = button }
+			hold = h
+			judge(h)
 			h.timer = C4:SetTimer(HOLD_AFTER_MS, function()
 				if hold == h then
 					h.timer = nil
 					start_hold(h)
 				end
 			end)
-			hold = h
 		elseif action == ACT_CLICK then
 			if hold and hold.held then
 				finish_hold()
 			elseif guard and guard.button == button then
 				end_hold()
+				released = nil
 				log.debug("click on button %d right after a hold ignored", button)
 			else
+				local h = (hold and hold.button == button and hold)
+					or (released and released.button == button and released) or nil
 				end_hold()
-				dev.on_click(button)
+				released = nil
+				if not h then
+					h = { button = button }
+					judge(h)
+				end
+				if h.multi then
+					log.debug("click on button %d is part of a double tap: ignored", button)
+				elseif h.stopped then
+					log.debug("click on button %d stopped the fade: swallowed", button)
+				else
+					dev.on_click(button)
+				end
 			end
 		elseif action == ACT_RELEASE then
 			-- Release after a hold: finish it; a release that follows a click
-			-- has nothing left to do.
+			-- has nothing left to do; one before the hold time ends the press,
+			-- whose click may still follow (PUSH, RELEASE, CLICK).
 			if hold and hold.held then
 				finish_hold()
 			else
+				released = hold
 				end_hold()
 			end
 		end

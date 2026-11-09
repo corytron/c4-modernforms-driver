@@ -31,7 +31,11 @@ is Add Breeze Fan: steps 1, 5, 9 and 17 say so, and steps 57 to 63 of
 section J delete the old switch, add the Breeze fan and check it. Since
 #137 (2026-11-09) the speed buttons can play gusts on their LEDs while the
 fan blows in Breeze: steps 64 to 70 of section J.3 carry the contract's
-hardware checks HB1 to HB7, on a `--dev` build through the dev loop.
+hardware checks HB1 to HB7, on a `--dev` build through the dev loop. Since
+#141 (2026-11-09) the light fades: steps 72 to 83 of section K check the
+Click Rates, the Default Brightness Rate, taps, stops, holds, programming and
+the keypad LEDs, and steps 25 to 28 carry the changes to the light links
+that fades bring ([`light-fades-design.md`](light-fades-design.md)).
 
 ## Before you start
 
@@ -51,7 +55,9 @@ hardware checks HB1 to HB7, on a `--dev` build through the dev loop.
   throw-away device (steps 7 and 48), the throw-away programming scripts
   of step 35, the Breeze switch that Add Breeze Switch adds (step 51), the
   throw-away If line of step 55, the delete of the old Breeze switch (step
-  59) and the Breeze fan that Add Breeze Fan adds (step 60).
+  59), the Breeze fan that Add Breeze Fan adds (step 60), the Sets on the
+  Click Rates and the Default Brightness Rate (steps 72 and 73) and the
+  throw-away programming line of step 79.
 - **The test buttons.** Since the cutover (2026-11-04) the house keypad's
   fan and light buttons are bound to this driver's links
   ([`status.md`](status.md)), so the steps press those buttons themselves:
@@ -386,23 +392,26 @@ installed, the keypad moved to its links and the stock device was deleted
     with the light off; tap it with the light on at a low level; hold it for
     about 2 seconds with the light on; hold it for about 2 seconds with the
     light off.
-    - **Expect:** a tap turns the light on at the Default On Brightness (also
-      from a low level); a hold brightens it toward 100 in small steps (twice
-      a second at most; about 5 seconds for the whole range) and stops where
-      you let go; from off a hold turns the light on at 1 % and brightens
-      from there; the LED is lit while the light is on; a tap within a second
-      after a hold is ignored.
+    - **Expect:** a tap fades the light to the Default On Brightness over the
+      Click Rate Up (also from a low level; from above the preset it fades
+      down; since #141 and release 1.5, steps 72 to 77 check the fade
+      itself, and a build before it turns the light on at once); a hold
+      brightens it toward 100 in steps (about 5 seconds for the whole
+      range) and stops where you let go; from off a hold turns the light on at
+      1 % and brightens from there; the LED is lit while the light is on; a
+      tap within a second after a hold is ignored.
     - **Done:** open.
 26. **Light Bottom.** Bind **Light Bottom Button Link**. Tap it with the light
     on; hold it with the light on; hold it with the light off.
-    - **Expect:** a tap turns the light off; a hold dims it toward 1 % and
+    - **Expect:** a tap fades the light off over the Click Rate Down (at once
+      on a build before release 1.5); a hold dims it toward 1 % and
       stops where you let go; a hold while it is off does nothing; the LED is
       lit while the light is off and dark while it is on.
     - **Done:** open.
 27. **Light Toggle.** Bind **Light Toggle Button Link**; tap and hold it with
     the light off and on.
-    - **Expect:** a tap switches the light the other way (on at the Default On
-      Brightness); a hold brightens while the light is off (from 1 %) and
+    - **Expect:** a tap fades the light the other way (on to the Default On
+      Brightness, off to 0; at once on a build before release 1.5); a hold brightens while the light is off (from 1 %) and
       dims while it is on; the LED is lit while the light is on.
     - **Done:** open.
 28. **How a hold looks.** *By hand*, during step 25's hold: does the
@@ -981,6 +990,178 @@ the standing-approval sentence and names the Sets on the three new rows.
       ends.
     - **Done:** open (the colours passed the probe; the driver side ships
       in 1.4 untested on the hardware at the owner's word, 2026-11-09).
+
+## K. Light fades (#141)
+
+Written 2026-11-09 from [`light-fades-design.md`](light-fades-design.md)
+(sections 2, 3, 7 and 9) and the two notes behind it
+([`light-fades-sdk-research.md`](light-fades-sdk-research.md),
+[`edge-cases-light-fades.md`](edge-cases-light-fades.md)). The light now
+steps its level to fade: a tap over the light's **Click Rates** (3 seconds
+for the whole range, so a tap from 50 to 100 takes 1.5 seconds), a second
+tap stops it, commands without a time use the **Default Brightness Rate**,
+holds run at the hold rates in finer steps, and a rate of 0 or a fade under
+about 1 second is one request. The fan takes one request at a time, so a
+3-second fade is a staircase of about 7 to 18 steps. The Click Rates rows are
+a capability change: after the release install the owner reboots the
+controller from System Manager once (step 72), and the Windows session cannot
+do that. Steps 73 to 83 run the `--dev` build of the feature branch through
+the dev loop ([`dev-loop.md`](dev-loop.md)) for the Lua tab and the
+`Dev Light Steps` probes of the contract's section 7 (they flash the
+bedroom light: ask the owner before each, run each twice, one at a time),
+or the release; the house's light is the one on the keypad's Up and Down
+buttons (Light Top and Light Bottom). Your part is to watch the light
+and press buttons or use the Modern Forms app where a step says **By hand**.
+The brief carries the standing-approval sentence and names the Sets on the
+Click Rates and the Default Brightness Rate.
+
+72. **Click Rates, after the reboot (H6).** After the release install
+    (step 2's in-place update) Composer asks **Restart Director?**: answer
+    Yes (it does not load the change), then the owner reboots the controller
+    from System Manager (the Windows session cannot). Once Composer has
+    Director again, the Windows session opens the light's settings page.
+    - **Expect:** before the reboot no Click Rates rows; after it, **Click
+      Rates Ramp Up** and **Click Rates Ramp Down** at `3.000` s each on the
+      light item (Composer takes `3000` ms and accepts a value up to 24
+      hours), with Default On Brightness and the Hold Ramp Rates as before.
+      A rate of `0` is accepted; a Set of `3.000` returns it unchanged. The
+      fan item's `Status` reads `Online: …` again, `Keypad Links` still counts
+      every binding, and `Driver Version` shows the release. Record how long
+      the reboot took and any text Composer showed.
+    - **Done:** open.
+73. **The Default Brightness Rate (H1).** With `Debug Mode` On, the Windows
+    session reads the light item's **Default Brightness Rate**, then sets it
+    to `3.000` s and presses Enter (one Set).
+    - **Expect:** the Lua tab shows the parameters of the rate command the
+      proxy sent (record the value Control4 had sent before the Set; the
+      driver assumes `0.75` s until it hears one) and, after the Set,
+      `3000`; no error in the Lua tab and nothing else in the log. The row
+      reads `3.000` again after re-selecting the item. `Debug Mode` goes Off
+      again at the end of step 83.
+    - **Done:** open.
+74. **A tap fades up and down.** *By hand*, the light off: tap **Up** and
+    watch; when it has finished, tap **Down** and watch; then with the light
+    at about 50 %, tap **Up** again. The Windows session reads the Lua tab
+    after each tap.
+    - **Expect:** the first tap brings the light on dark and fades it up to
+      the Default On Brightness (100) in about 3 seconds, in visible small
+      steps; **Down** fades it to off in about 3 seconds; **Up** from 50 %
+      takes about 1.5 seconds. The Lua tab has one line each, for example
+      `light fade 0 → 100 over 3.0 s: 11 steps, ended at 3.2 s`. Record, in
+      the owner's words, how each fade looked (smooth enough, or a staircase;
+      the contract expects about 7 to 18 steps over 3 seconds, so the count
+      in the line is the fact), the time of the end by stopwatch, and the
+      step counts. The Navigator tile shows the final level at the end of
+      the fade.
+    - **Done:** open.
+75. **A second tap stops it.** *By hand*: tap **Down** from 100 %, and tap
+    **Down** again about 1 second after the first (outside the double-tap
+    window of about 0.6 seconds, before the fade ends); then tap **Up** from
+    off, and tap **Up** again about 1 second later. The Windows session
+    reads the Lua tab and the light tile after each stop.
+    - **Expect:** the light stops where it is, at the level of the last
+      step (up to one step after the press), and stays there: no second fade
+      starts and the click that follows does nothing. The Navigator tile
+      shows that level, and the Lua tab shows the fade's summary line with
+      the fewer steps. A later tap on **Up** or **Down** fades from there, to
+      the preset or to off. Record the stopped levels and how long after the
+      press the light stopped.
+    - **Done:** open.
+76. **A double tap.** *By hand*: with the light off, tap **Up** twice
+    quickly (under about 0.5 seconds). The Windows session reads the Lua
+    tab. Then, if the button's Double Tap event has a programming line on the
+    house keypad, note what it did.
+    - **Expect:** the second press neither starts a new fade nor stops the
+      first: the light fades up to the Default On Brightness as for one tap;
+      the keypad's own Double Tap event still fires. Record whether the light
+      stopped or restarted, which would mean the double-tap window is too
+      short on this keypad.
+    - **Done:** open.
+77. **Holds in finer steps.** *By hand*: with the light at about 20 %, hold
+    **Up** for 2 seconds and let go; hold **Down** for 2 seconds; with the
+    light off, hold **Up**; then, with a fade running (a tap on **Up** from
+    off), hold **Down**.
+    - **Expect:** a hold brightens (or dims) at the hold rate, 5 seconds for
+      the whole range unless changed, in finer steps than the old twice a
+      second, and stops where you let go, with a fade summary line of kind
+      hold in the Lua tab. From off the light comes on at 1 % and brightens
+      from there after about 0.6 seconds. A hold during a fade stops that
+      fade and goes on from the stopped level. A tap within a second of
+      letting go is ignored. Record how it looked compared with step 28's
+      answer from before the fades (the owner's call).
+    - **Done:** open.
+78. **A Navigator tap and the slider.** *By hand*: tap the light's tile on
+    a Navigator off and on, and drag the slider from 10 % to 90 % and back.
+    The Windows session reads the Lua tab.
+    - **Expect:** the tile's on and off use the Default Brightness Rate
+      (3 seconds, so they fade, with one summary line each); the slider
+      follows in a few jumps and ends where it ends, with no fade lines;
+      nothing sticks half-way. Record what each did and what the tile
+      showed while it fades.
+    - **Done:** open.
+79. **A ramp from programming.** The Windows session makes a throw-away
+    programming line, as in step 35, on a scratch event with three
+    commands: the light's Ramp To Level 40 % over 6 seconds; Set Level 80 %
+    with no time (the default rate); Ramp To Level 60 % over 0 seconds.
+    Run each command, then run the 6-second ramp and, 2 seconds into it,
+    run Set Level 80 %. The Windows session deletes the line afterwards.
+    - **Expect:** the 6-second ramp takes about 6 seconds; Set Level uses
+      the Default Brightness Rate (a fade of 3 seconds for that one change,
+      whatever the distance); a time of 0 is one jump; Set Level during the ramp replaces it
+      with a new fade from the level shown then, without a CHANGED between
+      (the Lua tab shows two fades, the first ended early). Record the times.
+    - **Done:** open.
+80. **The app and the remote during a fade.** *By hand*: tap **Up** from off
+    and, during the fade, turn the light off in the Modern Forms app; then
+    tap **Up** again, and during the fade change the level in the app. Then
+    fade the light down from 100 %, wait for it to be off, and turn it on
+    from the app.
+    - **Expect:** the app's off ends the fade at once; the light stays
+      off and the driver does not turn it back on; the Lua tab says the
+      change came from outside. A level set in the app during the fade may be
+      overwritten by the next step (record what happened). After the fade to
+      off the app turns the light on at the level it started from, not at
+      1 %. Record each outcome; the remote and the wall control are the same
+      case if the owner wants to try them.
+    - **Done:** open.
+81. **A restart mid-fade.** *By hand*: tap **Up** from off. About 1.5 seconds
+    in, the coordinator restarts Director through the dev loop (or the
+    Windows session updates the driver in place). The Windows session reads
+    the light's tile and `Status` once Director is back.
+    - **Expect:** nothing resumes: the light stays where its last step left
+      it, the first contact tells Control4 that level, and the Lua tab has no
+      fade. Optional, *by hand*: switch the fan's power off at the wall
+      during a fade and on again; the fade ends with one warning, the tile
+      keeps its last level, `Fan Offline` and `Fan Online` fire as in
+      section H, and no old target is sent afterwards. Record both.
+    - **Done:** open.
+82. **The keypad LEDs during a fade (LF-D18, H4).** *By hand*, looking at
+    the Up and Down LEDs: with the light on, tap **Down** and watch when the
+    LEDs change; when it has faded off, tap **Up** and watch again. If a
+    Control4 dimmer on the house has a Click Rate Down of 5 seconds, tap its
+    off button and note when its own LED changes (the Windows session sets
+    the rate through Composer and puts it back).
+    - **Expect:** with the default, the LEDs go by where the light is heading:
+      Up goes dark and Down lights at the tap, not at the end of the fade
+      (the reverse for a tap up). Record when the Control4 dimmer's LED
+      changed, at the tap or at the end: that decides the release's setting
+      (`LEDS_FOLLOW` `"target"` or `"light"`), and the manual's sentence about
+      the LEDs follows it.
+    - **Done:** open.
+83. **The Debug Mode summary and what to record.** With `Debug Mode` On
+    through steps 74 to 82, the Windows session reads the Lua tab; then
+    sets it Off.
+    - **Expect:** one summary line per fade, for example `light fade 0 → 100
+      over 3.0 s: 11 steps, ended at 3.2 s`; the per-step requests and
+      answers, and the parameters of every rate command, only with Debug
+      Mode On; at most one warning per fade; no application key, address or
+      MAC address beyond the last four digits. With `Debug Mode` Off the Lua
+      tab shows warnings and errors only. Record, for each of steps 72 to 82:
+      the fade's time by stopwatch and by the line, the step count, the
+      owner's word for how it looked, and whether the fan ever froze or
+      answered slowly during a run of fades (the contract's pacing and gap
+      settings depend on it).
+    - **Done:** open.
 
 ## What to paste back
 

@@ -32,6 +32,10 @@
 --            shape and sends only while the fan is online and nothing else is due:
 --            request = function(req, cb) return m:request(req, cb) end
 --   wire     the fan/wire.lua table (default: require("fan.wire"), looked up when Dev Request first needs it)
+--   now      fn() -> milliseconds, any origin (Dev Light Steps' DURATION line and its 60 s rule; default: C4:GetTime(),
+--            as driver.lua's now_ms; without any clock the command refuses). driver.lua passes now_ms.
+--   gaps     { transport = <fan.transport>, model = <fan.model> }: the two tables whose GAP_MS Dev Light Steps sets
+--            for GAP and puts back (default: require("fan.transport"), require("fan.model"))
 --   names    fan/rename.lua's job (docs/fan-name-design.md 2.2, 2.4): plan(mode) -> the table of what a
 --            click would decide, which Dev Names Plan prints; without it the command refuses. Dev Names
 --            Plan never calls the job's run(): nothing is renamed.
@@ -519,13 +523,133 @@ local function format_plan(plan, mode)
 	}, " ")
 end
 
+-- Dev Light Steps ---------------------------------------------------------------------------------
+
+-- The fan/wire.lua table: opts.wire, else require, or nil and why.
+local function load_wire(opts)
+	if opts.wire ~= nil then
+		return opts.wire
+	end
+	local ok, loaded = pcall(require, "fan.wire")
+	if not ok then
+		return nil, loaded
+	end
+	return loaded
+end
+
+-- #141 (docs/edge-cases-light-fades.md section 4): the numbers of the command and of its stop rules.
+-- The limits of the parameters and the stop rules are the note's; the retry pace and the tick are
+-- this file's own [assumed: 10 ms and 50 ms are small against the 250 ms gap and the 0.15 s answers].
+devcmds.STEPS_START_MS = 1000        -- the run starts this long after the light was set to FROM
+devcmds.STEPS_SLOW_MS = 2000         -- an answer slower than this stops the run
+devcmds.STEPS_MAX_MS = 60000         -- the run stops after this long
+devcmds.STEPS_MAX_REQUESTS = 150     -- or after this many requests
+devcmds.STEPS_STEP_MAX = 50          -- STEP: 1 to 50 levels a request
+devcmds.STEPS_DURATION_MIN_MS, devcmds.STEPS_DURATION_MAX_MS = 500, 20000
+devcmds.STEPS_EVERY_MAX_MS = 2000    -- EVERY: 0 to 2000 ms added after each gap
+devcmds.STEPS_GAP_MAX_MS = 250       -- GAP: 0 to 250 ms
+devcmds.STEPS_REPEAT_MAX = 4
+devcmds.STEPS_TICK_MS = 50           -- DURATION: how often a line that has not moved is looked at again
+devcmds.STEPS_RETRY_MS = 10          -- a slot that was still busy is asked again after this long
+devcmds.STEPS_SLOT_WAIT_MS = 2000    -- and given up after this long
+devcmds.STEPS_GAP_DEFAULT_MS = 250   -- the gap to wait for when the transport's cannot be read
+-- The groups the model's busy() knows (fan/model.lua GROUPS).
+devcmds.STEPS_GROUPS = { "fan", "direction", "breeze", "light" }
+
+-- YES or NO of BACK: true or false, or nil and why.
+local function yes_no(value, name)
+	if value == nil or (type(value) == "string" and not value:find("%S")) then
+		return false
+	end
+	local text = type(value) == "string" and value:lower():match("^%s*(%a+)%s*$") or nil
+	if value == true or text == "yes" or text == "true" then
+		return true
+	elseif value == false or text == "no" or text == "false" then
+		return false
+	end
+	if value == "1" then
+		return true
+	elseif value == "0" then
+		return false
+	end
+	return nil, string.format("%s %s is not yes or no", name, plain(value, 30))
+end
+
+-- The levels a STEP run shows after `from`, `step` apart, the last one `to` itself (0 is off).
+local function step_positions(from, to, step)
+	local out, p = {}, from
+	local dir = to > from and 1 or -1
+	while p ~= to do
+		p = p + dir * step
+		if (dir > 0 and p > to) or (dir < 0 and p < to) then
+			p = to
+		end
+		out[#out + 1] = p
+	end
+	return out
+end
+
+-- The requests that take the light from `cur` ({ on, level }, nil: not known) to the position
+-- `pos` (0 off, else on at that level), and the state they leave it in. From off the level goes
+-- first, as a dark write, and `lightOn` after it (V14: lightOn with a changed level flashes the
+-- old level); an unknown state is not assumed, so the request is sent. An entry says which
+-- fields wire.body takes, a label for the log, the lightOn an answer should carry (expect_on, nil:
+-- not checked) and what it changes (after_on, after_level).
+local function light_moves(cur, pos)
+	local out, on, level = {}, cur.on, cur.level
+	if pos == 0 then
+		if on ~= false then
+			out[#out + 1] = { fields = { light_on = false }, label = "off", expect_on = false, after_on = false }
+			on = false
+		end
+		return out, { on = on, level = level }
+	end
+	if level ~= pos then
+		out[#out + 1] = { fields = { level = pos }, label = "level " .. pos, expect_on = on, after_level = pos }
+		level = pos
+	end
+	if on ~= true then
+		out[#out + 1] = { fields = { light_on = true }, label = "on", expect_on = true, after_on = true }
+		on = true
+	end
+	return out, { on = on, level = level }
+end
+
+-- The restore, the rule of docs/fan-probe.md "Safety rails": found on, the level first and then
+-- on; found off, off first and then the level (written while off it keeps the light off, FT2).
+local function restore_moves(cur, found)
+	if found.on then
+		return light_moves(cur, found.level)
+	end
+	local out, on, level = {}, cur.on, cur.level
+	if on ~= false then
+		out[#out + 1] = { fields = { light_on = false }, label = "off", expect_on = false, after_on = false }
+		on = false
+	end
+	if level ~= found.level then
+		out[#out + 1] = { fields = { level = found.level }, label = "level " .. found.level, expect_on = false,
+			after_level = found.level }
+		level = found.level
+	end
+	return out, { on = on, level = level }
+end
+
+-- The n-th smallest by nearest rank of the sorted list: p of 0.5 is the median.
+local function rank(sorted, p)
+	if #sorted == 0 then
+		return nil
+	end
+	return sorted[math.max(1, math.ceil(p * #sorted))]
+end
+
 -- The commands -----------------------------------------------------------------------------------
 
 -- Returns the table for devloop.set_signed_commands (Dev_Fan_State, Dev_Names_Plan,
--- Dev_Press, Dev_Proxy, Dev_Request, Dev_Search: section 12, fan-name-design 2.4 and
--- auto-discovery-design 6.5) and a stop()
+-- Dev_Press, Dev_Proxy, Dev_Request, Dev_Search, Dev_Light_Steps: section 12,
+-- fan-name-design 2.4, auto-discovery-design 6.5 and light-fades-design 4.4) and a stop()
 -- that cancels the presses still waiting for their timers (OnDriverDestroyed: a reload
--- must not leave them to fire into the new code).
+-- must not leave them to fire into the new code); it also ends a Dev Light Steps run
+-- and puts the gap back.
 function devcmds.new(opts)
 	opts = type(opts) == "table" and opts or {}
 	local o = { model = opts.model, fan = opts.fan, links = opts.links, light = opts.light, names = opts.names,
@@ -533,6 +657,8 @@ function devcmds.new(opts)
 		log = opts.log or require("common.log") }
 	local log = o.log
 	local pending = {} -- timers armed and not yet fired
+	local steps_run = nil -- the Dev Light Steps run under way (#141), if any
+	local steps_abort = nil -- set below: ends that run and puts the gap back
 
 	local function refuse(command, why)
 		log.warn("%s refused: %s; nothing was done", command, why)
@@ -578,6 +704,9 @@ function devcmds.new(opts)
 	end
 
 	local function stop()
+		if steps_abort then
+			steps_abort()
+		end
 		local timers = pending
 		pending = {}
 		for timer in pairs(timers) do
@@ -880,9 +1009,497 @@ function devcmds.new(opts)
 		log.always("Dev Search: a window is asked for (search=%s)", plain(state, 20))
 	end
 
+	-- Dev Light Steps (#141, docs/edge-cases-light-fades.md section 4): FROM and TO (0 to 100, 0 is
+	-- off) and either STEP (levels a request) or DURATION (ms, the time-based straight line of
+	-- section 1.3); EVERY (ms added after each gap), GAP (ms, this run only), BACK (yes: TO to FROM
+	-- after), REPEAT (1 to 4). The light is set to FROM at once, the run starts 1 s later, every
+	-- request goes through opts.request (the model's own slot, as Dev Request does) with bodies
+	-- from wire.body, one log line per answer and a summary. A failure, an answer slower than 2 s,
+	-- a lightOn the run did not expect, 60 s or 150 requests stop it at once; then the light and
+	-- the gap are put back as they were found. [verified: the path is Model:request, one request
+	-- in flight, the transport's gap after each answer; the rest is this file's design]
+	local function dev_light_steps(params)
+		local NAME = "Dev Light Steps"
+		params = type(params) == "table" and params or {}
+		local ST = devcmds
+		-- Parameters --------------------------------------------------------------------------
+		local function level_param(value, name)
+			local n, why = bounded(value, nil, 0, 100, name)
+			if n == nil and why == nil then
+				why = name .. " is missing"
+			end
+			return n, why
+		end
+		local from, why = level_param(params.FROM, "FROM")
+		if not from then
+			return refuse(NAME, why)
+		end
+		local to
+		to, why = level_param(params.TO, "TO")
+		if not to then
+			return refuse(NAME, why)
+		end
+		if from == to then
+			return refuse(NAME, "FROM and TO are the same level")
+		end
+		local function given(value)
+			return not (value == nil or (type(value) == "string" and not value:find("%S")))
+		end
+		local step, duration
+		if given(params.STEP) and given(params.DURATION) then
+			return refuse(NAME, "give STEP or DURATION, not both")
+		elseif given(params.STEP) then
+			step, why = bounded(params.STEP, nil, 1, ST.STEPS_STEP_MAX, "STEP")
+		elseif given(params.DURATION) then
+			duration, why = bounded(params.DURATION, nil, ST.STEPS_DURATION_MIN_MS, ST.STEPS_DURATION_MAX_MS,
+				"DURATION")
+		else
+			return refuse(NAME, "STEP or DURATION is missing")
+		end
+		if why then
+			return refuse(NAME, why)
+		end
+		local every
+		every, why = bounded(params.EVERY, 0, 0, ST.STEPS_EVERY_MAX_MS, "EVERY")
+		if not every then
+			return refuse(NAME, why)
+		end
+		local gap
+		gap, why = bounded(params.GAP, nil, 0, ST.STEPS_GAP_MAX_MS, "GAP")
+		if gap == nil and why then
+			return refuse(NAME, why)
+		end
+		local back
+		back, why = yes_no(params.BACK, "BACK")
+		if back == nil then
+			return refuse(NAME, why)
+		end
+		local repeats
+		repeats, why = bounded(params.REPEAT, 1, 1, ST.STEPS_REPEAT_MAX, "REPEAT")
+		if not repeats then
+			return refuse(NAME, why)
+		end
+		-- What has to be there ----------------------------------------------------------------
+		if steps_run then
+			return refuse(NAME, "a run is already under way")
+		end
+		if type(opts.request) ~= "function" then
+			return refuse(NAME, "no request function is wired")
+		end
+		local wire, wire_why = load_wire(opts)
+		if not wire then
+			return refuse(NAME, "fan.wire is not available (" .. plain(wire_why, 80) .. ")")
+		end
+		local m = o.model
+		if ask(o, m, "phase") ~= "online" then
+			return refuse(NAME, "the fan is not online")
+		end
+		local info = ask(o, m, "info")
+		if not (type(info) == "table" and info.has_light == true) then
+			return refuse(NAME, "the fan has no light kit")
+		end
+		for _, group in ipairs(ST.STEPS_GROUPS) do
+			if ask(o, m, "busy", group) then
+				return refuse(NAME, "a " .. group .. " command is wanted or in flight")
+			end
+		end
+		if ask(o, m, "has_commands") then
+			return refuse(NAME, "a command is wanted or in flight")
+		end
+		local conf = ask(o, m, "confirmed")
+		if not (type(conf) == "table" and type(conf.light_on) == "boolean" and type(conf.level) == "number"
+			and conf.level >= 1 and conf.level <= 100) then
+			return refuse(NAME, "the light's state is not known yet")
+		end
+		local function now()
+			if type(opts.now) == "function" then
+				return opts.now()
+			end
+			local ok, t = pcall(function() return C4:GetTime() end)
+			return ok and tonumber(t) or nil
+		end
+		if type(now()) ~= "number" then
+			return refuse(NAME, "there is no clock")
+		end
+		-- The two modules' GAP_MS, read when a request or a gap timer needs it [verified: transport.lua
+		-- arm_gap, model.lua schedule_retry]; found by require unless opts.gaps names them.
+		local transport_t, model_t
+		if type(opts.gaps) == "table" then
+			transport_t, model_t = opts.gaps.transport, opts.gaps.model
+		else
+			local ok_t, t = pcall(require, "fan.transport")
+			local ok_m, mm = pcall(require, "fan.model")
+			transport_t, model_t = ok_t and t or nil, ok_m and mm or nil
+		end
+		if gap ~= nil and not (type(transport_t) == "table" and type(transport_t.GAP_MS) == "number"
+			and type(model_t) == "table" and type(model_t.GAP_MS) == "number") then
+			return refuse(NAME, "the gap cannot be set (transport.GAP_MS or model.GAP_MS is not there)")
+		end
+		if type(transport_t) ~= "table" then
+			transport_t = nil
+		end
+		-- The run ---------------------------------------------------------------------------------
+		local found = { on = conf.light_on, level = conf.level }
+		local legs = {}
+		for _ = 1, repeats do
+			legs[#legs + 1] = { from = from, to = to }
+			if back then
+				legs[#legs + 1] = { from = to, to = from }
+			end
+		end
+		local r = { stage = "prep", pending = {}, cur = { on = found.on, level = found.level }, sent = 0,
+			answered = 0, failed = 0, times = {}, any_sent = false }
+		-- STEP: the whole list of levels is known up front, jumps between legs included.
+		local planned = "?"
+		if step then
+			r.plan, r.pos_i = {}, 0
+			local at = from
+			for _, leg in ipairs(legs) do
+				if at ~= leg.from then
+					r.plan[#r.plan + 1] = leg.from
+				end
+				for _, p in ipairs(step_positions(leg.from, leg.to, step)) do
+					r.plan[#r.plan + 1] = p
+				end
+				at = leg.to
+			end
+			local sim = select(2, light_moves({ on = found.on, level = found.level }, from))
+			planned = 0
+			for _, p in ipairs(r.plan) do
+				local moves
+				moves, sim = light_moves(sim, p)
+				planned = planned + #moves
+			end
+		else
+			r.leg_i, r.at_pos = 1, from
+		end
+
+		local function gap_now()
+			local g = transport_t and tonumber(transport_t.GAP_MS) or ST.STEPS_GAP_DEFAULT_MS
+			return math.max(g, 1)
+		end
+
+		-- The gap of this run goes back; safe to ask twice.
+		local function restore_gaps()
+			if r.saved_gap then
+				transport_t.GAP_MS, model_t.GAP_MS = r.saved_gap.transport, r.saved_gap.model
+				r.saved_gap = nil
+			end
+		end
+
+		local function clear()
+			restore_gaps()
+			r.dead = true
+			steps_run = nil
+			steps_abort = nil
+		end
+
+		local pump, finish, schedule_start
+
+		-- Raises inside a timer or a callback end the run instead of leaving the light half-way
+		-- without a word.
+		local function safe(fn)
+			return function(...)
+				if r.dead then
+					return
+				end
+				local ok, err = pcall(fn, ...)
+				if not ok then
+					log.warn("%s: the run raised: %s; stopped, the light may not be as it was found", NAME,
+						plain(err, 80))
+					clear()
+				end
+			end
+		end
+
+		local function later(ms, fn)
+			if not set_timer(ms, safe(fn)) then
+				log.warn("%s: no timer; stopped, the light may not be as it was found", NAME)
+				clear()
+			end
+		end
+
+		local function seconds(ms)
+			return (tonumber(ms) or 0) / 1000
+		end
+
+		local function summary()
+			local sorted = {}
+			for i, t in ipairs(r.times) do
+				sorted[i] = t
+			end
+			table.sort(sorted)
+			local function at(p)
+				local t = rank(sorted, p)
+				return t and string.format("%.2f s", seconds(t)) or "-"
+			end
+			local elapsed = ((r.t_last or r.t_run) - r.t_run) / 1000
+			log.always("%s: %d sent, %d answered, %d failed, %.1f s, %.1f a second, median %s, 90 %% %s, worst %s, gap %s",
+				NAME, r.sent, r.answered, r.failed, elapsed, elapsed > 0 and (r.answered / elapsed) or 0,
+				at(0.5), at(0.9), at(1), r.run_gap and (r.run_gap .. " ms") or "?")
+		end
+
+		-- The light back as it was found: its requests first, `finish` when they are answered.
+		local function begin_restore()
+			r.stage = "restore"
+			r.pending = restore_moves(r.cur, found)
+			if #r.pending == 0 then
+				return finish(true)
+			end
+			later(gap_now(), function() pump() end)
+		end
+
+		function finish(restored)
+			local was = power_kept(found.on, found.level)
+			clear()
+			if restored then
+				log.always("%s: the light is back as found (%s) and the gap too", NAME, was)
+			else
+				log.warn("%s: the light was NOT put back (it was %s); put it back with Dev Request", NAME, was)
+			end
+		end
+
+		-- The end of the run proper: why (nil: it ran its course), then the summary, then the restore.
+		local function end_run(reason)
+			if r.stage ~= "run" then
+				return
+			end
+			r.stage = "restore"
+			restore_gaps()
+			if reason then
+				log.warn("%s stopped: %s", NAME, reason)
+			end
+			summary()
+			begin_restore()
+		end
+
+		-- The next position of the run: a level, "wait" and a delay, or nil at its end.
+		local function next_position()
+			if step then
+				r.pos_i = r.pos_i + 1
+				return r.plan[r.pos_i]
+			end
+			while true do
+				local leg = legs[r.leg_i]
+				if not leg then
+					return nil
+				end
+				if r.leg_state == nil then
+					r.leg_state = "jumping"
+					if r.at_pos ~= leg.from then
+						r.at_pos = leg.from
+						return leg.from
+					end
+				end
+				if r.leg_state == "jumping" then
+					r.leg_t0, r.leg_state = now(), "going"
+				end
+				local elapsed = now() - r.leg_t0
+				local target
+				if elapsed >= duration then
+					target = leg.to
+					r.leg_i, r.leg_state = r.leg_i + 1, nil
+				else
+					target = math.floor(leg.from + (leg.to - leg.from) * elapsed / duration + 0.5)
+					target = math.max(1, math.min(100, target))
+					if target == r.at_pos then
+						return "wait", ST.STEPS_TICK_MS
+					end
+				end
+				if target ~= r.at_pos then
+					r.at_pos = target
+					return target
+				end
+			end
+		end
+
+		-- One request through the model's slot; a slot still busy is asked again for a while.
+		local function submit(entry, done)
+			local started = now()
+			local attempt
+			local function refused(reason)
+				if r.stage == "prep" and not r.any_sent then
+					clear()
+					return refuse(NAME, "not sent (" .. plain(reason or "no reason given", 40) .. ")")
+				elseif r.stage == "run" then
+					return end_run("a request was refused (" .. plain(reason, 40) .. ")")
+				elseif r.stage == "prep" then
+					log.warn("%s: a request was refused (%s) before the run", NAME, plain(reason, 40))
+					return begin_restore()
+				end
+				log.warn("%s: the restore was refused (%s)", NAME, plain(reason, 40))
+				return finish(false)
+			end
+			attempt = safe(function()
+				local body, bad = wire.body(entry.fields)
+				if not body then
+					return refused("wire.body refuses it: " .. tostring(bad))
+				end
+				local sent_at = now()
+				local ok, seq, reason = pcall(opts.request, { kind = "command", path = wire.PATH, body = body },
+					safe(function(result)
+						done(type(result) == "table" and result or {}, sent_at)
+					end))
+				if not ok then
+					return refused("the request function failed: " .. plain(seq, 60))
+				end
+				if seq then
+					r.any_sent = true
+					if r.stage == "run" then
+						r.sent = r.sent + 1
+						entry.index = r.sent
+					end
+					return
+				end
+				if reason == "busy" and not (r.stage == "prep" and not r.any_sent) and now() - started < ST.STEPS_SLOT_WAIT_MS then
+					return later(ST.STEPS_RETRY_MS, attempt)
+				end
+				return refused(reason or "busy")
+			end)
+			attempt()
+		end
+
+		-- An answer: the state it shows, the light as the run now knows it, the stop rules.
+		local function answered(entry, result, sent_at)
+			local t = now()
+			local ms = tonumber(result.ms) or (t - sent_at)
+			local ok = result.ok == true
+			local st
+			if ok then
+				local good, s = pcall(wire.state, result.json)
+				st = good and type(s) == "table" and s or nil
+			end
+			if not ok then
+				r.cur = { on = nil, level = nil }
+			else
+				if type(st and st.light_on) == "boolean" then
+					r.cur.on = st.light_on
+				elseif entry.after_on ~= nil then
+					r.cur.on = entry.after_on
+				end
+				if type(st and st.level) == "number" then
+					r.cur.level = st.level
+				elseif entry.after_level ~= nil then
+					r.cur.level = entry.after_level
+				end
+			end
+			local detail
+			if not ok then
+				detail = string.format("%s failed: %s", entry.label, plain(result.err or "error", 40))
+			elseif not st then
+				detail = string.format("%s: answered with no usable data", entry.label)
+			end
+			local gone_wrong
+			if entry.stage == "run" then
+				r.t_last = t
+				local waited = (sent_at - (r.last_at or r.t_run)) / 1000
+				r.last_at = t
+				if ok and st then
+					r.answered = r.answered + 1
+					r.times[#r.times + 1] = ms
+				else
+					r.failed = r.failed + 1
+				end
+				log.always("%s %d/%s: %s in %.2f s, waited %.2f s", NAME, entry.index, tostring(planned),
+					detail or entry.label, seconds(ms), waited)
+				if detail then
+					gone_wrong = detail
+				elseif ms > ST.STEPS_SLOW_MS then
+					gone_wrong = string.format("an answer took %.2f s (over %.0f s)", seconds(ms),
+						seconds(ST.STEPS_SLOW_MS))
+				elseif entry.expect_on ~= nil and st.light_on ~= entry.expect_on then
+					gone_wrong = string.format("the answer says lightOn is %s, the run expected %s (a change from outside?)",
+						tostring(st.light_on), tostring(entry.expect_on))
+				elseif r.sent >= ST.STEPS_MAX_REQUESTS then
+					gone_wrong = ST.STEPS_MAX_REQUESTS .. " requests reached"
+				elseif t - r.t_run >= ST.STEPS_MAX_MS then
+					gone_wrong = seconds(ST.STEPS_MAX_MS) .. " s reached"
+				end
+				if gone_wrong and #r.pending > 0 then
+					r.pending = {}
+				end
+				if gone_wrong then
+					return end_run(gone_wrong)
+				end
+				return later(gap_now() + every, pump)
+			end
+			log.always("%s %s: %s in %.2f s", NAME, entry.stage == "prep" and "set to FROM" or "restore",
+				detail or entry.label, seconds(ms))
+			if detail then
+				if entry.stage == "prep" then
+					log.warn("%s stopped: the light could not be set to FROM (%s)", NAME, detail)
+					return begin_restore()
+				end
+				log.warn("%s: the restore stopped at a failure (%s)", NAME, detail)
+				return finish(false)
+			end
+			if entry.stage == "prep" and #r.pending == 0 then
+				return schedule_start()
+			end
+			return later(gap_now(), pump)
+		end
+
+		-- The light is at FROM: the run starts STEPS_START_MS after the answer that said so.
+		function schedule_start()
+			r.stage = "starting"
+			later(ST.STEPS_START_MS, function()
+				r.stage, r.run_started = "run", true
+				if gap ~= nil then
+					r.saved_gap = { transport = transport_t.GAP_MS, model = model_t.GAP_MS }
+					transport_t.GAP_MS, model_t.GAP_MS = gap, gap
+				end
+				r.run_gap = transport_t and tonumber(transport_t.GAP_MS) or nil
+				r.t_run = now()
+				pump()
+			end)
+		end
+
+		function pump()
+			local entry
+			while not entry do
+				if #r.pending > 0 then
+					entry = table.remove(r.pending, 1)
+				elseif r.stage == "prep" then
+					return schedule_start()
+				elseif r.stage == "run" then
+					if r.sent >= ST.STEPS_MAX_REQUESTS then
+						return end_run(ST.STEPS_MAX_REQUESTS .. " requests reached")
+					elseif now() - r.t_run >= ST.STEPS_MAX_MS then
+						return end_run(seconds(ST.STEPS_MAX_MS) .. " s reached")
+					end
+					local pos, wait = next_position()
+					if pos == nil then
+						return end_run(nil)
+					elseif pos == "wait" then
+						return later(wait, pump)
+					end
+					r.pending = light_moves(r.cur, pos)
+				else
+					return finish(true)
+				end
+			end
+			entry.stage = r.stage
+			submit(entry, function(result, sent_at)
+				answered(entry, result, sent_at)
+			end)
+		end
+
+		steps_run = r
+		steps_abort = function()
+			log.warn("%s: stopped with the driver; the light may not be as it was found", NAME)
+			clear()
+		end
+		log.always("%s: from %d to %d, %s, every %d ms, gap %s, back %s, repeat %d, %s requests planned", NAME, from, to,
+			step and ("step " .. step) or ("duration " .. duration .. " ms"), every,
+			gap ~= nil and (gap .. " ms") or "unchanged", back and "yes" or "no", repeats, tostring(planned))
+		r.pending = (light_moves(r.cur, from))
+		pump()
+	end
+
 	return {
 		Dev_Fan_State = dev_fan_state,
 		Dev_Names_Plan = dev_names_plan,
+		Dev_Light_Steps = dev_light_steps,
 		Dev_Link = dev_link,
 		Dev_Press = dev_press,
 		Dev_Proxy = dev_proxy,

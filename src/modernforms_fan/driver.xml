@@ -444,7 +444,14 @@
 		<ramp_level>True</ramp_level>
 		<on_off>True</on_off>
 		<min_max>False</min_max>
-		<click_rates>False</click_rates>
+		<!-- #141 LF-D3: taps fade over the light's Click Rates (3 s by default). click_rates
+		     is a static capability: after the release install the owner reboots the
+		     controller once from System Manager, and Click Rates Ramp Up and Ramp Down then
+		     show on the light's settings page. The range is explicit, as the reference's
+		     defaults and its samples disagree [LV2 5_light_v2_capabilities/_12, _13]. -->
+		<click_rates>True</click_rates>
+		<click_rate_min>0</click_rate_min>
+		<click_rate_max>86400000</click_rate_max>
 		<hold_rates>True</hold_rates>
 		<hold_rate_min>1000</hold_rate_min>
 		<supports_default_on>True</supports_default_on>

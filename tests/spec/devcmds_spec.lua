@@ -241,6 +241,8 @@ local function new_commands(over)
 		timer = env.timer or env.clock.make,
 		request = env.request,
 		wire = env.wire,
+		now = env.now or function() return env.clock.now end,
+		gaps = env.gaps,
 	})
 	return env
 end
@@ -263,9 +265,72 @@ local function fields_of(line)
 	return out
 end
 
+
+-- The model's slot as Dev Light Steps meets it (#141): request(req, cb) answers after a latency on the
+-- spec's clock, keeps one request in flight, and refuses "busy" until transport.GAP_MS after the answer
+-- (read when the gap is armed, after the callback, as transport.lua does). It keeps a light the bodies
+-- act on and what it was asked: slot.bodies, slot.sent_at, slot.gap_log (the gap each answer armed).
+-- Scripts by request number n: latency[n], fail[n], unreadable[n], hold[n] (ms the slot stays busy
+-- before request n is taken, a poll slipping in), off_at (the light is switched off from outside as
+-- request n is answered); refuse_from + refuse_with: every request from that number is refused.
+local function fake_slot(clock, over)
+	local slot = {
+		bodies = {}, sent_at = {}, gap_log = {}, n = 0, gap_until = 0, state = { on = true, level = 40 },
+		gaps = { transport = { GAP_MS = 250 }, model = { GAP_MS = 250 } },
+		latency = {}, fail = {}, unreadable = {}, hold = {}, started = {}, default_latency = 150,
+	}
+	for key, value in pairs(over or {}) do slot[key] = value end
+	local decode = fake_wire().decode
+	function slot.request(req, cb)
+		if slot.raise then error("boom") end
+		local n = slot.n + 1
+		if slot.refuse_from and n >= slot.refuse_from then return nil, slot.refuse_with end
+		if slot.inflight or clock.now < slot.gap_until then return nil, "busy" end
+		if slot.hold[n] then
+			slot.started[n] = slot.started[n] or (clock.now + slot.hold[n])
+			if clock.now < slot.started[n] then return nil, "busy" end
+		end
+		slot.n = n
+		slot.inflight = true
+		slot.bodies[n] = req.body
+		slot.sent_at[n] = clock.now
+		local latency = slot.latency[n] or slot.default_latency
+		clock.make(latency, function()
+			local result
+			if slot.fail[n] then
+				result = { ok = false, err = "timeout", ms = latency, seq = n }
+			else
+				local obj = decode(req.body)
+				if obj.lightBrightness then slot.state.level = obj.lightBrightness end
+				if obj.lightOn ~= nil then slot.state.on = obj.lightOn end
+				if slot.off_at == n then slot.state.on = false end
+				result = { ok = true, ms = latency, seq = n, json = slot.unreadable[n] and {} or {
+					clientId = "MF_00005E005301", lightOn = slot.state.on, lightBrightness = slot.state.level } }
+			end
+			slot.inflight = false
+			cb(result)
+			slot.gap_until = clock.now + slot.gaps.transport.GAP_MS
+			slot.gap_log[n] = slot.gaps.transport.GAP_MS
+		end)
+		return n
+	end
+	return slot
+end
+
+-- The levels of a list of bodies: the number of a lightBrightness write, "on" and "off" for the others.
+-- (Used by Dev Light Steps' specs where only the walk of levels matters.)
+local function levels_of(list)
+	local out = {}
+	for _, body in ipairs(list) do
+		local level = body:match('"lightBrightness":(%d+)')
+		out[#out + 1] = level and tonumber(level) or (body:find("true", 1, true) and "on" or "off")
+	end
+	return out
+end
+
 describe("fan.devcmds", function()
 	describe("the table for devloop.set_signed_commands", function()
-		it("holds the six commands of section 12, fan-name-design 2.4 and auto-discovery-design 6.5 under the names "
+		it("holds the commands of section 12, fan-name-design 2.4 and auto-discovery-design 6.5 under the names "
 			.. "common/dispatch.lua gives them, and nothing else", function()
 				local env = new_commands()
 				local names = {}
@@ -274,8 +339,8 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Fan_State", "Dev_Link", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy", "Dev_Request",
-					"Dev_Search", "Dev_Vars" }, names)
+				assert.same({ "Dev_Fan_State", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy",
+					"Dev_Request", "Dev_Search", "Dev_Vars" }, names)
 				assert.is_function(env.stop)
 			end)
 
@@ -1143,6 +1208,616 @@ describe("fan.devcmds", function()
 			local lines = env.log.texts("always")
 			assert.truthy(lines[2]:find("answer not readable", 1, true))
 			assert.truthy(lines[3]:find("failed", 1, true))
+		end)
+	end)
+
+	describe("Dev Light Steps", function()
+		-- An env whose request is a fake slot; `over` goes to both (slot scripts and new_commands' own keys).
+		local function steps_env(over)
+			over = over or {}
+			local clock = fake_timers()
+			local slot = fake_slot(clock, over.slot)
+			local env = new_commands({ clock = clock, request = slot.request, gaps = slot.gaps,
+				model = over.model, now = over.now, wire = over.wire })
+			env.slot = slot
+			return env
+		end
+
+		-- The levels and lights the slot was sent, as the bytes.
+		local function bodies(env)
+			return env.slot.bodies
+		end
+
+		local function run_to_end(env)
+			env.clock.advance(120000)
+		end
+
+		local function lines(env)
+			local out = {}
+			for _, text in ipairs(env.log.texts("always")) do
+				if text:find("^Dev Light Steps") then out[#out + 1] = text end
+			end
+			return out
+		end
+
+		-- The command refuses with `why` in its warning, and has sent nothing and set no timer.
+		local function refuses(env, params, why)
+			env.commands.Dev_Light_Steps(params)
+			assert.same({}, bodies(env), why)
+			assert.equal(1, #warned(env), why)
+			assert.truthy(warned(env)[1]:find("^Dev Light Steps refused: "), warned(env)[1])
+			assert.truthy(warned(env)[1]:find(why, 1, true), why .. " -> " .. warned(env)[1])
+			assert.equal(0, env.clock.waiting(), why)
+		end
+
+		local function with_model(over, state)
+			local m = fake_model(over)
+			for key, value in pairs(state or {}) do m.st.confirmed[key] = value end
+			return m
+		end
+
+		describe("parameters", function()
+			it("refuses FROM and TO that are missing, empty, not whole numbers or outside 0 to 100", function()
+				local cases = {
+					{ { TO = "50", STEP = "5" }, "FROM is missing" },
+					{ { FROM = "", TO = "50", STEP = "5" }, "FROM is missing" },
+					{ { FROM = "10", STEP = "5" }, "TO is missing" },
+					{ { FROM = "101", TO = "50", STEP = "5" }, "FROM 101 is not a whole number from 0 to 100" },
+					{ { FROM = "-1", TO = "50", STEP = "5" }, "FROM -1 is not a whole number from 0 to 100" },
+					{ { FROM = "x", TO = "50", STEP = "5" }, "FROM x is not a whole number" },
+					{ { FROM = "10", TO = "100.5", STEP = "5" }, "TO 100.5 is not a whole number" },
+					{ { FROM = "10", TO = "101", STEP = "5" }, "TO 101 is not a whole number from 0 to 100" },
+					{ { FROM = "50", TO = "50", STEP = "5" }, "FROM and TO are the same level" },
+				}
+				for _, case in ipairs(cases) do
+					refuses(steps_env(), case[1], case[2])
+				end
+			end)
+
+			it("takes numbers as well as the strings devctl.py sends, and 0 for either end", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = 0, TO = 10, STEP = 10 })
+				assert.same({ '{"lightOn":false}' }, bodies(env))
+			end)
+
+			it("wants STEP or DURATION, not both and not neither, and each within its limits", function()
+				local cases = {
+					{ { FROM = "10", TO = "50" }, "STEP or DURATION is missing" },
+					{ { FROM = "10", TO = "50", STEP = "", DURATION = " " }, "STEP or DURATION is missing" },
+					{ { FROM = "10", TO = "50", STEP = "5", DURATION = "3000" }, "STEP or DURATION, not both" },
+					{ { FROM = "10", TO = "50", STEP = "0" }, "STEP 0 is not a whole number from 1 to 50" },
+					{ { FROM = "10", TO = "50", STEP = "51" }, "STEP 51 is not a whole number from 1 to 50" },
+					{ { FROM = "10", TO = "50", DURATION = "499" }, "DURATION 499 is not a whole number from 500 to 20000" },
+					{ { FROM = "10", TO = "50", DURATION = "20001" }, "DURATION 20001 is not a whole number" },
+				}
+				for _, case in ipairs(cases) do
+					refuses(steps_env(), case[1], case[2])
+				end
+				-- The limits themselves are fine.
+				for _, p in ipairs({ { STEP = "1" }, { STEP = "50" }, { DURATION = "500" }, { DURATION = "20000" } }) do
+					local env = steps_env()
+					p.FROM, p.TO = "10", "50"
+					env.commands.Dev_Light_Steps(p)
+					assert.equal(1, #bodies(env))
+					assert.same({}, warned(env))
+				end
+			end)
+
+			it("limits EVERY to 0 to 2000, GAP to 0 to 250, REPEAT to 1 to 4 and BACK to yes or no", function()
+				local base = { FROM = "10", TO = "50", STEP = "5" }
+				local function with(key, value)
+					local p = { FROM = base.FROM, TO = base.TO, STEP = base.STEP }
+					p[key] = value
+					return p
+				end
+				refuses(steps_env(), with("EVERY", "2001"), "EVERY 2001 is not a whole number from 0 to 2000")
+				refuses(steps_env(), with("GAP", "251"), "GAP 251 is not a whole number from 0 to 250")
+				refuses(steps_env(), with("GAP", "x"), "GAP x is not a whole number")
+				refuses(steps_env(), with("REPEAT", "0"), "REPEAT 0 is not a whole number from 1 to 4")
+				refuses(steps_env(), with("REPEAT", "5"), "REPEAT 5 is not a whole number from 1 to 4")
+				refuses(steps_env(), with("BACK", "maybe"), "BACK maybe is not yes or no")
+				for _, p in ipairs({ with("EVERY", "2000"), with("GAP", "0"), with("GAP", "250"), with("REPEAT", "4"),
+					with("BACK", "YES"), with("BACK", "no"), with("BACK", "") }) do
+					local env = steps_env()
+					env.commands.Dev_Light_Steps(p)
+					assert.equal(1, #bodies(env))
+					assert.same({}, warned(env))
+				end
+			end)
+
+			it("logs what it was asked and how many requests that makes, then sets the light to FROM at once", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "5", EVERY = "100", GAP = "100", BACK = "yes",
+					REPEAT = "2" })
+				assert.same({ '{"lightBrightness":30}' }, bodies(env))
+				assert.equal("Dev Light Steps: from 30 to 40, step 5, every 100 ms, gap 100 ms, back yes, repeat 2, "
+					.. "8 requests planned", lines(env)[1])
+				assert.equal(0, env.clock.now)
+			end)
+		end)
+
+		describe("refusals", function()
+			it("refuses unless the fan is online", function()
+				for _, phase in ipairs({ "offline", "pairing", "unset" }) do
+					refuses(steps_env({ model = with_model({ phase = phase }) }),
+						{ FROM = "10", TO = "50", STEP = "5" }, "the fan is not online")
+				end
+			end)
+
+			it("refuses a fan with no light kit, or one whose info is not in yet", function()
+				refuses(steps_env({ model = with_model({ info = { has_light = false } }) }),
+					{ FROM = "10", TO = "50", STEP = "5" }, "no light kit")
+				refuses(steps_env({ model = with_model({ info = false }) }), { FROM = "10", TO = "50", STEP = "5" },
+					"no light kit")
+			end)
+
+			it("refuses while any group has a command wanted or in flight", function()
+				for _, group in ipairs({ "fan", "direction", "breeze", "light" }) do
+					refuses(steps_env({ model = with_model({ busy = { [group] = true } }) }),
+						{ FROM = "10", TO = "50", STEP = "5" }, "a " .. group .. " command is wanted or in flight")
+				end
+				local m = fake_model()
+				function m.has_commands() return true end
+				refuses(steps_env({ model = m }), { FROM = "10", TO = "50", STEP = "5" }, "a command is wanted")
+			end)
+
+			it("refuses a light whose state the model does not know", function()
+				local p = { FROM = "10", TO = "50", STEP = "5" }
+				refuses(steps_env({ model = with_model({ confirmed = false }) }), p, "state is not known")
+				refuses(steps_env({ model = with_model({}, { light_on = false, level = "x" }) }), p, "state is not known")
+				local m = fake_model()
+				m.st.confirmed.light_on = nil
+				refuses(steps_env({ model = m }), p, "state is not known")
+			end)
+
+			it("refuses without a request function, a clock, or the two GAP_MS it must set", function()
+				local p = { FROM = "10", TO = "50", STEP = "5" }
+				local env = new_commands({ request = false })
+				env.commands.Dev_Light_Steps(p)
+				assert.equal(1, #warned(env))
+				assert.truthy(warned(env)[1]:find("no request function", 1, true))
+				refuses(steps_env({ now = function() return nil end }), p, "no clock")
+				local clock = fake_timers()
+				local slot = fake_slot(clock)
+				local env2 = new_commands({ clock = clock, request = slot.request, gaps = {} })
+				env2.commands.Dev_Light_Steps({ FROM = "10", TO = "50", STEP = "5", GAP = "100" })
+				assert.same({}, slot.bodies)
+				assert.truthy(warned(env2)[1]:find("the gap cannot be set", 1, true))
+			end)
+
+			it("refuses when the slot is not free for the first request, and sets no gap", function()
+				local env = steps_env({ slot = { refuse_from = 1, refuse_with = "busy" } })
+				env.commands.Dev_Light_Steps({ FROM = "10", TO = "50", STEP = "5", GAP = "10" })
+				assert.equal(1, #warned(env))
+				assert.truthy(warned(env)[1]:find("refused: not sent (busy)", 1, true))
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+				assert.equal(0, env.clock.waiting())
+				-- and the next run is not turned away as a run under way
+				env.slot.refuse_from = nil
+				env.commands.Dev_Light_Steps({ FROM = "10", TO = "50", STEP = "5" })
+				assert.equal(1, #bodies(env))
+			end)
+
+			it("refuses a request function that raises", function()
+				local env = steps_env({ slot = { raise = true } })
+				env.commands.Dev_Light_Steps({ FROM = "10", TO = "50", STEP = "5" })
+				assert.truthy(warned(env)[1]:find("the request function failed", 1, true))
+				assert.equal(0, env.clock.waiting())
+			end)
+
+			it("refuses a second run while one is under way, and allows one after it", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				assert.truthy(warned(env)[1]:find("a run is already under way", 1, true))
+				assert.equal(1, #bodies(env))
+				run_to_end(env)
+				local before = #bodies(env)
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				assert.equal(before + 1, #bodies(env))
+			end)
+		end)
+
+		describe("a run by STEP", function()
+			it("sets FROM, waits a second, steps to TO the last step shorter, and puts the light back", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "35", STEP = "2" })
+				run_to_end(env)
+				assert.same({ '{"lightBrightness":30}', '{"lightBrightness":32}', '{"lightBrightness":34}',
+					'{"lightBrightness":35}', '{"lightBrightness":40}' }, bodies(env))
+				-- FROM at 0 ms, answered at 150 ms; the run starts 1 s after that answer.
+				assert.equal(0, env.slot.sent_at[1])
+				assert.equal(1150, env.slot.sent_at[2])
+				assert.same({ on = true, level = 40 }, env.slot.state)
+				assert.same({}, warned(env))
+			end)
+
+			it("writes one log line per answer in the note's shape, then the summary", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				run_to_end(env)
+				local got = lines(env)
+				assert.equal("Dev Light Steps set to FROM: level 30 in 0.15 s", got[2])
+				assert.equal("Dev Light Steps 1/2: level 32 in 0.15 s, waited 0.00 s", got[3])
+				assert.equal("Dev Light Steps 2/2: level 34 in 0.15 s, waited 0.25 s", got[4])
+				assert.truthy(got[5]:find("^Dev Light Steps: 2 sent, 2 answered, 0 failed, "), got[5])
+				assert.truthy(got[5]:find(" a second, median 0.15 s, 90 %% 0.15 s, worst 0.15 s, gap 250 ms$"), got[5])
+				assert.equal("Dev Light Steps restore: level 40 in 0.15 s", got[6])
+				assert.equal("Dev Light Steps: the light is back as found (on/40) and the gap too", got[7])
+			end)
+
+			it("walks down as well as up, ends on 0 with the off body, and restores the level first and then on", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "10", TO = "0", STEP = "5" })
+				run_to_end(env)
+				assert.same({ '{"lightBrightness":10}', '{"lightBrightness":5}', '{"lightOn":false}',
+					'{"lightBrightness":40}', '{"lightOn":true}' }, bodies(env))
+				assert.same({ on = true, level = 40 }, env.slot.state)
+			end)
+
+			it("starts from off with the dark level and lightOn, and counts them in the plan", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "0", TO = "50", STEP = "25" })
+				run_to_end(env)
+				assert.same({ '{"lightOn":false}', '{"lightBrightness":25}', '{"lightOn":true}', '{"lightBrightness":50}',
+					'{"lightBrightness":40}' }, bodies(env))
+				local got = lines(env)
+				assert.truthy(got[1]:find("3 requests planned", 1, true), got[1])
+				assert.truthy(got[3]:find("^Dev Light Steps 1/3: level 25 "), got[3])
+				assert.truthy(got[4]:find("^Dev Light Steps 2/3: on "), got[4])
+				assert.truthy(got[5]:find("^Dev Light Steps 3/3: level 50 "), got[5])
+				assert.same({}, warned(env))
+			end)
+
+			it("restores a light found off by switching it off first and writing the level after", function()
+				local env = steps_env({ model = with_model({}, { light_on = false, level = 40 }),
+					slot = { state = { on = false, level = 40 } } })
+				env.commands.Dev_Light_Steps({ FROM = "20", TO = "22", STEP = "2" })
+				run_to_end(env)
+				assert.same({ '{"lightBrightness":20}', '{"lightOn":true}', '{"lightBrightness":22}', '{"lightOn":false}',
+					'{"lightBrightness":40}' }, bodies(env))
+				assert.same({ on = false, level = 40 }, env.slot.state)
+				assert.truthy(lines(env)[#lines(env)]:find("back as found (off/40)", 1, true))
+			end)
+
+			it("leaves a light found off and ended off with only its level to put back", function()
+				local env = steps_env({ model = with_model({}, { light_on = false, level = 40 }),
+					slot = { state = { on = false, level = 40 } } })
+				env.commands.Dev_Light_Steps({ FROM = "0", TO = "20", STEP = "10" })
+				run_to_end(env)
+				-- FROM 0: already off, nothing to set; 10 is a dark write and on, 20; back: off, level 40.
+				assert.same({ '{"lightBrightness":10}', '{"lightOn":true}', '{"lightBrightness":20}', '{"lightOn":false}',
+					'{"lightBrightness":40}' }, bodies(env))
+			end)
+
+			it("BACK runs TO to FROM after, REPEAT repeats, with a jump back to FROM when there is no BACK", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2", BACK = "yes" })
+				run_to_end(env)
+				assert.same({ 30, 32, 34, 32, 30, 40 }, levels_of(bodies(env)))
+				local env2 = steps_env()
+				env2.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2", REPEAT = "2" })
+				run_to_end(env2)
+				assert.same({ 30, 32, 34, 30, 32, 34, 40 }, levels_of(bodies(env2)))
+				local env3 = steps_env()
+				env3.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2", BACK = "yes", REPEAT = "2" })
+				run_to_end(env3)
+				assert.same({ 30, 32, 34, 32, 30, 32, 34, 32, 30, 40 }, levels_of(env3.slot.bodies))
+				assert.truthy(lines(env3)[1]:find("8 requests planned", 1, true))
+			end)
+
+			it("adds EVERY after each gap", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "36", STEP = "2", EVERY = "500" })
+				run_to_end(env)
+				local got = lines(env)
+				assert.truthy(got[4]:find("waited 0.75 s", 1, true), got[4])
+				assert.truthy(got[5]:find("waited 0.75 s", 1, true), got[5])
+				assert.equal(1150 + 150 + 750, env.slot.sent_at[3])
+			end)
+
+			it("sets GAP on both modules for the run only, and puts both back after it", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "36", STEP = "2", GAP = "100" })
+				-- before the run: the FROM request armed a gap of 250
+				env.clock.advance(1149)
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+				env.clock.advance(1)
+				assert.equal(100, env.slot.gaps.transport.GAP_MS)
+				assert.equal(100, env.slot.gaps.model.GAP_MS)
+				run_to_end(env)
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+				assert.equal(250, env.slot.gaps.model.GAP_MS)
+				-- the answers of the three run steps armed 100 ms; FROM and the restore armed 250.
+				assert.same({ 250, 100, 100, 100, 250 }, env.slot.gap_log)
+				local got = lines(env)
+				assert.truthy(got[5]:find("waited 0.10 s", 1, true) or got[5]:find("waited 0.11 s", 1, true), got[5])
+				assert.truthy(got[6]:find("gap 100 ms$"), got[6])
+			end)
+
+			it("GAP 0 is a gap of nothing for the run, and the gap of the other runs is not touched without GAP", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2", GAP = "0" })
+				run_to_end(env)
+				assert.same({ 250, 0, 0, 250 }, env.slot.gap_log)
+				local env2 = steps_env({ slot = { gaps = { transport = { GAP_MS = 120 }, model = { GAP_MS = 130 } } } })
+				env2.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				run_to_end(env2)
+				assert.same({ 120, 120, 120, 120 }, env2.slot.gap_log)
+				assert.equal(130, env2.slot.gaps.model.GAP_MS)
+				assert.truthy(lines(env2)[5]:find("gap 120 ms$"))
+			end)
+
+			it("finds the two GAP_MS by require when no table is given", function()
+				local old_t, old_m = package.loaded["fan.transport"], package.loaded["fan.model"]
+				local fake_t, fake_m = { GAP_MS = 250 }, { GAP_MS = 250 }
+				package.loaded["fan.transport"], package.loaded["fan.model"] = fake_t, fake_m
+				local ok, err = pcall(function()
+					local clock = fake_timers()
+					local slot = fake_slot(clock)
+					slot.gaps = { transport = fake_t, model = fake_m }
+					local env = new_commands({ clock = clock, request = slot.request })
+					env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2", GAP = "50" })
+					clock.advance(1160)
+					assert.equal(50, fake_t.GAP_MS)
+					assert.equal(50, fake_m.GAP_MS)
+					clock.advance(120000)
+					assert.equal(250, fake_t.GAP_MS)
+					assert.equal(250, fake_m.GAP_MS)
+				end)
+				package.loaded["fan.transport"], package.loaded["fan.model"] = old_t, old_m
+				assert.is_true(ok, tostring(err))
+			end)
+
+			it("lets a poll slip in: a busy slot is asked again, and the run goes on", function()
+				local env = steps_env({ slot = { hold = { [3] = 40 } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				run_to_end(env)
+				assert.same({ 30, 32, 34, 40 }, levels_of(bodies(env)))
+				assert.same({}, warned(env))
+				-- 1150 + 150 answer + 250 gap = 1550 is when the slot frees; the poll holds it to 1590.
+				assert.is_true(env.slot.sent_at[3] >= 1590 and env.slot.sent_at[3] <= 1600, env.slot.sent_at[3])
+				assert.truthy(lines(env)[4]:find("waited 0.2[89] s") or lines(env)[4]:find("waited 0.3[0-9] s"), lines(env)[4])
+			end)
+		end)
+
+		describe("a run by DURATION", function()
+			it("follows the straight line by the clock, sends only a level that changed, and ends on TO", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "70", DURATION = "1000" })
+				run_to_end(env)
+				-- the line starts at 1150 ms: 32 at 1200, 48 at 1600, 64 at 2000, TO once 1000 ms are over.
+				assert.same({ 30, 32, 48, 64, 70, 40 }, levels_of(bodies(env)))
+				assert.equal(1200, env.slot.sent_at[2])
+				assert.equal(1600, env.slot.sent_at[3])
+				assert.equal(2400, env.slot.sent_at[5])
+				assert.truthy(lines(env)[1]:find("duration 1000 ms", 1, true))
+				assert.truthy(lines(env)[1]:find("? requests planned", 1, true))
+				assert.truthy(lines(env)[3]:find("^Dev Light Steps 1/%?: level 32 "), lines(env)[3])
+			end)
+
+			it("falls to the off body at the end and never writes level 0 on the way", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "100", TO = "0", DURATION = "500" })
+				run_to_end(env)
+				local got = bodies(env)
+				for _, body in ipairs(got) do
+					assert.is_nil(body:find('"lightBrightness":0', 1, true), body)
+				end
+				assert.equal('{"lightOn":false}', got[#got - 2])
+				assert.equal('{"lightBrightness":40}', got[#got - 1])
+				assert.equal('{"lightOn":true}', got[#got])
+			end)
+
+			it("takes REPEAT and BACK as legs of the line, a jump to FROM between legs that do not meet", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "50", DURATION = "500", REPEAT = "2" })
+				run_to_end(env)
+				local levels = levels_of(bodies(env))
+				local at50 = {}
+				for i, level in ipairs(levels) do if level == 50 then at50[#at50 + 1] = i end end
+				assert.equal(2, #at50)
+				assert.equal(30, levels[at50[1] + 1]) -- the jump back to FROM before the second leg
+				assert.equal(40, levels[#levels])
+				local env2 = steps_env()
+				env2.commands.Dev_Light_Steps({ FROM = "30", TO = "50", DURATION = "500", BACK = "yes" })
+				run_to_end(env2)
+				local l2 = levels_of(env2.slot.bodies)
+				assert.equal(50, l2[(function() for i, v in ipairs(l2) do if v == 50 then return i end end end)()])
+				assert.equal(30, l2[#l2 - 1]) -- ends back on FROM, then the restore
+			end)
+		end)
+
+		describe("stop rules", function()
+			local function summary_of(env)
+				for _, text in ipairs(lines(env)) do
+					if text:find("^Dev Light Steps: %d+ sent") then return text end
+				end
+			end
+
+			local function stopped(env)
+				for _, text in ipairs(warned(env)) do
+					if text:find("^Dev Light Steps stopped: ") then return text end
+				end
+			end
+
+			it("stops at once on a failed request, restores, and says so", function()
+				local env = steps_env({ slot = { fail = { [3] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				-- request 3 is the second step (32 is 2, 34 is 3) and fails: 36 is never sent.
+				assert.same({ 30, 32, 34, 40, "on" }, levels_of(bodies(env)))
+				assert.truthy(stopped(env):find("level 34 failed: timeout", 1, true), stopped(env))
+				assert.truthy(summary_of(env):find("^Dev Light Steps: 2 sent, 1 answered, 1 failed, "))
+				assert.same({ on = true, level = 40 }, env.slot.state)
+				assert.truthy(lines(env)[#lines(env)]:find("back as found", 1, true))
+			end)
+
+			it("stops on an answer slower than 2 s, and takes exactly 2 s", function()
+				local env = steps_env({ slot = { latency = { [3] = 2001 } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				assert.same({ 30, 32, 34, 40 }, levels_of(bodies(env)))
+				assert.truthy(stopped(env):find("an answer took 2.00 s (over 2 s)", 1, true), stopped(env))
+				assert.truthy(summary_of(env):find("2 sent, 2 answered, 0 failed", 1, true))
+				local env2 = steps_env({ slot = { latency = { [3] = 2000 } } })
+				env2.commands.Dev_Light_Steps({ FROM = "30", TO = "36", STEP = "2" })
+				run_to_end(env2)
+				assert.same({ 30, 32, 34, 36, 40 }, levels_of(env2.slot.bodies))
+				assert.is_nil(stopped(env2))
+			end)
+
+			it("stops on an answer whose lightOn is not what the run expects, and restores from what it shows", function()
+				-- FP7: the light is switched off from outside as request 3 is answered.
+				local env = steps_env({ slot = { off_at = 3 } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("lightOn is false, the run expected true", 1, true), stopped(env))
+				-- off by someone else: the level first as a dark write, then lightOn, the found state.
+				assert.same({ '{"lightBrightness":30}', '{"lightBrightness":32}', '{"lightBrightness":34}',
+					'{"lightBrightness":40}', '{"lightOn":true}' }, bodies(env))
+				assert.same({ on = true, level = 40 }, env.slot.state)
+			end)
+
+			it("stops when the light is not in the state the model said, and restores from what it shows", function()
+				-- the model says off, the light is on: FROM 0 has nothing to send, the dark write 10 is answered on.
+				local env = steps_env({ model = with_model({}, { light_on = false, level = 40 }),
+					slot = { state = { on = true, level = 40 } } })
+				env.commands.Dev_Light_Steps({ FROM = "0", TO = "20", STEP = "10" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("lightOn is true, the run expected false", 1, true), stopped(env))
+				assert.same({ '{"lightBrightness":10}', '{"lightOn":false}', '{"lightBrightness":40}' }, bodies(env))
+				assert.same({ on = false, level = 40 }, env.slot.state)
+			end)
+
+			it("stops on an answer with no usable state", function()
+				local env = steps_env({ slot = { unreadable = { [2] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("answered with no usable data", 1, true), stopped(env))
+				assert.truthy(summary_of(env):find("1 sent, 0 answered, 1 failed", 1, true))
+			end)
+
+			it("stops after 150 requests", function()
+				local env = steps_env({ slot = { default_latency = 20 } })
+				env.commands.Dev_Light_Steps({ FROM = "1", TO = "100", STEP = "1", BACK = "yes", GAP = "0" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("150 requests reached", 1, true), stopped(env))
+				assert.truthy(summary_of(env):find("^Dev Light Steps: 150 sent, 150 answered, 0 failed, "))
+				-- FROM was one request and the restore one more, neither among the 150.
+				assert.equal(152, #bodies(env))
+				assert.same({ on = true, level = 40 }, env.slot.state)
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+			end)
+
+			it("stops after 60 s", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "1", TO = "100", STEP = "1", EVERY = "2000", GAP = "100" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("60 s reached", 1, true), stopped(env))
+				local count = tonumber(summary_of(env):match("^Dev Light Steps: (%d+) sent"))
+				assert.is_true(count >= 25 and count <= 30, count)
+				assert.same({ on = true, level = 40 }, env.slot.state)
+				assert.equal(250, env.slot.gaps.model.GAP_MS)
+			end)
+
+			it("stops in the wait for the line too: 60 s of DURATION legs", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "10", TO = "90", DURATION = "20000", REPEAT = "4", BACK = "yes" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("60 s reached", 1, true), stopped(env))
+				assert.same({ on = true, level = 40 }, env.slot.state)
+			end)
+
+			it("stops when the slot stays busy for 2 s, and says the restore was refused too", function()
+				local env = steps_env({ slot = { refuse_from = 3, refuse_with = "busy" } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				assert.truthy(stopped(env):find("a request was refused (busy)", 1, true), stopped(env))
+				assert.equal(2, #bodies(env))
+				local texts = warned(env)
+				assert.truthy(texts[#texts]:find("the light was NOT put back (it was on/40)", 1, true), texts[#texts])
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+			end)
+
+			it("stops at once on a refusal other than busy", function()
+				local env = steps_env({ slot = { refuse_from = 3, refuse_with = "no address" } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				env.clock.advance(2000)
+				assert.truthy(stopped(env):find("a request was refused (no address)", 1, true), stopped(env))
+			end)
+
+			it("puts the gap back when the run stops, whatever stopped it", function()
+				local env = steps_env({ slot = { fail = { [2] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2", GAP = "10" })
+				run_to_end(env)
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+				assert.equal(250, env.slot.gaps.model.GAP_MS)
+			end)
+		end)
+
+		describe("the restore", function()
+			it("sets the light back after a failed FROM and runs nothing", function()
+				local env = steps_env({ slot = { fail = { [1] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				-- the failed write may or may not have taken: the level and on are sent, in that order
+				assert.same({ 30, 40 }, { levels_of(bodies(env))[1], levels_of(bodies(env))[2] })
+				assert.equal('{"lightOn":true}', bodies(env)[3])
+				assert.equal(3, #bodies(env))
+				assert.truthy(warned(env)[1]:find("could not be set to FROM", 1, true), warned(env)[1])
+				for _, text in ipairs(lines(env)) do
+					assert.is_nil(text:find(" sent, ", 1, true))
+				end
+			end)
+
+			it("gives up at a failed restore request and says the light is not as it was found", function()
+				-- request 4 is the restore's level write
+				local env = steps_env({ slot = { fail = { [4] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "34", STEP = "2" })
+				run_to_end(env)
+				assert.equal(4, #bodies(env))
+				local texts = warned(env)
+				assert.truthy(texts[1]:find("the restore stopped at a failure", 1, true), texts[1])
+				assert.truthy(texts[2]:find("NOT put back", 1, true), texts[2])
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+			end)
+
+			it("does nothing to a light that is already as it was found", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "40", TO = "42", STEP = "2", BACK = "yes" })
+				run_to_end(env)
+				-- FROM 40 is the found level: nothing to set; 42, 40; the restore has nothing to do either.
+				assert.same({ 42, 40 }, levels_of(bodies(env)))
+				assert.truthy(lines(env)[#lines(env)]:find("back as found (on/40)", 1, true))
+			end)
+		end)
+
+		describe("stop() and privacy", function()
+			it("ends a run under way: no more requests, the gap back", function()
+				local env = steps_env()
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "60", STEP = "1", GAP = "100" })
+				env.clock.advance(1500)
+				assert.equal(100, env.slot.gaps.transport.GAP_MS)
+				local sent = #bodies(env)
+				env.stop()
+				assert.equal(250, env.slot.gaps.transport.GAP_MS)
+				assert.equal(250, env.slot.gaps.model.GAP_MS)
+				run_to_end(env)
+				assert.is_true(#bodies(env) <= sent + 1, #bodies(env))
+				assert.truthy(warned(env)[#warned(env)]:find("stopped with the driver", 1, true))
+			end)
+
+			it("never logs an address, a MAC or a client id", function()
+				local env = steps_env({ slot = { fail = { [3] = true } } })
+				env.commands.Dev_Light_Steps({ FROM = "30", TO = "40", STEP = "2" })
+				run_to_end(env)
+				for _, line in ipairs(env.log.lines) do
+					assert.is_nil(line.text:find("MF_", 1, true), line.text)
+					assert.is_nil(line.text:find("10.0.2.", 1, true), line.text)
+					assert.is_nil(line.text:find("00005E", 1, true), line.text)
+				end
+			end)
 		end)
 	end)
 
