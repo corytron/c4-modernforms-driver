@@ -354,3 +354,34 @@ keypads. The rows are the SDK note's section 8 list as the Hue project's
   the level in many requests" is now allowed, within LF-D7 and LF-D8.
 - The manual's "No fades" and "Holds" sections, and its limits list.
 - `RAMP_STEP_MS` in `fan/light.lua`.
+
+## 11. Review fixes
+
+A read-only review of the integration found six faults. Most of the fixes
+depart from the text above, and this section wins where they disagree.
+
+- **LF-D16, a hold or a scene ramp is not replayed.** After a failed or
+  given-up step only a fade whose target is the owner's own (a tap, a timed
+  change) wants that target once after the contact. A hold's or a scene
+  ramp's "target" is only the end of the range (100 or 1), so the fade ends,
+  CHANGED tells the confirmed level, and nothing is wanted.
+- **LF-D16, an address change ends every fade.** The light ends a fade when
+  the phase becomes `waiting` (the only way the model leaves `online` for
+  it), even with nothing wanted or in flight. The model marks every want a
+  fade makes (`opts.of_fade`: the first level, the final target, the LF-D10
+  write-back, besides the steps) and drops them all, `given_up`, on an
+  address change or a followed fan's move.
+- **LF-D13 and LF-D10, a stop to off whose off is on the wire.** The off
+  finishes, and the LF-D10 write-back still follows at the `idle`
+  (`m:withdraw` now also returns what the request in flight sends). A stop
+  before the off went out writes nothing back: the light stays on.
+- **LF-D13, a stop before the turn-on of a fade from off was answered.** The
+  first want (the dark level, then `lightOn`) is not withdrawn, so a stop
+  leaves the light on at the level reached, as a Control4 dimmer stopped
+  mid-ramp does, never dark with a level written. This sends the turn-on
+  that "no extra request goes out" would have left unsent.
+- **LF-D10, the write-back is a level only.** When the model's latest answer
+  shows the light off and no on or off is on the wire, `{ light_on = false,
+  level = N }` sends only `{"lightBrightness":N}`, never a second off. It is
+  dropped, unsent, if the light is seen on before it goes, and it is nothing
+  when the fan keeps N already.

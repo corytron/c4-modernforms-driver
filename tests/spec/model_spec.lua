@@ -5658,6 +5658,23 @@ describe("fan.model fades (#141 LF-D7, LF-D8, LF-D10, LF-D15, LF-D16, LF-D20)", 
 			assert.same({}, events(h, "outside"))
 		end)
 
+		it("tells what the request in flight sends, as a second value (review fix)", function()
+			local h = lit(50)
+			h.m:want({ light_on = false })
+			assert.same({ true, { light_on = false } }, { h.m:withdraw("light") }, "the off is on the wire")
+			ok(h, state_json({ lightOn = false, lightBrightness = 50 }))
+			gap(h)
+			h.m:want({ light_on = true, level = 30 }, { fade = true })
+			local took, flying = h.m:withdraw("light")
+			assert.is_true(took)
+			assert.same({ level = 30 }, flying, "the dark level of a turn-on")
+			ok(h, state_json({ lightOn = false, lightBrightness = 30 }))
+			assert.is_nil(select(2, h.m:withdraw("light")), "nothing in flight")
+			local h2 = lit(50)
+			h2.m:want({ fan_on = true, speed = 4 })
+			assert.is_nil(select(2, h2.m:withdraw("light")), "another group's request is not the light's")
+		end)
+
 		it("returns false when nothing is wanted, and for a group it does not know", function()
 			local h = lit(50)
 			assert.is_false(h.m:withdraw("light"))
@@ -5751,13 +5768,86 @@ describe("fan.model fades (#141 LF-D7, LF-D8, LF-D10, LF-D15, LF-D16, LF-D20)", 
 			assert.is_true(logged(h, "debug", "the light is not off"))
 		end)
 
-		it("a light that is off already still gets the off first (V8), then the write", function()
+		-- Review fix 6: the latest answer shows the light off, so only the dark level goes: no
+		-- second off (an extra request, and a race with a switch that turned the light on).
+		it("a light the latest answer shows off gets only the dark level, no second off", function()
 			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 1 }))
-			h.m:want({ light_on = false, level = 60 })
-			assert.equal('{"lightOn":false}', last_sent(h).body)
-			ok(h, state_json({ lightOn = false, lightBrightness = 1 }))
-			gap(h)
+			assert.is_true(h.m:want({ light_on = false, level = 60 }))
 			assert.equal('{"lightBrightness":60}', last_sent(h).body)
+			assert.same({ '{"lightBrightness":60}' }, commands(h))
+			ok(h, state_json({ lightOn = false, lightBrightness = 60 }))
+			gap(h)
+			h.clock.advance(1000)
+			assert.same({ '{"lightBrightness":60}' }, commands(h), "and nothing else")
+			assert.is_false(h.m:busy("light"))
+			assert.is_false(h.m:confirmed().light_on)
+		end)
+
+		it("the dark level is dropped, unsent, when the light is seen on before it goes", function()
+			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 1 }))
+			h.m:want({ light_on = true, level = 30 }) -- the dark level 30 of a turn-on is on the wire
+			local n = #commands(h)
+			h.m:want({ light_on = false, level = 60 }) -- the write-back waits behind it
+			ok(h, state_json({ lightOn = true, lightBrightness = 30 })) -- a switch turned the light on
+			gap(h)
+			h.clock.advance(1000)
+			assert.equal(n, #commands(h), "no level is written under a lit light, and no off either")
+			assert.is_false(h.m:busy("light"))
+			assert.is_true(h.m:confirmed().light_on)
+			assert.equal(30, h.m:confirmed().level)
+		end)
+
+		it("a read that shows the light on, in the gap before the write, drops it", function()
+			local h = steady(new_harness(), state_json({ lightOn = true, lightBrightness = 40 }))
+			h.m:want({ light_on = false })
+			ok(h, state_json({ lightOn = false, lightBrightness = 1 }))
+			h.state = state_json({ lightOn = false, lightBrightness = 1 })
+			run(h, model.SETTLE_MS + 500) -- the settle window of the off is over
+			h.m:want({ fan_on = true, speed = 3 }) -- a request of another group is on the wire...
+			h.m:want({ light_on = false, level = 40 }) -- ...when the write-back is wanted
+			local n = #commands(h)
+			ok(h, state_json({ lightOn = true, lightBrightness = 40 })) -- and its answer shows the light on
+			gap(h)
+			h.clock.advance(1000)
+			assert.equal(n, #commands(h), "no level is written under a lit light, no off either")
+			assert.is_false(h.m:busy("light"))
+			assert.is_true(logged(h, "debug", "the light is on again"))
+			h.m:want({ light_on = false, level = 70 })
+			assert.equal('{"lightOn":false}', last_sent(h).body, "a light that is on is turned off first again")
+		end)
+
+		it("an on or an off on the wire is not the latest answer: the off goes first", function()
+			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 1 }))
+			h.m:want({ light_on = true, level = 1 }) -- the turn-on, with a level the fan keeps: lightOn is on the wire
+			assert.equal('{"lightOn":true}', last_sent(h).body)
+			h.m:want({ light_on = false, level = 60 })
+			ok(h, state_json({ lightOn = true, lightBrightness = 1 }))
+			gap(h)
+			assert.equal('{"lightOn":false}', last_sent(h).body)
+		end)
+
+		it("is nothing at all when the light is off and the fan keeps that level already", function()
+			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 60 }))
+			h.m:want({ light_on = true, level = 80 }, { fade = true })
+			ok(h, state_json({ lightOn = false, lightBrightness = 80 }))
+			h.m:withdraw("light")
+			h.clock.advance(1000)
+			local n = #commands(h)
+			assert.is_true(h.m:want({ light_on = false, level = 80 }, { of_fade = true }))
+			h.clock.advance(1000)
+			assert.equal(n, #commands(h), "nothing to send")
+			assert.is_false(h.m:busy("light"))
+			assert.is_true(logged(h, "debug", "the fan keeps it already"))
+		end)
+
+		it("a write-back that is nothing also ends an older want of the light", function()
+			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 60 }))
+			h.m:want({ light_on = true, level = 90 }) -- sent: the dark level
+			ok(h, state_json({ lightOn = false, lightBrightness = 90 }))
+			h.m:want({ light_on = false, level = 90 }) -- while the turn-on waits behind the gap
+			h.clock.advance(1000)
+			assert.same({ '{"lightBrightness":90}' }, commands(h), "the turn-on is not sent")
+			assert.is_false(h.m:busy("light"))
 		end)
 
 		it("a newer want of the light replaces it: no write follows", function()
@@ -5922,6 +6012,66 @@ describe("fan.model fades (#141 LF-D7, LF-D8, LF-D10, LF-D15, LF-D16, LF-D20)", 
 			clear(h)
 			h.m:use_fan("10.0.2.152", nil, function() end)
 			assert.same({ "light:given_up" }, dropped_of(h))
+		end)
+
+		-- Review fix 2: an address change drops everything a fade wanted, not only its steps.
+		it("'given_up': a fade's own want (the target, the first level, the write-back) never goes to the new address",
+			function()
+			for _, mark in ipairs({ { of_fade = true }, { fade = true } }) do
+				local h = lit(50)
+				step(h, 60)
+				ok(h, lit_state(60))
+				h.m:want({ light_on = true, level = 70 }, mark) -- the target, wanted behind the gap
+				clear(h)
+				h.m:set_address("10.0.2.152")
+				assert.same({ "light:given_up" }, dropped_of(h))
+				assert.is_false(h.m:busy("light"))
+				h.clock.advance(h.clock.next_due())
+				contact(h)
+				gap(h)
+				h.clock.advance(5000)
+				assert.same({ '{"lightBrightness":60}' }, commands(h))
+			end
+		end)
+
+		it("'given_up': the turn-on behind a fade's dark level is not sent to the new address", function()
+			local h = steady(new_harness(), state_json({ lightOn = false, lightBrightness = 1 }))
+			h.m:want({ light_on = true, level = 11 }, { of_fade = true })
+			assert.equal('{"lightBrightness":11}', last_sent(h).body)
+			ok(h, state_json({ lightOn = false, lightBrightness = 11 }))
+			clear(h)
+			h.m:set_address("10.0.2.152") -- the lightOn:true is wanted, in the gap
+			assert.same({ "light:given_up" }, dropped_of(h))
+			h.clock.advance(h.clock.next_due())
+			contact(h)
+			gap(h)
+			h.clock.advance(5000)
+			assert.same({ '{"lightBrightness":11}' }, commands(h))
+		end)
+
+		it("'given_up': the same fan found at another address (Use Selected Fan, moved) drops it too", function()
+			local h = lit(50)
+			step(h, 60)
+			ok(h, lit_state(60))
+			h.m:want({ light_on = true, level = 70 }, { of_fade = true })
+			clear(h)
+			local verdict
+			h.m:use_fan("10.0.2.152", nil, function(key) verdict = key end)
+			gap(h)
+			ok(h, h.info) -- the same fan, at the new address
+			assert.equal("moved", verdict)
+			assert.same({ "light:given_up" }, dropped_of(h))
+			assert.is_false(h.m:busy("light"))
+		end)
+
+		it("an ordinary want that is no fade's still stays wanted over an address change (as before)", function()
+			local h = lit(50)
+			h.m:want({ light_on = true, level = 60 })
+			ok(h, lit_state(60))
+			h.m:want({ light_on = true, level = 70 })
+			clear(h)
+			h.m:set_address("10.0.2.152")
+			assert.same({}, dropped_of(h))
 		end)
 
 		it("'refused': a reboot drops what a fade wanted, and the in-flight step adds no second event", function()

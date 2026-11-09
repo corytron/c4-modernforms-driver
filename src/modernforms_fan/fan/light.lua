@@ -44,7 +44,9 @@
 --
 --   light.new({
 --       model = m,        -- fan/model.lua: want(fields, opts), withdraw(group), shown(), confirmed(),
---                         -- busy() (section 9.5; opts and withdraw are #141 LF-D8, LF-D13, LF-D16)
+--                         -- busy() (section 9.5; opts and withdraw are #141 LF-D8, LF-D13, LF-D16;
+--                         -- opts.of_fade marks a fade's own ordinary wants, and withdraw's second
+--                         -- value is what the request in flight sends: the review fixes)
 --       dev = dev,        -- common/device.lua's instance: notify(), setting(), update_leds(),
 --                         -- dim_after_on(), holding(); the hooks below are assigned to it
 --       on = fn(binding, command, handler),   -- handler(binding, params)
@@ -247,6 +249,7 @@ function light.new(opts)
 		notified = 0,           -- CHANGING, CHANGED and ONLINE_CHANGED sent since the start
 		active = nil,           -- the running fade (below; not named fade: light:fade is the method)
 		pending = nil,          -- the timer of a scene ramp waiting for its turn-on
+		write_back = nil,       -- LF-D10 after a stop: the level to write while dark, once the off in flight is answered
 		watchdog = nil,
 		stopped = false,
 	}, light)
@@ -338,17 +341,19 @@ end
 
 -- The model's m:withdraw("light") (LF-D13): the light's wanted but unsent fields are
 -- taken back, with no warning, and the request in flight goes on. True when
--- something was taken back. A model without it takes nothing back.
+-- something was taken back; the second value is what the request still in flight for the
+-- light sends ({ light_on = false } for an off on the wire), or nil. A model without it
+-- takes nothing back.
 function light:withdraw()
 	if type(self.model.withdraw) ~= "function" then
 		return false
 	end
-	local ok, took = pcall(self.model.withdraw, self.model, "light")
+	local ok, took, flying = pcall(self.model.withdraw, self.model, "light")
 	if not ok then
 		self.log.error("light: the model failed to withdraw the wanted light state: %s", tostring(took))
 		return false
 	end
-	return took == true
+	return took == true, type(flying) == "table" and flying or nil
 end
 
 -- The keypad LEDs follow the shown state, or a fade's target (LF-D18).
@@ -541,7 +546,7 @@ function light:fade(to, T, kind, what, h)
 		local first = math.min(to, math.max(1, math.floor(to * light.FIRST_STEP_MS / T + 0.5)))
 		f.line_from, f.T_line, f.last = first, T - light.FIRST_STEP_MS, first
 		f.first_pending, f.steps = true, 1
-		local ok, why = self:want({ light_on = true, level = first })
+		local ok, why = self:want({ light_on = true, level = first }, { of_fade = true })
 		if self.active ~= f then
 			return true
 		end
@@ -660,6 +665,7 @@ end
 function light:supersede()
 	cancel(self.pending)
 	self.pending = nil
+	self.write_back = nil -- a new change: the light is not going to stay dark
 	if self.active then
 		self:end_fade(self.active, "replaced", true)
 	end
@@ -670,6 +676,7 @@ end
 function light:stop_ramps()
 	cancel(self.pending)
 	self.pending = nil
+	self.write_back = nil
 	local f = self.active
 	if f then
 		self:withdraw()
@@ -749,7 +756,7 @@ function light:finish_line(f)
 	end
 	f.final_wanted = true
 	f.steps = f.steps + 1
-	local ok, why = self:want(target_fields(f))
+	local ok, why = self:want(target_fields(f), { of_fade = true })
 	if self.active ~= f then
 		return
 	end
@@ -763,34 +770,52 @@ end
 function light:finish(f, st)
 	self:end_fade(f, "done")
 	self:report(level_of(st) or self:confirmed_level())
-	self:restore_level(f, st)
+	self:restore_level(f.to == 0 and f.restore or nil, st)
 end
 
--- LF-D10: once off is confirmed and nothing else is wanted, the starting level is
--- written back while the light is dark, unless the fan keeps it already.
-function light:restore_level(f, st)
-	if f.to ~= 0 or not f.restore then
+-- LF-D10: once off is confirmed and nothing else is wanted, the starting level `level` is
+-- written back while the light is dark, unless the fan keeps it already. The model sends only
+-- the dark level write when its latest answer already shows the light off, and drops it if the
+-- light is seen on before it goes (review fix: no second off, nothing fights a wall switch).
+function light:restore_level(level, st)
+	if not level then
 		return
 	end
 	st = type(st) == "table" and st or self:confirmed_state()
-	if type(st) ~= "table" or st.light_on ~= false or tonumber(st.level) == f.restore or self:busy() then
+	if type(st) ~= "table" or st.light_on ~= false or tonumber(st.level) == level or self:busy() then
 		return
 	end
-	self.log.debug("light fade: writing the level %d back while the light is off", f.restore)
-	self:want({ light_on = false, level = f.restore })
+	self.log.debug("light fade: writing the level %d back while the light is off", level)
+	self:want({ light_on = false, level = level }, { of_fade = true })
 end
 
 -- #141 LF-D13, the stop: a tap, a release, a stop command. The level the model has
 -- wanted but not sent is taken back, the step in flight finishes, and the CHANGING is
 -- closed with the level the fan confirmed at the idle() that follows, or at once when
 -- nothing is in flight. No request is sent for it.
+--
+-- Two cases the review found (departures from the letter of LF-D13, written down in
+-- docs/light-fades-design.md, "Review fixes"):
+--   * a fade to off whose final off is on the wire: the off finishes, and the write-back of
+--     LF-D10 still follows at the idle() (it is not sent when the off never went out: the
+--     light then stays on at its last level);
+--   * a fade from off stopped before its turn-on was answered: the first want (the dark level
+--     and the turn-on) is not withdrawn, so the light is left on at the level reached, like a
+--     Control4 dimmer stopped mid-ramp, never off with a level written.
 function light:stop_fade(why)
 	local f = self.active
 	if not f then
 		return
 	end
 	self:end_fade(f, why or "stopped", true)
-	self:withdraw()
+	if f.first_pending and f.to > 0 then
+		self.log.debug("light fade stopped before its turn-on was answered: the light stays on at %d", f.last)
+	else
+		local _, flying = self:withdraw()
+		if f.to == 0 and f.restore and flying and flying.light_on == false then
+			self.write_back = f.restore
+		end
+	end
 	self:leds()
 	self:close_if_idle()
 end
@@ -815,12 +840,21 @@ end
 -- wanted once, tied to the recovery contact: it does not hurry the contact, is dropped
 -- if the contact fails and is never sent once the fan has gone offline. Nothing is
 -- retried step by step.
+--
+-- Review fix: only a fade whose target is the owner's own (a tap, a timed change) is replayed. A
+-- hold or a scene ramp "targets" the end of the range (100 or 1) only so that it runs until
+-- released; replaying that after a recovery, long after the button was let go, would jump the
+-- light to 100 or 1. Those just end, reporting what is known, and replay nothing.
 function light:fade_failed(f, why)
 	local fields = target_fields(f)
+	local replay = f.kind ~= "hold" and f.kind ~= "scene"
 	self:end_fade(f, why)
-	self.log.warn("light fade stopped: a step %s; its target goes once when the fan answers again",
-		why == "given_up" and "was given up" or "failed")
+	self.log.warn("light fade stopped: a step %s%s", why == "given_up" and "was given up" or "failed",
+		replay and "; its target goes once when the fan answers again" or "")
 	self:report(self:confirmed_level())
+	if not replay then
+		return
+	end
 	local ok, refused = self:want(fields, { after_contact = true })
 	if not ok then
 		self.log.debug("light fade: its target was not kept for the next contact: %s", tostring(refused))
@@ -1072,10 +1106,14 @@ function light:idle(st)
 			end
 			return
 		end
-		if not self.changing_open then
-			return
+		if self.changing_open then
+			self:report(level_of(st) or self:confirmed_level())
 		end
-		self:report(level_of(st) or self:confirmed_level())
+		if self.write_back then
+			local level = self.write_back
+			self.write_back = nil
+			self:restore_level(level, st) -- LF-D10 after a stop whose final off went out
+		end
 	end)
 end
 
@@ -1121,6 +1159,17 @@ function light:phase(phase, _, has_light)
 		end
 		if self.has_light == false then
 			online = false
+		end
+		if phase == "waiting" then
+			-- Review fix (LF-D16): the model leaves online for waiting only when the address changes
+			-- (the owner's edit, Use Selected Fan, a follow). A fade with nothing wanted or in
+			-- flight at that moment has no dropped() to end it, so it is ended here and nothing of
+			-- it goes to the new address; the told level closes any CHANGING (R7). ONLINE_CHANGED
+			-- stays as it was.
+			self:stop_ramps()
+			if self.changing_open then
+				self:report(self.told_level or 0)
+			end
 		end
 		if online == "keep" then
 			return

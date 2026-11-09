@@ -15,6 +15,9 @@
 --     on_finish, h.timer cancelled when a press ends).
 
 local light = require("fan.light")
+local fake = require("helpers.fake_c4")
+local real_log = require("common.log")
+local mf = require("fixtures.mf_gen3")
 
 -- Fakes ----------------------------------------------------------------------
 
@@ -225,16 +228,25 @@ local function new_model(env)
 
 	-- #141 section 4.3: the wanted but unsent fields are taken back; a request in flight
 	-- that finishes them leaves nothing unsent.
+	-- Its second value is what the request on the wire sends (review fix), as the real model's.
 	function m.withdraw(_, group)
 		assert.equal("light", group)
+		local flying
+		if m.inflight == '{"lightOn":false}' then
+			flying = { light_on = false }
+		elseif m.inflight == '{"lightOn":true}' then
+			flying = { light_on = true }
+		elseif m.inflight then
+			flying = { level = tonumber(m.inflight:match('"lightBrightness":(%d+)')) }
+		end
 		local w = m.wanted
 		if not w or (m.inflight and m.sent_for == w and m.sent_completes) then
-			return false
+			return false, flying
 		end
 		m.wanted = nil
 		m.withdrawals = m.withdrawals + 1
 		notify_shown()
-		return true
+		return true, flying
 	end
 
 	-- The group has nothing left: settled() only for a difference from what it
@@ -1035,7 +1047,7 @@ describe("fan.light", function()
 			assert.same({ changing(40, 100, 3000) }, env.dev.sent, "nothing per step (LF-D11)")
 			env.clock.advance(1)
 			assert.same({ light_on = true, level = 100 }, env.model.wants[60])
-			assert.is_false(env.model.want_opts[60], "the final target is an ordinary want")
+			assert.same({ of_fade = true }, env.model.want_opts[60], "the final target: no step mark, a fade's own")
 			assert.equal(60, #env.model.wants, "no level is wanted twice")
 			env.clock.advance(1000)
 			assert.same({ changing(40, 100, 3000), changed(100) }, env.dev.sent)
@@ -1106,7 +1118,7 @@ describe("fan.light", function()
 			assert.same({ 41, 42, 43, 44, 44 }, levels(env))
 			assert.equal(1, env.model.withdrawals, "the waiting step is taken back")
 			assert.same({ fade = true }, env.model.want_opts[4])
-			assert.is_false(env.model.want_opts[5], "and the target is wanted as an ordinary want")
+			assert.same({ of_fade = true }, env.model.want_opts[5], "and the target is wanted as an ordinary want")
 			env.model:answer()
 			env.model:answer()
 			assert.same({ changing(40, 44, 1000), changed(44) }, env.dev.sent)
@@ -1119,7 +1131,7 @@ describe("fan.light", function()
 			off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
 			assert.same({ changing(0, 80, 3000) }, off.dev.sent)
 			assert.same({ { light_on = true, level = 11 } }, off.model.wants, "80 x 400 / 3000, rounded")
-			assert.is_false(off.model.want_opts[1], "an ordinary want")
+			assert.same({ of_fade = true }, off.model.want_opts[1], "an ordinary want, marked as a fade's own")
 			assert.same({ '{"lightBrightness":11}' }, off.model.requests)
 			off.clock.advance(100)
 			assert.same({ '{"lightBrightness":11}', '{"lightOn":true}' }, off.model.requests, "dark level, then lightOn")
@@ -1133,7 +1145,7 @@ describe("fan.light", function()
 			off.clock.advance(1)
 			assert.equal(before + 1, #off.model.wants)
 			assert.same({ light_on = true, level = 80 }, off.model.wants[before + 1])
-			assert.is_false(off.model.want_opts[before + 1], "the target is an ordinary want")
+			assert.same({ of_fade = true }, off.model.want_opts[before + 1], "the target is an ordinary want")
 			off.clock.advance(1000)
 			assert.same({ changing(0, 80, 3000), changed(80) }, off.dev.sent)
 		end)
@@ -1168,7 +1180,7 @@ describe("fan.light", function()
 			end
 			env.clock.advance(1)
 			assert.same({ light_on = false }, env.model.wants[#env.model.wants], "off is the target")
-			assert.is_false(env.model.want_opts[#env.model.wants])
+			assert.same({ of_fade = true }, env.model.want_opts[#env.model.wants])
 			assert.equal(0, count(env, "LIGHT_BRIGHTNESS_CHANGED"))
 			env.clock.advance(250) -- the step in flight, then off, answered
 			assert.same({ changing(40, 0, 2000), changed(0) }, env.dev.sent, "CHANGED 0 at that want's idle")
@@ -1546,17 +1558,129 @@ describe("fan.light", function()
 			end)
 		end
 
-		it("a stop in the first, dark phase of a fade from off leaves the light off, and says so", function()
+		-- Review fix 4 (a departure from the letter of LF-D13, see "Review fixes" in the contract): a
+		-- stop before the turn-on was answered leaves the light on at the level reached, like a
+		-- Control4 dimmer stopped mid-ramp, never dark with a level written and nothing more.
+		it("a stop in the first, dark phase of a fade from off leaves the light on at the level reached", function()
 			local off = new_env()
 			off.start(false, 100)
 			off.model.answer_after = nil
 			off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
 			off.dev.on_ramp_stop(0)
-			assert.equal(1, off.model.withdrawals)
+			assert.equal(0, off.model.withdrawals, "the first want is not taken back")
+			assert.same({ changing(0, 80, 3000) }, off.dev.sent, "still open: the dark level is on the wire")
 			off.model:answer() -- the dark level
-			assert.same({ changing(0, 80, 3000), changed(0) }, off.dev.sent)
+			assert.same({ '{"lightBrightness":11}', '{"lightOn":true}' }, off.model.requests, "and the turn-on follows")
+			off.model:answer()
+			assert.same({ changing(0, 80, 3000), changed(11) }, off.dev.sent, "the light is on at 11, and says so")
 			off.clock.advance(5000)
-			assert.same({ { light_on = true, level = 11 } }, off.model.wants)
+			assert.same({ { light_on = true, level = 11 } }, off.model.wants, "nothing else was wanted")
+			assert.same({ light_on = true, level = 11 }, off.model:confirmed())
+		end)
+
+		it("a stop while that turn-on is already on the wire lets it finish", function()
+			local off = new_env()
+			off.start(false, 100)
+			off.model.answer_after = 100
+			off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
+			off.clock.advance(150) -- the dark level answered; lightOn:true is on the wire
+			assert.same({ '{"lightBrightness":11}', '{"lightOn":true}' }, off.model.requests)
+			off.send("SET_BRIGHTNESS_STOP")
+			off.clock.advance(5000)
+			assert.same({ '{"lightBrightness":11}', '{"lightOn":true}' }, off.model.requests, "no second turn-on")
+			assert.same({ changing(0, 80, 3000), changed(11) }, off.dev.sent)
+			assert.same({ light_on = true, level = 11 }, off.model:confirmed())
+		end)
+
+		it("a stop after the line has begun takes back what is unsent, as before", function()
+			local off = new_env()
+			off.start(false, 100)
+			off.model.answer_after = nil
+			off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
+			off.model:answer() -- the dark level
+			off.model:answer() -- the turn-on: the line begins
+			off.clock.advance(300)
+			assert.is_true(off.lt:debug().fading)
+			off.dev.on_ramp_stop(0)
+			assert.equal(1, off.model.withdrawals)
+		end)
+
+		-- Review fix 3: a fade to off stopped while its final off is on the wire still writes
+		-- the starting level back while dark (LF-D10); stopped before the off went out it leaves the
+		-- light on at its last level, as before.
+		describe("a fade to off", function()
+			local off
+			local function fading_to_off()
+				off = new_env()
+				off.start(true, 40)
+				off.model.answer_after = nil
+				off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "0", RATE = "1000" })
+				off.clock.advance(1000) -- the final target is wanted, behind the step on the wire
+				off.model:answer() -- the step: now the off goes out
+			end
+
+			it("stopped with its off on the wire writes the starting level back after the answer", function()
+				fading_to_off()
+				assert.equal('{"lightOn":false}', off.model.inflight)
+				off.dev.on_ramp_stop(0)
+				assert.is_false(off.lt:debug().fading)
+				off.model:answer() -- the off
+				assert.same({ changing(40, 0, 1000), changed(0) }, off.dev.sent)
+				assert.same({ light_on = false, level = 40 }, off.model.wants[#off.model.wants], "the write-back")
+				assert.same({ of_fade = true }, off.model.want_opts[#off.model.want_opts])
+				assert.equal('{"lightBrightness":40}', off.model.inflight)
+				off.model:answer()
+				assert.same({ light_on = false, level = 40 }, off.model:confirmed())
+				assert.same({ changing(40, 0, 1000), changed(0) }, off.dev.sent, "and says nothing")
+			end)
+
+			it("stopped before its off went out leaves the light on, and writes nothing back", function()
+				off = new_env()
+				off.start(true, 40)
+				off.model.answer_after = nil
+				off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "0", RATE = "1000" })
+				off.clock.advance(1000) -- the off is wanted but waits behind the step on the wire
+				off.dev.on_ramp_stop(0)
+				local wants = #off.model.wants
+				off.model:answer()
+				assert.is_true(off.model:confirmed().light_on)
+				assert.same(changed(off.model:confirmed().level), off.dev.sent[#off.dev.sent])
+				off.clock.advance(5000)
+				assert.equal(wants, #off.model.wants)
+			end)
+
+			it("a new command before the off is answered cancels the write-back", function()
+				fading_to_off()
+				off.dev.on_ramp_stop(0)
+				off.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "90", RATE = "0" })
+				off.model.answer_after = 100
+				off.model:answer() -- the off; the rest is answered by itself
+				off.clock.advance(5000)
+				for _, fields in ipairs(off.model.wants) do
+					assert.is_false(fields.light_on == false and fields.level ~= nil, "no write-back of the old level")
+				end
+				assert.same({ light_on = true, level = 90 }, off.model:confirmed())
+			end)
+
+			it("a light that is not off when the stop's idle comes is not written to", function()
+				fading_to_off()
+				off.dev.on_ramp_stop(0)
+				off.model.busy_override = false
+				local wants = #off.model.wants
+				off.lt:idle({ light_on = true, level = 12 })
+				assert.equal(wants, #off.model.wants)
+				off.lt:idle({ light_on = false, level = 40 }) -- and the write-back is spent, not kept for later
+				assert.equal(wants, #off.model.wants)
+			end)
+
+			it("a level the fan keeps already is not written", function()
+				fading_to_off()
+				off.dev.on_ramp_stop(0)
+				off.model.busy_override = false
+				local wants = #off.model.wants
+				off.lt:idle({ light_on = false, level = 40 })
+				assert.equal(wants, #off.model.wants)
+			end)
 		end)
 
 		it("a tap's press stops it and its click is swallowed: no new fade", function()
@@ -1796,6 +1920,66 @@ describe("fan.light", function()
 			assert.equal(wants, #env.model.wants)
 		end)
 
+		-- Review fix 1: a hold's or a scene ramp's "target" is only the end of the range (100 or 1), so
+		-- replaying it after a recovery would jump the light long after the button was let go.
+		it("a hold that fails is not replayed: it ends, tells what is known, and wants nothing", function()
+			local k = new_env()
+			k.start(true, 40)
+			k.model.answer_after = 100
+			k.keypad.press(0)
+			k.clock.advance(400 + 300)
+			assert.equal("hold", k.lt:debug().fade_kind)
+			local wants = #k.model.wants
+			k.lt:dropped("failed")
+			assert.is_false(k.lt:debug().fading)
+			assert.equal(wants, #k.model.wants, "nothing after the contact")
+			assert.is_nil(k.model.after_contact)
+			assert.same(changed(k.model:confirmed().level), k.dev.sent[#k.dev.sent], "closed with the confirmed level")
+			assert.same({ "light fade stopped: a step failed" }, k.log.of("warn"))
+			k.keypad.release()
+			k.clock.advance(20000)
+			assert.equal(wants, #k.model.wants)
+		end)
+
+		it("a hold's step given up is not replayed either, and neither is a scene ramp's", function()
+			local k = new_env()
+			k.start(true, 40)
+			k.model.answer_after = 100
+			k.keypad.press(1)
+			k.clock.advance(400 + 300)
+			local wants = #k.model.wants
+			k.lt:dropped("given_up")
+			assert.equal(wants, #k.model.wants)
+			assert.is_nil(k.model.after_contact)
+			local scene = new_env()
+			scene.start(true, 40)
+			scene.model.answer_after = 100
+			scene.send("RAMP_SCENE_UP", { SCENE_ID = "3" })
+			assert.equal("scene", scene.lt:debug().fade_kind)
+			scene.clock.advance(300)
+			wants = #scene.model.wants
+			scene.lt:dropped("failed")
+			assert.is_false(scene.lt:debug().fading)
+			assert.equal(wants, #scene.model.wants)
+			assert.is_nil(scene.model.after_contact)
+		end)
+
+		it("a tap's fade is replayed, as a timed one is: their target is the owner's own", function()
+			local t = new_env({ settings = { click_up = 3000 } })
+			t.start(true, 40)
+			t.model.answer_after = 100
+			t.keypad.tap(0)
+			assert.equal("tap", t.lt:debug().fade_kind)
+			t.lt:dropped("failed")
+			assert.same({ light_on = true, level = 100 }, t.model.after_contact)
+			local timed = new_env()
+			timed.start(true, 40)
+			timed.model.answer_after = 100
+			timed.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "20", RATE = "3000" })
+			timed.lt:dropped("failed")
+			assert.same({ light_on = true, level = 20 }, timed.model.after_contact)
+		end)
+
 		it("a dropped() with no fade running changes nothing", function()
 			local env2 = new_env()
 			env2.start(true, 40)
@@ -1831,6 +2015,49 @@ describe("fan.light", function()
 			assert.same({ changing(0, 80, 3000), changed(0) }, off.dev.sent)
 			assert.is_false(off.lt:debug().fading)
 			assert.same({}, off.clock.armed())
+		end)
+
+		-- Review fix 2: an address change leaves online for waiting; a fade with nothing wanted or in
+		-- flight then has no dropped() to end it, so the phase does (LF-D16).
+		it("an address change (the phase becomes waiting) ends a fade the model is idle in", function()
+			env = new_env()
+			env.start(true, 40)
+			env.model.answer_after = 100
+			env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "40000" })
+			env.clock.advance(800) -- a step at 667 ms, answered at 767 ms: between two steps
+			assert.same({ 41 }, levels(env))
+			assert.is_false(env.model:busy())
+			assert.is_true(env.lt:debug().fading)
+			local wants = #env.model.wants
+			env.lt:phase("waiting", {}, "online")
+			assert.is_false(env.lt:debug().fading)
+			assert.same({ changing(40, 100, 40000), changed(40) }, env.dev.sent,
+				"the CHANGING is closed with the level the proxy heard last, nothing said about being online")
+			env.clock.advance(60000)
+			assert.equal(wants, #env.model.wants, "nothing of it goes on")
+			assert.same({}, env.clock.armed())
+		end)
+
+		it("the same for a fade whose target waits in the model, which is taken back", function()
+			chasing(100)
+			env.model.answer_after = nil
+			local before = env.model.withdrawals
+			env.lt:phase("waiting", {}, "online")
+			assert.is_false(env.lt:debug().fading)
+			assert.equal(before + 1, env.model.withdrawals)
+		end)
+
+		it("waiting with no fade running, as at the start, changes nothing", function()
+			local e = new_env()
+			e.lt:phase("waiting", {}, "unset")
+			assert.same({}, e.dev.sent)
+			e.start(true, 40)
+			e.model.answer_after = 100
+			e.send("ON")
+			e.model:answer()
+			e.clear()
+			e.lt:phase("waiting", {}, "online")
+			assert.same({}, e.dev.sent)
 		end)
 
 		it("an address change or a reboot (the fan leaves the online phase) ends it, as today", function()
@@ -2548,5 +2775,223 @@ describe("fan.light", function()
 			assert.same({ told_level = 0, changing_open = false, notify_light = 4, ramping = false, fading = false },
 				env.lt:debug())
 		end)
+	end)
+end)
+
+-- The review fixes with the real driver: the real model, transport and common/device.lua on the fake
+-- runtime, and a simulated fan (a state, a latency, an optional failure or a change of its own).
+describe("fan.light with the real driver (review fixes of #141)", function()
+	local FAN = "10.0.2.151"
+	local real_sink
+
+	before_each(function()
+		real_sink = real_log.sink
+		real_log.sink = function() end
+	end)
+
+	after_each(function()
+		real_log.sink = real_sink
+	end)
+
+	-- A driver on a fan whose light is `on` at `level`, answering every request after `latency` ms.
+	local function new_sim(on, level, latency)
+		local w = { state = { lightOn = on, lightBrightness = level }, latency = latency or 150, seen = {}, due = {},
+			sends = {}, heard = 0, told = {}, t = 0 }
+		local env, c4 = fake.load_driver("modernforms_fan", { ["Fan Address"] = FAN })
+		w.env, w.c4 = env, c4
+		env.OnDriverInit("DIT_STARTUP")
+		env.OnDriverLateInit("DIT_STARTUP")
+		local function body()
+			return mf.state({ fanOn = true, fanSpeed = 3, lightOn = w.state.lightOn,
+				lightBrightness = w.state.lightBrightness })
+		end
+		c4.last_transfer():respond(200, mf.INFO)
+		c4.advance(300)
+		c4.last_transfer():respond(200, body())
+		c4.advance(300)
+		w.start_ms, w.heard = c4.now_ms, #c4.proxy_messages(5002)
+
+		-- Runs `ms` of simulated time, answering each request after the latency.
+		function w.step(ms)
+			for _ = 1, math.floor(ms / 5) do
+				c4.advance(5)
+				local t = c4.last_transfer()
+				if t and not w.seen[t] then
+					w.seen[t] = true
+					w.sends[#w.sends + 1] = { at = c4.now_ms - w.start_ms, body = t.data or "", transfer = t }
+					w.due[#w.due + 1] = { t = t, at = c4.now_ms + w.latency }
+				end
+				for i = #w.due, 1, -1 do
+					local d = w.due[i]
+					if c4.now_ms >= d.at then
+						table.remove(w.due, i)
+						local data = d.t.data or ""
+						if w.fail then
+							d.t:fail(-1, "timeout")
+						else
+							local lo, lb = data:match('"lightOn":(%a+)'), data:match('"lightBrightness":(%d+)')
+							if lo then w.state.lightOn = lo == "true" end
+							if lb then w.state.lightBrightness = tonumber(lb) end
+							d.t:respond(200, data:find("queryStaticShadowData", 1, true) and mf.INFO or body())
+						end
+					end
+				end
+				local msgs = c4.proxy_messages(5002)
+				for i = w.heard + 1, #msgs do
+					w.told[#w.told + 1] = { msgs[i][1], msgs[i][2] }
+				end
+				w.heard = #msgs
+			end
+		end
+
+		function w.idle() -- until the request on the wire is answered
+			local n = 0
+			while #w.due > 0 and n < 400 do
+				w.step(5)
+				n = n + 1
+			end
+		end
+
+		function w.command(name, params)
+			env.ReceivedFromProxy(5002, name, params or {})
+		end
+
+		function w.button(id, action)
+			env.ReceivedFromProxy(5002, "BUTTON_ACTION", { BUTTON_ID = id, ACTION = action })
+		end
+
+		function w.tap(id)
+			w.button(id, 1)
+			w.step(30)
+			w.button(id, 0)
+			w.button(id, 2)
+		end
+
+		-- The notifications of one name, in order, as their CURRENT levels.
+		function w.heard_of(name)
+			local out = {}
+			for _, n in ipairs(w.told) do
+				if n[1] == name then
+					out[#out + 1] = n[2].LIGHT_BRIGHTNESS_CURRENT
+				end
+			end
+			return out
+		end
+
+		-- The requests that set the light, from `since` ms on, as their bodies.
+		function w.light_sends(since)
+			local out = {}
+			for _, s in ipairs(w.sends) do
+				if s.at >= (since or 0) and s.body:find('"light', 1, true) and not s.body:find("query", 1, true) then
+					out[#out + 1] = s.body
+				end
+			end
+			return out
+		end
+
+		return w
+	end
+
+	-- Review fix 1 (the reviewer's H2): a hold's step fails, the owner lets go, the fan comes back ~10 s
+	-- later: the light must not jump to 100.
+	it("a hold whose step failed does not jump the light to 100 after the recovery", function()
+		local w = new_sim(true, 20)
+		w.button(0, 1) -- a hold: top button
+		w.step(1300)
+		assert.is_true(w.state.lightBrightness > 20 and w.state.lightBrightness < 100)
+		w.fail = true
+		w.step(300)
+		w.fail = false
+		w.step(1000)
+		w.button(0, 0) -- let go long before the fan answers again
+		w.step(15000)
+		for _, body in ipairs(w.light_sends()) do
+			assert.is_nil(body:find('"lightBrightness":100', 1, true), body)
+		end
+		assert.is_true(w.state.lightBrightness < 100)
+		local opened, closed = w.heard_of("LIGHT_BRIGHTNESS_CHANGING"), w.heard_of("LIGHT_BRIGHTNESS_CHANGED")
+		assert.equal(#opened, #closed, "every CHANGING is closed")
+	end)
+
+	it("a timed change that failed is still replayed once after the recovery", function()
+		local w = new_sim(true, 20)
+		w.command("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 90, RATE = 4000 })
+		w.step(1000)
+		w.fail = true
+		w.step(400)
+		w.fail = false
+		w.step(40000)
+		assert.equal(90, w.state.lightBrightness, "its target, once")
+	end)
+
+	-- Review fix 2 (s10): the address changes between two steps of a slow fade.
+	it("an address change between the steps of a slow fade ends it: the new address gets no step", function()
+		local w = new_sim(true, 20)
+		w.command("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 60, RATE = 40000 })
+		w.step(3000)
+		w.idle()
+		w.step(200) -- between two steps
+		assert.equal(0, #w.due)
+		local before = #w.sends
+		w.env.Properties["Fan Address"] = "10.0.2.152"
+		w.env.OnPropertyChanged("Fan Address")
+		w.step(40000)
+		for i = before + 1, #w.sends do
+			assert.is_nil(w.sends[i].body:find('"light', 1, true), "sent to the new address: " .. w.sends[i].body)
+		end
+		local opened, closed = w.heard_of("LIGHT_BRIGHTNESS_CHANGING"), w.heard_of("LIGHT_BRIGHTNESS_CHANGED")
+		assert.equal(#opened, #closed, "and the CHANGING was closed")
+	end)
+
+	-- Review fix 4 (s2/outG): the fade from off is stopped before the turn-on went out.
+	it("a stop at any moment of the start of a fade from off leaves the light on at the level reached", function()
+		for _, stop_at in ipairs({ 0, 50, 100, 200, 300, 400, 500, 600, 800 }) do
+			local w = new_sim(false, 1)
+			w.command("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 100, RATE = 3000 })
+			w.step(stop_at)
+			w.tap(0) -- any press stops
+			w.step(5000)
+			local first = math.floor(100 * light.FIRST_STEP_MS / 3000 + 0.5)
+			assert.is_true(w.state.lightOn, "on, stopped at " .. stop_at .. " ms")
+			assert.is_true(w.state.lightBrightness >= first, "at the level reached, stopped at " .. stop_at)
+			assert.is_true(w.state.lightBrightness < 100)
+			local opened, closed = w.heard_of("LIGHT_BRIGHTNESS_CHANGING"), w.heard_of("LIGHT_BRIGHTNESS_CHANGED")
+			assert.equal(#opened, #closed)
+			assert.equal(w.state.lightBrightness, closed[#closed], "told what the fan has, stopped at " .. stop_at)
+		end
+	end)
+
+	-- Review fix 3: a fade to off stopped at any moment never leaves the fan off at a level of ~1.
+	it("a fade to off stopped at any moment leaves the fan on, or off at the level it had", function()
+		for stop_at = 0, 3600, 100 do
+			local w = new_sim(true, 80)
+			w.command("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 3000 })
+			w.step(stop_at)
+			w.tap(1)
+			w.step(5000)
+			if not w.state.lightOn then
+				assert.equal(80, w.state.lightBrightness, "off, stopped at " .. stop_at .. " ms: its level is kept")
+			end
+			local opened, closed = w.heard_of("LIGHT_BRIGHTNESS_CHANGING"), w.heard_of("LIGHT_BRIGHTNESS_CHANGED")
+			assert.equal(#opened, #closed, "closed, stopped at " .. stop_at)
+		end
+	end)
+
+	-- Review fix 6: the write-back after a fade to off is the dark level alone.
+	it("a fade to off sends one off, then the level written back while dark: no second off", function()
+		local w = new_sim(true, 80)
+		w.command("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = 0, RATE = 3000 })
+		w.step(6000)
+		local offs = 0
+		for _, body in ipairs(w.light_sends()) do
+			if body:find('"lightOn":false', 1, true) then
+				offs = offs + 1
+			end
+		end
+		local sent = w.light_sends()
+		assert.equal(1, offs, "one off")
+		assert.equal('{"lightBrightness":80}', sent[#sent], "then the starting level, while dark")
+		assert.is_false(w.state.lightOn)
+		assert.equal(80, w.state.lightBrightness)
 	end)
 end)

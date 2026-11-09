@@ -984,6 +984,82 @@ describe("common.device", function()
 						assert.same({ { "end", 0 }, { "finish", 0 } }, { st.calls[5], st.calls[6] })
 					end)
 
+					-- The hold's own fade: on_hold starts it, and the end of the press
+					-- stops it, as the light's on_end_hold does.
+					local function with_hold_fade(dev, st)
+						dev.on_hold = function(h, up, on)
+							st.calls[#st.calls + 1] = { "hold", h.button, up, on }
+							st.ramping = true
+						end
+						dev.on_end_hold = function(h)
+							st.calls[#st.calls + 1] = { "end", h.button }
+							if h.held then st.ramping = false end
+						end
+					end
+
+					it("a plain hold, then its release: the fade stops with the hold, no stop press, no tap", function()
+						local k, dev, c4, st = on_route(route)
+						with_hold_fade(dev, st)
+						k.press(0)
+						c4.advance(400)
+						assert.is_true(st.ramping)
+						k.release(0)
+						assert.same({ { "hold", 0, true, true }, { "end", 0 }, { "finish", 0 } }, st.calls)
+						assert.is_false(st.ramping)
+					end)
+
+					it("a press of another button during a hold stops once; its click is swallowed (LF-D12)", function()
+						local k, dev, c4, st = on_route(route)
+						with_hold_fade(dev, st)
+						k.press(0)
+						c4.advance(400)
+						assert.same({ { "hold", 0, true, true } }, st.calls)
+						c4.advance(1135)
+						k.press(1)
+						assert.same({ { "hold", 0, true, true }, { "end", 0 }, { "stop", 1 } }, st.calls,
+							"the hold ended, and the press stops once, on the push")
+						k.click(1)
+						assert.same({ { "hold", 0, true, true }, { "end", 0 }, { "stop", 1 }, { "end", 1 } }, st.calls,
+							"no tap: no fade is started by the stopping press's click")
+						assert.is_false(st.ramping)
+					end)
+
+					it("a second press of the held button, its release lost, stops once and is swallowed", function()
+						local k, dev, c4, st = on_route(route)
+						with_hold_fade(dev, st)
+						k.press(0)
+						c4.advance(400)
+						k.press(0)
+						k.click(0)
+						assert.same({ { "hold", 0, true, true }, { "end", 0 }, { "stop", 0 }, { "end", 0 } }, st.calls)
+					end)
+
+					it("a press during a hold that runs no fade is a tap of its own", function()
+						local k, dev, c4, st = on_route(route)
+						dev.on_hold = function(h, up, on) st.calls[#st.calls + 1] = { "hold", h.button, up, on } end
+						k.press(0)
+						c4.advance(400)
+						k.tap(1)
+						assert.same({ { "hold", 0, true, true }, { "end", 0 }, { "end", 1 }, { "click", 1 } }, st.calls)
+					end)
+
+					it("a press in the window of its own button during a hold stops nothing", function()
+						local k, dev, c4, st = on_route(route)
+						with_hold_fade(dev, st)
+						k.tap(1)
+						c4.advance(50)
+						k.press(0)
+						c4.advance(400) -- the top button's hold starts its fade
+						k.press(1)      -- 450 ms after the bottom's tap: still its window
+						k.click(1)
+						local stops = 0
+						for _, call in ipairs(st.calls) do
+							if call[1] == "stop" then stops = stops + 1 end
+						end
+						assert.equal(0, stops, "a double tap starts and stops nothing")
+						assert.same({ "end", 1 }, st.calls[#st.calls], "and its click is swallowed")
+					end)
+
 					it("a click with no press on record follows the same rules, judged at the click", function()
 						local k, _, c4, st = on_route(route)
 						st.tap_ramps = true

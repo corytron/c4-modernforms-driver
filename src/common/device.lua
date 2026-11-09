@@ -661,14 +661,18 @@ function device.new(opts)
 	-- the window of the button's previous press it is multi; else, while a
 	-- fade runs, it stops the fade and is stopped. Its time is the button's
 	-- last press either way.
-	local function judge(h)
+	-- `ramping` is whether a fade ran before this press ended the one in
+	-- progress: ending a hold stops the hold's own fade (dev.on_end_hold), so
+	-- asking dev.ramp_active() afterwards would miss the fade this press
+	-- stops. It is sampled by the caller, before end_hold().
+	local function judge(h, ramping)
 		local now = now_ms()
 		local prev = last_press[h.button]
 		last_press[h.button] = now
 		if prev and now >= prev and now - prev < DOUBLE_TAP_MS then
 			h.multi = true
 			log.debug("button %d %d ms after its last press: part of a double tap", h.button, now - prev)
-		elseif dev.ramp_active() then
+		elseif ramping then
 			h.stopped = true
 			log.debug("button %d stops the fade", h.button)
 			dev.on_ramp_stop(h.button)
@@ -711,13 +715,18 @@ function device.new(opts)
 	-- The routes below end here (a spec may put its own in place).
 	function dev.button_action(button, action)
 		if action == ACT_PRESS then
+			-- Sampled before the press in progress ends: a hold's end stops its
+			-- fade, and this press still has to count as the one that stops it
+			-- (its click is swallowed). The stop below then finds nothing left to
+			-- stop in the light, which is harmless (stop_fade is idempotent).
+			local ramping = dev.ramp_active() == true
 			end_hold()
 			released = nil
 			-- The record is the press in progress before the stop runs, so a
 			-- stop that fails (logged by dispatch) still swallows the click.
 			local h = { button = button }
 			hold = h
-			judge(h)
+			judge(h, ramping)
 			h.timer = C4:SetTimer(HOLD_AFTER_MS, function()
 				if hold == h then
 					h.timer = nil
@@ -734,11 +743,12 @@ function device.new(opts)
 			else
 				local h = (hold and hold.button == button and hold)
 					or (released and released.button == button and released) or nil
+				local ramping = dev.ramp_active() == true
 				end_hold()
 				released = nil
 				if not h then
 					h = { button = button }
-					judge(h)
+					judge(h, ramping)
 				end
 				if h.multi then
 					log.debug("click on button %d is part of a double tap: ignored", button)

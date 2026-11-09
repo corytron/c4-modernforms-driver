@@ -351,6 +351,7 @@ function model.new(opts)
 	self.owed = {}              -- group -> the reason of a report a busy group postponed ("start", "online")
 	self.leveled = false        -- a level of the current turn-on has been answered (V14)
 	self.fade = {}              -- #141: group -> true while its wanted fields are a fade step (LF-D7, LF-D8)
+	self.fade_owned = {}        -- #141 review: group -> true while its wanted fields belong to a fade (any want of one)
 	self.after = {}             -- #141 LF-D16: group -> a plan held until the next successful contact
 	self.dark = false           -- #141 LF-D10: the wanted level is a write for after the off
 	self.light_off_sent = false -- #141 LF-D15: a lightOn:false went out since the last lightOn:true
@@ -903,6 +904,18 @@ function Model:fade_held(g)
 	return true
 end
 
+-- #141 review: the light is known to be off and nothing that changes its on state is on the wire,
+-- so a level to write while dark needs no off of its own.
+function Model:light_dark_now()
+	return self.conf.light_on == false and self.flight.light_on == nil
+end
+
+-- #141 review: the wanted fields are only a level to write while dark (LF-D10), and the light is not
+-- known to be off any more.
+function Model:dark_write_stale()
+	return self.dark and self.wanted.light_on == nil and self.wanted.level ~= nil and self.conf.light_on ~= false
+end
+
 -- A command's fields and what the request covers (section 4.3): the wanted
 -- fields of a group, turned into the one body to send now. The light's "on at
 -- N" is the level first and then lightOn (V14), at most two requests: the level
@@ -1073,6 +1086,13 @@ function Model:command_request()
 	self:end_pair_if_done()
 	self.fade_wait = nil
 	for _, g in ipairs(self:command_order()) do
+		if g == "light" and self:dark_write_stale() then
+			-- #141 review: somebody turned the light on since the off was answered; the level
+			-- written back while dark would now change a light that is shining. Dropped, silently.
+			self.log.debug("light level %s not written: the light is on again", tostring(self.wanted.level))
+			self:release_group("light")
+			self:reconcile({})
+		end
 		if self:group_has_wanted(g) and self:group_present(g) and not self:fade_held(g) then
 			local req = self:plan_command(g)
 			if req then
@@ -1758,6 +1778,7 @@ function Model:release_group(g, reason, why)
 	end
 	local was_fade = self.fade[g]
 	self.fade[g] = nil
+	self.fade_owned[g] = nil
 	local w = {}
 	for _, f in ipairs(GROUP_FIELDS[g]) do
 		w[f] = self.wanted[f]
@@ -2188,8 +2209,14 @@ end
 --                         false and its name. With no contact pending the fan is answering, so
 --                         it is an ordinary want (assumed; the light only asks right after a
 --                         failure, when the contact is pending).
+--   of_fade = true        (review fix) the want belongs to a fade though it is no step: its first level,
+--                         its final target, the write-back of LF-D10. An address change drops it as it
+--                         drops a step (LF-D16); a fade step implies it. A want without it clears the mark.
 -- light { light_on = false, level = N } (LF-D10) is off and then, once the off is answered,
--- the write {"lightBrightness":N} while dark, skipped when the fan keeps N already.
+-- the write {"lightBrightness":N} while dark, skipped when the fan keeps N already. When the
+-- model's latest answer already shows the light off and no on or off is on the wire, the off is
+-- not sent again (review fix): only the level goes, while dark, and is dropped if the light is
+-- seen on before it goes.
 function Model:want(fields, opts)
 	if self.stopped then
 		return false, "unset"
@@ -2215,8 +2242,20 @@ function Model:want(fields, opts)
 		end
 	end
 	self:end_pair_if_done()
+	local live = opts.after_contact ~= true
 	for g, p in pairs(plan) do
-		self:set_wanted(g, p, opts.fade == true and opts.after_contact ~= true)
+		if g == "light" and p.light_on == false and p.level ~= nil and p.level == self.conf.level
+			and self:light_dark_now() then
+			-- #141 review: the light is off and keeps that level already, so the write-back
+			-- is done: nothing is sent, and whatever the group wanted before is no longer wanted.
+			self.log.debug("light level %d not written: the fan keeps it already", p.level)
+			if self:group_has_wanted("light") then
+				self:release_group("light")
+				self:reconcile({})
+			end
+		else
+			self:set_wanted(g, p, opts.fade == true and live, (opts.fade == true or opts.of_fade == true) and live)
+		end
 	end
 	self:pump()
 	self:flush()
@@ -2225,7 +2264,7 @@ end
 
 -- A group's plan becomes its wanted fields (the latest replace the earlier ones; Breeze's
 -- two replace field by field). `fade` marks the light's fields as a fade step (#141).
-function Model:set_wanted(g, p, fade)
+function Model:set_wanted(g, p, fade, owned)
 	for _, f in ipairs(GROUP_FIELDS[g]) do
 		if g ~= "breeze" or p[f] ~= nil then
 			self.wanted[f] = p[f]
@@ -2236,7 +2275,12 @@ function Model:set_wanted(g, p, fade)
 			self.leveled = false
 		end
 		self.dark = p.light_on == false and p.level ~= nil
+		if self.dark and self:light_dark_now() then
+			-- #141 review: the off was answered already; only the level is left to write.
+			self.wanted.light_on = nil
+		end
 		self.fade.light = fade or nil
+		self.fade_owned.light = (fade or owned) and true or nil
 	end
 	self.after[g] = nil -- the newest want of a group is the only one
 	self.was_busy[g] = true
@@ -2244,12 +2288,17 @@ end
 
 -- #141 LF-D13: a group's wanted but unsent fields (and a plan held for a contact) go, with no
 -- warning and no event; the request in flight is left alone and its answer reports as usual.
--- Returns true when something was removed. Nothing in flight: the group is idle at once, and a
--- later read of what its steps made is the command's own, not somebody else's.
+-- Returns true when something was removed, and a second value: the fields of the request of
+-- that group still in flight (a copy of what it sends), or nil, so the caller can tell a final
+-- off that is on the wire from one that never went out (review fix). Nothing in flight: the
+-- group is idle at once, and a later read of what its steps made is the command's own, not
+-- somebody else's.
 function Model:withdraw(group)
 	if GROUP_FIELDS[group] == nil then
 		return false
 	end
+	local rec = self.inflight
+	local flying = rec and rec.kind == "command" and rec.group == group and copy(rec.sent) or nil
 	local had = self:group_has_wanted(group) or self.after[group] ~= nil
 	self.after[group] = nil
 	self:release_group(group)
@@ -2260,7 +2309,7 @@ function Model:withdraw(group)
 		end
 		self:end_pair_if_done()
 	end
-	return had
+	return had, flying
 end
 
 -- Starting, stopping, addresses ---------------------------------------------
@@ -2268,8 +2317,9 @@ end
 -- Everything in flight or armed is given up: a new address, a stop.
 function Model:abandon()
 	self:abandon_inflight()
-	-- #141 LF-D16: nothing of a fade (a step wanted, a jump held for a contact) goes to another address.
-	for g in pairs(self.fade) do
+	-- #141 LF-D16: nothing of a fade (a step, the first level, the target or the write-back wanted, a
+	-- jump held for a contact) goes to another address.
+	for g in pairs(self.fade_owned) do
 		self:release_group(g, nil, "given_up")
 	end
 	self:drop_held("given_up")
@@ -2510,8 +2560,8 @@ function Model:adopt(u, key, info)
 	self.fail_kind, self.first_failure_s = nil, nil
 	if key == "moved" then
 		self.pin.address = u.address
-		-- #141 LF-D16: a fade's step wanted for the old address is not sent to the new one.
-		for g in pairs(self.fade) do
+		-- #141 LF-D16: what a fade wanted for the old address is not sent to the new one.
+		for g in pairs(self.fade_owned) do
 			self:release_group(g, nil, "given_up")
 		end
 		self:drop_held("given_up")
