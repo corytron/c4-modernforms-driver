@@ -195,7 +195,10 @@ describe("Modern Forms Fan driver", function()
 			assert.equal("Level 1,Level 2,Level 3,Level 4,Level 5,Level 6", field(caps, "speed_names"))
 			assert.equal("3", field(caps, "preset_speed"))
 			assert.equal("True", field(caps, "can_reverse"))
-			assert.equal("False", field(caps, "click_rates"))
+			-- #141 LF-D3: taps fade over Click Rates, a static capability (one controller reboot).
+			assert.equal("True", field(caps, "click_rates"))
+			assert.equal("0", field(caps, "click_rate_min"))
+			assert.equal("86400000", field(caps, "click_rate_max"))
 			assert.is_nil(caps:find("proxy_fan_speed_connections", 1, true))
 		end)
 

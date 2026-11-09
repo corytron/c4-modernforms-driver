@@ -116,7 +116,8 @@ local store = {
 local dev = device.new({
 	prefix = LOG_PREFIX,
 	noun = "light",
-	settings = { "preset", "hold_up", "hold_down" },
+	-- #141 LF-D3, LF-D4: the click rates (taps fade) and the Default Brightness Rate.
+	settings = { "preset", "click_up", "click_down", "hold_up", "hold_down", "brightness_rate" },
 	proxy_binding = LIGHT_BINDING,
 })
 local prop = dev.prop
@@ -232,6 +233,14 @@ function listener.settled(group, st, why)
 		breeze:settled(group, st, why)
 	end
 	refresh_status()
+end
+
+-- #141 LF-D15, LF-D16: the model dropped what a group wanted (a failed or given-up
+-- step, a refusal, an off from outside); a fade of the light ends there.
+function listener.dropped(group, why)
+	if group == "light" then
+		light:dropped(why)
+	end
 end
 
 function listener.idle(group, st)

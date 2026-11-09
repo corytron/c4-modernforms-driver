@@ -192,11 +192,19 @@ end
 
 -- Delivering it ----------------------------------------------------------------------------
 
-local function arm_gap(self)
+local function arm_gap(self, gap_ms)
 	cancel_gap(self)
 	self._gap = true
 	local gen = self._gap_gen
-	local ok, timer = pcall(self._timer, transport.GAP_MS, function()
+	-- #141 LF-D7: a request may name its own gap (a fade step's). The contract
+	-- keeps the rule that a timer's delay is above 0, so a gap of 0 becomes 1 ms
+	-- [assumed: the SDK page of C4:SetTimer was not re-read for this; the rule is
+	-- the contract's].
+	local delay = gap_ms or transport.GAP_MS
+	if delay < 1 then
+		delay = 1
+	end
+	local ok, timer = pcall(self._timer, delay, function()
 		if gen ~= self._gap_gen or self._stopped then
 			return
 		end
@@ -236,7 +244,7 @@ local function finish(self, entry, result)
 	if self._stopped then
 		return
 	end
-	arm_gap(self)
+	arm_gap(self, entry.gap_ms)
 end
 
 -- OnDone: once per transfer, dropped when its request was given up (new epoch,
@@ -299,12 +307,22 @@ local function checked(req, cb)
 	if not timeout or timeout <= 0 then
 		timeout = req.kind == "reboot" and transport.REBOOT_TIMEOUT_S or transport.TIMEOUT_S
 	end
-	return { kind = req.kind, path = req.path, body = req.body, timeout = math.min(timeout, transport.MAX_TIMEOUT_S) }
+	-- #141 LF-D7: the gap after this request's answer; anything that is not a
+	-- number >= 0 is ignored and GAP_MS applies.
+	local gap_ms = tonumber(req.gap_ms)
+	if gap_ms ~= nil and (gap_ms ~= gap_ms or gap_ms < 0 or gap_ms == math.huge) then
+		gap_ms = nil
+	end
+	return {
+		kind = req.kind, path = req.path, body = req.body,
+		timeout = math.min(timeout, transport.MAX_TIMEOUT_S), gap_ms = gap_ms,
+	}
 end
 
 -- req = { kind = "state"|"info"|"command"|"g4"|"reboot", path = wire.PATH, or
 -- wire.G4_PATH for "g4", body = string, timeout = seconds (default 5; 3 for a
--- reboot) }. cb(result) runs once, from OnDone, never for a request of an
+-- reboot), gap_ms = the gap after this request's answer in ms (optional, >= 0,
+-- default GAP_MS; #141 LF-D7, a fade step's) }. cb(result) runs once, from OnDone, never for a request of an
 -- earlier epoch or after stop(), and never from inside send(). Returns the
 -- request's number, or nil and why: "busy", "no address", "stopped",
 -- "bad request" (not one of the five kinds with its path, or no body or
@@ -334,7 +352,10 @@ function transport:send(req, cb)
 		return nil, "bad request"
 	end
 	self.seq = self.seq + 1
-	local entry = { seq = self.seq, epoch = self.epoch, kind = request.kind, cb = cb, t0 = self._now() }
+	local entry = {
+		seq = self.seq, epoch = self.epoch, kind = request.kind, cb = cb, t0 = self._now(),
+		gap_ms = request.gap_ms,
+	}
 	self._inflight = entry
 	say(self, "debug", "-> fan #%d %s %s", entry.seq, entry.kind, request.body)
 	local started, err = pcall(start_transfer, self, entry, request)

@@ -11,6 +11,14 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- The fan's light now fades, as a Control4 dimmer does, in steps the driver sends to the fan (the fan has no fade of its own). A tap on a bound Light Top, Light Bottom or Light Toggle fades over the light's new Click Rates (3 s from off to full by default, so a tap from 50 to 100 takes 1.5 s); a second tap, after the keypad's double-tap time, stops the fade where it is; a double tap is the keypad's own event and changes nothing. Programming's On, Off, Toggle and Set Level, and the Navigators' on and off taps, use the light's Default Brightness Rate (set it to 3 s on the light's settings page to match the taps); a ramp or fade time in programming or an Advanced Lighting Scene is honoured; the Navigator slider still jumps. Holds use the same fade at the hold rates, in finer steps. Over 3 s a fade is about 7 to 18 steps, the most the fan takes; a rate of 0, or a fade under about a second, is instant. A fade ends at once if the fan's app, remote or wall control turns the light off, and never turns it back on; after a fade to off the app and remote turn the light on at the level it had before. The update adds Click Rates to the light's settings page, which needs one controller reboot from System Manager (#141).
+
+### Changed
+
+- The manual's chapter on fades and holds is rewritten for the fades above (#141).
+
 ## 1.4 "Sietch Tabr", build 152 (2026-11-09)
 
 ### Added
