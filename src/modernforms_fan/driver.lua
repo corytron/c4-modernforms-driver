@@ -40,6 +40,8 @@ local follow_mod = require("fan.follow")
 local search_mod = require("fan.search")
 local found_mod = require("fan.found")
 local breeze_mod = require("fan.breeze")
+local breezeleds_mod = require("fan.breezeleds")
+local fanmode = require("fan.mode")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -183,7 +185,7 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze
+local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 -- Found Fans as last written (auto-discovery-design 3): the rows, the entry
 -- behind each item row, and the text the row was written with.
@@ -242,10 +244,22 @@ function listener.idle(group, st)
 	end
 end
 
+-- What the Breeze LEDs follow (breeze-leds-design BL-D9, BL-D11): Breeze
+-- mode in the shown state, its strength, and whether the fan is online.
+local function leds_view(shown, phase)
+	return {
+		breeze = fanmode.breeze(shown),
+		strength = shown and shown.wind_speed,
+		online = phase == "online",
+	}
+end
+
 function listener.shown(shown)
 	if breeze then
 		breeze:shown(shown) -- first: link 311's LED reads it (BZ4)
 	end
+	-- Before the links, so the pixels are held before they look (breeze-leds-design 3.3).
+	bleds:update(leds_view(shown, model:phase()))
 	links:shown(shown)
 	light:shown()
 	refresh_status()
@@ -271,6 +285,7 @@ function listener.phase(phase, detail, old)
 	if breeze then
 		breeze:phase(phase)
 	end
+	bleds:update(leds_view(model:shown(), phase))
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -356,6 +371,23 @@ local function write_keypad_links(items)
 	prop_list("Keypad Links", items, items[1])
 end
 
+-- Breeze on the keypad LEDs (#137, breeze-leds-design): created before the
+-- links, which reach it through closures, as it reaches them.
+bleds = breezeleds_mod.new({
+	paint = function(link, colour, with_state)
+		links:paint(link, colour, with_state)
+	end,
+	settle = function(link)
+		links:settle(link)
+	end,
+	timer = timer,
+	now = now_ms,
+	random = function(lo, hi)
+		return math.random(lo, hi)
+	end,
+	log = log,
+})
+
 links = links_mod.new({
 	model = model,
 	fan = fan,
@@ -380,6 +412,16 @@ links = links_mod.new({
 	end,
 	breeze_blows = function()
 		return breeze ~= nil and breeze:blows_shown()
+	end,
+	-- The Breeze LEDs (breeze-leds-design 3.2, BL-D15, BL-D16).
+	held = function(link)
+		return bleds:held(link)
+	end,
+	repaint = function(link)
+		bleds:repaint(link)
+	end,
+	pixels = function(list)
+		bleds:set_pixels(list)
 	end,
 	log = log,
 })
@@ -645,7 +687,32 @@ local function apply_colors()
 	links:set_colors(mode, colors, read("Speed LED Off Color"))
 end
 
-dispatch.properties["Speed_LED_Colors"] = apply_colors
+-- Breeze LED Animation, Bottom and Step (breeze-leds-design section 2,
+-- BL-D3, BL-D18): every row read together, with Speed LED Colors' mode.
+local function apply_breeze_leds()
+	local enabled = Properties["Breeze LED Animation"] == "Gusts"
+	local per_speed = Properties["Speed LED Colors"] == "Per speed"
+	bleds:configure({
+		enabled = enabled,
+		per_speed = per_speed,
+		bottom = Properties["Breeze LED Bottom"] == "Speed 6" and 6 or 1,
+		step = tonumber(Properties["Breeze LED Step (ms)"]) or breezeleds_mod.STEP_DEFAULT,
+	})
+	-- L42 for a change the owner makes, not for the late-init replay.
+	if enabled and not per_speed and started then
+		result("breeze_leds_need_per_speed")
+	end
+end
+
+dispatch.properties["Speed_LED_Colors"] = function()
+	-- The Breeze LEDs first: leaving Per speed settles the pixels while the links
+	-- still send the per-speed colours, so no frame colour stays on a button.
+	apply_breeze_leds()
+	apply_colors()
+end
+dispatch.properties["Breeze_LED_Animation"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Bottom"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Speed_LED_Off_Color"] = apply_colors
 for speed = 1, 6 do
 	dispatch.properties["Speed_" .. speed .. "_LED_Color"] = apply_colors
@@ -1094,6 +1161,7 @@ function OnDriverDestroyed()
 	discovery:stop()
 	names_job:stop()
 	breeze:stop()
+	bleds:stop() -- before the links: nothing is sent (breeze-leds-design BL-D17)
 	links:stop()
 	light:stop()
 	model:stop()

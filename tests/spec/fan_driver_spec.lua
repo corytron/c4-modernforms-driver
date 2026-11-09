@@ -199,7 +199,8 @@ describe("Modern Forms Fan driver", function()
 			assert.is_nil(caps:find("proxy_fan_speed_connections", 1, true))
 		end)
 
-		it("declares the properties of section 2.5 in order, the colour per speed rows (V27) among them, Dev rows in a block",
+		it("declares the properties of section 2.5 in order, the colour per speed rows (V27) and the Breeze LED rows"
+			.. " (breeze-leds-design 2) among them, Dev rows in a block",
 			function()
 				local names = {}
 				for body in bare:gmatch("<property>(.-)</property>") do names[#names + 1] = field(body, "name") end
@@ -210,6 +211,7 @@ describe("Modern Forms Fan driver", function()
 					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
+					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)",
 					"Debug Mode", "Dev Server", "Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
@@ -894,6 +896,192 @@ describe("Modern Forms Fan driver", function()
 			answer(c4, mf.state({ fanOn = false, fanSpeed = 3, wind = false }))
 			lit = sent(c4, 311, "MATCH_LED_STATE", "STATE")
 			assert.equal(false, lit[#lit])
+		end)
+
+		-- #137, docs/breeze-leds-design.md: gusts on the bound speed links while
+		-- Breeze blows, a rising wipe in, a falling wipe out (BL-D6 to BL-D11).
+		describe("the Breeze LEDs (breeze-leds-design, #137)", function()
+			local PURPLE, HEAD, BASE = "8000ff", "ffffff", "0080ff"
+			local FRAME = { ffffff = true, ["00ffff"] = true, ["0080ff"] = true } -- the animation's colours
+			local PIXELS = { 302, 303, 304, 305 } -- Low, Medium, Med-High, High on the house
+
+			-- The house's keypad: four speed buttons and Off; 311 bound too.
+			local function leds_driver(state, extra)
+				local props = {
+					["Fan Address"] = FAN,
+					["Speed LED Colors"] = "Per speed",
+					["Breeze LED Animation"] = "Gusts",
+				}
+				for speed = 1, 6 do
+					props["Speed " .. speed .. " LED Color"] = "128,0,255"
+				end
+				for name, value in pairs(extra or {}) do
+					props[name] = value
+				end
+				local env, c4 = fake.load_driver(DRIVER, props)
+				env.OnDriverInit("DIT_STARTUP")
+				env.OnDriverLateInit("DIT_STARTUP")
+				answer(c4, mf.INFO)
+				answer(c4, mf.state(state or { fanOn = true, fanSpeed = 3, wind = false }))
+				for index, link in ipairs({ 302, 303, 304, 305, 300, 311 }) do
+					fake.link_keypad(env, link, 456, 10 + index)
+				end
+				return env, c4
+			end
+
+			-- Every frame colour painted on a pixel since c4.calls was last emptied,
+			-- in order: { link, on colour }. A settle's own colours are not frames.
+			local function paints(c4)
+				local out = {}
+				for _, args in ipairs(c4.calls_to("SendToProxy")) do
+					if args[2] == "BUTTON_COLORS" and args[1] >= 302 and args[1] <= 305 and FRAME[args[3].ON_COLOR] then
+						out[#out + 1] = { args[1], args[3].ON_COLOR }
+					end
+				end
+				return out
+			end
+
+			-- The index of the first paint of `colour` on `link`, or nil.
+			local function first(list, link, colour)
+				for index, item in ipairs(list) do
+					if item[1] == link and item[2] == colour then
+						return index
+					end
+				end
+				return nil
+			end
+
+			-- The last MATCH_LED_STATE a link got.
+			local function last_state(c4, link)
+				local states = sent(c4, link, "MATCH_LED_STATE", "STATE")
+				return states[#states]
+			end
+
+			-- The fan answers every read and command with `state` for `ms`.
+			local function hold_state(c4, state, ms)
+				for _ = 1, ms / 100 do
+					for _, t in ipairs(c4.open_transfers()) do
+						t:respond(200, mf.state(state))
+					end
+					c4.advance(100)
+				end
+			end
+
+			it("plays the rising wipe when a 311 press starts Breeze: white up the column, azure behind it", function()
+				local env, c4 = leds_driver()
+				c4.calls = {}
+				env.ReceivedFromProxy(311, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 2000)
+				local list = paints(c4)
+				for index, link in ipairs(PIXELS) do
+					assert.is_not_nil(first(list, link, HEAD), "the head reaches " .. link)
+					assert.is_not_nil(first(list, link, BASE), "azure follows on " .. link)
+					if index > 1 then
+						assert.is_true(first(list, PIXELS[index - 1], HEAD) < first(list, link, HEAD), "bottom to top")
+					end
+				end
+				assert.same({}, sent(c4, 300, "BUTTON_COLORS"), "Off never takes a colour")
+				assert.is_not_true(last_state(c4, 300), "Off stays dark while Breeze blows")
+				assert.equal(true, last_state(c4, 311), "311 lights")
+			end)
+
+			it("plays the falling wipe once when a speed press ends Breeze, and leaves the pressed button lit", function()
+				local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 })
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 3000)
+				c4.calls = {}
+				env.ReceivedFromProxy(303, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = false }, 3000)
+				local list = paints(c4)
+				for index = #PIXELS, 2, -1 do
+					assert.is_true(first(list, PIXELS[index], HEAD) < first(list, PIXELS[index - 1], HEAD), "top to bottom")
+				end
+				local colours = sent(c4, 303, "BUTTON_COLORS", "ON_COLOR")
+				assert.equal(PURPLE, colours[#colours], "Medium ends in its own colour")
+				assert.equal(true, last_state(c4, 303))
+				for _, link in ipairs({ 302, 304, 305 }) do
+					assert.equal(false, last_state(c4, link), link .. " ends dark")
+				end
+				local heads = 0
+				for _, item in ipairs(list) do
+					if item[2] == HEAD and item[1] == 305 then
+						heads = heads + 1
+					end
+				end
+				assert.equal(1, heads, "the wipe plays once, and no gust after it")
+			end)
+
+			it("lights Off at once when Off ends Breeze, and the falling wipe leaves every speed button dark", function()
+				local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 })
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 3000)
+				c4.calls = {}
+				env.ReceivedFromProxy(300, "DO_PUSH", {})
+				assert.equal(true, last_state(c4, 300), "Off lights with the press")
+				assert.is_not_nil(first(paints(c4), 305, HEAD), "the wipe starts at the top")
+				hold_state(c4, { fanOn = false, fanSpeed = 3, wind = false }, 3000)
+				for _, link in ipairs(PIXELS) do
+					assert.equal(false, last_state(c4, link), link .. " ends dark")
+				end
+			end)
+
+			it("plays the rising wipe when Breeze is started from the Modern Forms app (a poll)", function()
+				local _, c4 = leds_driver()
+				c4.calls = {}
+				next_read(c4)
+				answer(c4, mf.state({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 1 }))
+				c4.advance(2000)
+				local list = paints(c4)
+				assert.is_true(first(list, 302, HEAD) < first(list, 305, HEAD))
+			end)
+
+			it("puts every pixel back at once, with no wipe, when the property goes Off", function()
+				local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 3 })
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 3 }, 3000)
+				c4.calls = {}
+				env.Properties["Breeze LED Animation"] = "Off"
+				env.OnPropertyChanged("Breeze LED Animation")
+				for _, link in ipairs(PIXELS) do
+					assert.equal(false, last_state(c4, link), link .. " shows the real state at once")
+				end
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 3 }, 10000)
+				assert.same({}, paints(c4), "and nothing is painted afterwards")
+			end)
+
+			it("puts every pixel back at once when the fan goes offline", function()
+				local _, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 })
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 3000)
+				c4.calls = {}
+				for _ = 1, 900 do
+					for _, t in ipairs(c4.open_transfers()) do
+						t:fail(-1, "timeout")
+					end
+					c4.advance(100)
+				end
+				for _, link in ipairs(PIXELS) do
+					assert.equal(false, last_state(c4, link), link .. " back to the steady Breeze picture")
+				end
+				-- Count the frame colours painted after the last put-back of High.
+				local after = 0
+				for _, args in ipairs(c4.calls_to("SendToProxy")) do
+					if args[2] == "MATCH_LED_STATE" and args[1] == 305 then
+						after = 0
+					elseif args[2] == "BUTTON_COLORS" and args[1] >= 302 and args[1] <= 305
+							and FRAME[args[3].ON_COLOR] then
+						after = after + 1
+					end
+				end
+				assert.equal(0, after, "no paint after the put-back while offline")
+			end)
+
+			it("writes L42 and paints nothing under Keypad's own colours", function()
+				local env, c4 = leds_driver(nil, { ["Speed LED Colors"] = "Keypad's own" })
+				env.Properties["Breeze LED Animation"] = "Gusts"
+				env.OnPropertyChanged("Breeze LED Animation")
+				assert.equal("Breeze LEDs need Speed LED Colors set to Per speed", env.Properties["Last Action"])
+				c4.calls = {}
+				env.ReceivedFromProxy(311, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 5000)
+				assert.same({}, paints(c4))
+			end)
 		end)
 
 		it("Add Breeze Fan adds the Breeze fan in the fan's room, named after the fan item, and binds it (BF-D10)",
