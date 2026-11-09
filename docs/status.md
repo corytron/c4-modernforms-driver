@@ -1,11 +1,28 @@
-# Status of the Modern Forms fan driver (2026-11-07)
+# Status of the Modern Forms fan driver (2026-11-09)
 
 The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.3 "Ornithopter" is the latest release and runs on the house; the stock
-driver is gone.** Build 124 of v1.3 was released and installed on
+**1.4 "Sietch Tabr" is the latest release (build 152, 2026-11-09; the
+announcement in Discussion #144); its install on the house waits for the
+owner's word in the Windows session (deploy issue #142).** It adds the
+Breeze animation on the keypad LEDs (#137,
+[`breeze-leds-design.md`](breeze-leds-design.md), the rounds in Discussion
+#138):
+- the speed buttons go dark when Breeze starts;
+- gusts with a twinkling tail run the way the fan blows;
+- an ending wipe runs the other way when Breeze ends;
+- the animation is half as bright between sunset and sunrise at the
+  project's location (`fan/sun.lua`).
+
+It was designed on the house keypad with the owner watching, through the
+dev loop. The night brightness and the direction shipped at the owner's
+word, without a further hardware round. Until the release install, the
+house runs dev build 144, with the 1.4 Lua served by the dev loop.
+
+Before it, 1.3 "Ornithopter" ran on the house; the stock
+driver is gone. Build 124 of v1.3 was released and installed on
 2026-11-08 (deploy issue #126, the round in Discussion #132, the
 announcement in Discussion #127): fan mode and Breeze mode exclude each
 other (the owner's finding on their fan), so the fan shows fan mode only, a
@@ -58,7 +75,14 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.3, build 124**, two devices, the fan and its Breeze fan:
+- **Now (2026-11-09):** the fan runs dev build 144 with the 1.4 Lua pinned
+  in the dev loop. It has `Breeze LED Animation` Gusts, `Breeze LED Bottom`
+  Highest speed (Low is the keypad's top speed button) and `Breeze LED
+  Step (ms)` 120, with Debug Mode Off. Desired: v1.4 build 152 (PR #143,
+  deployment 7649366122 in progress, #142). The release install also
+  brings the row `Breeze LED Night Brightness (%)` (default 50) and ends
+  the dev loop.
+- **v1.3, build 124** (before the dev build), two devices, the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
   success, 2026-11-08; Keypad Links reads `7 of 13 links bound` with all
   seven rows; Found Fans `This device's fan answered; no other fan found`;
