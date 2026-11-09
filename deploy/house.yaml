@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.4               # 1.4 "Sietch Tabr": the Breeze animation on the keypad LEDs (#137)
-build: 152
+release: v1.5               # 1.5 "Shadout Mapes": simulated fades for the fan light (#141)
+build: 165
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off
