@@ -34,6 +34,25 @@
 --     REQUEST_BUTTON_COLORS; like Off, Toggle and Cycle it never gets
 --     BUTTON_COLORS (BC27). Without breeze_blows it stays dark, and without
 --     breeze_toggle a press does nothing.
+--   * Breeze on the keypad LEDs (#137, docs/breeze-leds-design.md BL-D2 and
+--     BL-D14 to BL-D16, BL-D23; fan/breezeleds.lua): while Breeze blows the
+--     animation holds the speed links 301 to 306 that have a button bound,
+--     its pixels. It paints a held pixel through paint() (BUTTON_COLORS on =
+--     current = the frame colour, off = Speed LED Off Color, then
+--     MATCH_LED_STATE true when asked; with preload no CURRENT_COLOR, so a
+--     dark button stays dark), lights or darkens it through light()
+--     (MATCH_LED_STATE alone) and gives it back through settle()
+--     (the real state; with Per speed the link's resting colours first, lit
+--     or dark, so no frame colour stays on the button). While held(link)
+--     says true, shown, refresh, set_colors and set_also send that link
+--     nothing but still keep their tables, which the settle uses; a
+--     REQUEST_BUTTON_COLORS or a new
+--     binding on it calls repaint(link) instead of sending the real state.
+--     held is asked only for 301 to 306: Off, Toggle, Cycle, Breeze and the
+--     light's links are never held. pixels(list) gets pixels_list() at late
+--     init and whenever it changes with the bound bookkeeping. held, repaint
+--     and pixels are optional (absent: nothing held, nothing repainted, no
+--     list); one that raises is logged, never raised.
 --
 -- Everything that touches Director is an argument (section 9.1):
 --
@@ -52,8 +71,16 @@
 --       texts = fan/texts.lua (default: required when the list is first written),
 --       breeze_toggle = fn(),   -- link 311's press (fan/breeze.lua's b:toggle()); optional
 --       breeze_blows = fn() -> bool,   -- link 311's LED (b:blows_shown()); optional
+--       held = fn(link) -> bool,  -- fan/breezeleds.lua's b:held(); optional
+--       repaint = fn(link),       -- b:repaint(): a held pixel's answer; optional
+--       pixels = fn(list),        -- b:set_pixels(): the bound speed links; optional
 --       log = log,              -- default common.log
 --   })
+--
+--   lk:paint(link, colour, with_state, preload)   -- a held pixel's colour (BL-D14, BL-D23)
+--   lk:light(link, lit)                  -- a held pixel lit or dark, its loaded colour (BL-D23)
+--   lk:settle(link)                      -- a pixel given back: its real state and resting colours
+--   lk:pixels_list()                     -- the bound speed links, ascending (BL-D2)
 
 local fanmode = require("fan.mode")
 
@@ -84,6 +111,7 @@ links.REREAD_MS = 3000 -- after an unbind whose keypad may have another button o
 local UNKNOWN = "?"
 
 local SPEEDS = 6
+local FIRST_SPEED, LAST_SPEED = 301, 306 -- the speed links, the only ones the animation may hold
 local BREEZE = links.BREEZE
 local FAN_IDS = { 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
 local ALL_IDS = { 200, 201, 202, 300, 301, 302, 303, 304, 305, 306, 307, 308, BREEZE }
@@ -142,6 +170,9 @@ function links.new(opts)
 		texts = opts.texts,
 		breeze_toggle = type(opts.breeze_toggle) == "function" and opts.breeze_toggle or nil,
 		breeze_blows = type(opts.breeze_blows) == "function" and opts.breeze_blows or nil,
+		held = type(opts.held) == "function" and opts.held or nil,
+		repaint = type(opts.repaint) == "function" and opts.repaint or nil,
+		pixels = type(opts.pixels) == "function" and opts.pixels or nil,
 		log = opts.log or require("common.log"),
 		led = {}, -- [link] = the STATE last sent
 		led_speed = {}, -- [link] = the speed whose colours went with that STATE (per speed only)
@@ -155,6 +186,7 @@ function links.new(opts)
 		rereads = {}, -- [link] = the pending timer of an unbind's second read (#92)
 		touched = {}, -- [link] = true once OnBindingChanged told something about it
 		published = nil, -- the Keypad Links items last written, as one string
+		pixels_sent = nil, -- the pixel list last handed to pixels(), as one string
 		second_look = nil, -- the pending timer
 	}, links)
 
@@ -326,11 +358,36 @@ function links:push_led(link, shown, force)
 	return true
 end
 
+-- Whether the Breeze animation holds a link now (BL-D15). Only a speed link
+-- can be held; held is not asked about any other. Without held, or when it
+-- raises (logged), nothing is held and the link follows its state as in 1.3.
+function links:is_held(link)
+	if not self.held or type(link) ~= "number" or link < FIRST_SPEED or link > LAST_SPEED then
+		return false
+	end
+	local ok, held = pcall(self.held, link)
+	if not ok then
+		self.log.warn("link %d: whether the Breeze animation holds it could not be read: %s", link, tostring(held))
+		return false
+	end
+	return held == true
+end
+
+-- push_led for a link the animation does not hold; a held link is sent
+-- nothing, and the tables its settle reads stay as they are.
+function links:follow(link, shown, force)
+	if self:is_held(link) then
+		self.log.debug("link %d: held by the Breeze animation; nothing sent", link)
+		return false
+	end
+	return self:push_led(link, shown, force)
+end
+
 -- The model's listener.shown: the links whose lit state changed (311's from
 -- breeze_blows(), read again now).
 function links:shown(shown)
 	for _, link in ipairs(FAN_IDS) do
-		self:push_led(link, shown or {}, false)
+		self:follow(link, shown or {}, false)
 	end
 end
 
@@ -338,14 +395,32 @@ end
 function links:refresh()
 	local shown = self.model:shown() or {}
 	for _, link in ipairs(FAN_IDS) do
-		self:push_led(link, shown, true)
+		self:follow(link, shown, true)
+	end
+end
+
+-- A held pixel's answer to a bind or a REQUEST_BUTTON_COLORS (BL-D15,
+-- BL-D16): the animation paints its current frame colour.
+function links:repaint_held(link)
+	if not self.repaint then
+		self.log.debug("link %d: held by the Breeze animation, nothing repaints it", link)
+		return
+	end
+	local ok, err = pcall(self.repaint, link)
+	if not ok then
+		self.log.error("link %d: the Breeze animation could not repaint it: %s", link, tostring(err))
 	end
 end
 
 -- One link, whole: a keypad just bound it, or asked with
 -- REQUEST_BUTTON_COLORS (hardware K6: without an answer the button stays
--- dark). While the state is unknown the answer is dark (ECC C14).
+-- dark). While the state is unknown the answer is dark (ECC C14). A link the
+-- animation holds is repainted by it instead.
 function links:answer(link)
+	if self:is_held(link) then
+		self:repaint_held(link)
+		return
+	end
 	if self:push_led(link, self.model:shown() or {}, true) then
 		return
 	end
@@ -367,7 +442,7 @@ function links:set_also(speed, also)
 		other = nil
 	end
 	self.also[own] = other
-	self:push_led(300 + own, self.model:shown() or {}, true)
+	self:follow(300 + own, self.model:shown() or {}, true)
 end
 
 -- Speed LED Colors (V27): mode "keypad" (the default: no colours sent) or
@@ -393,10 +468,96 @@ function links:set_colors(mode, colors, off)
 		local shown = self.model:shown() or {}
 		for own = 1, SPEEDS do
 			if self:lit(300 + own, shown) then
-				self:push_led(300 + own, shown, true)
+				self:follow(300 + own, shown, true)
 			end
 		end
 	end
+end
+
+-- Breeze on the keypad LEDs (BL-D14, BL-D15, BL-D23) -------------------------------
+
+-- A speed link the animation holds, painted one frame colour: BUTTON_COLORS
+-- (on = current = colour, off = Speed LED Off Color) as send_colors sends it,
+-- then, with with_state, MATCH_LED_STATE true. With preload the
+-- BUTTON_COLORS carries no CURRENT_COLOR: the colour is loaded and a dark
+-- button stays dark (measured on the house keypad, #137, 2026-11-09), to be
+-- shown by a later light(link, true). The keypad no longer shows the link's
+-- real state, so nothing counts as sent for it until its settle. Anything but
+-- 301 to 306 and a 6-digit hex colour is refused, sending nothing.
+function links:paint(link, colour, with_state, preload)
+	local n = whole(link, FIRST_SPEED, LAST_SPEED)
+	if n == nil then
+		self.log.warn("paint on link %s refused: only the speed links %d to %d are painted", tostring(link),
+			FIRST_SPEED, LAST_SPEED)
+		return
+	end
+	local hex = hex6(colour)
+	if hex == nil then
+		self.log.warn("paint on link %d refused: %s is not a 6-digit hex colour", n, tostring(colour))
+		return
+	end
+	if preload then
+		self.log.debug("-> link %d BUTTON_COLORS on %s off %s (preload)", n, hex, self.off_color)
+		self:deliver(n, "BUTTON_COLORS", { ON_COLOR = hex, OFF_COLOR = self.off_color }, "NOTIFY")
+	else
+		self:send_colors(n, hex)
+	end
+	if with_state then
+		self:send_led(n, true)
+	end
+	self.led[n], self.led_speed[n] = nil, nil
+end
+
+-- A speed link the animation holds, lit (true) or dark (anything else) in
+-- the colour it last took: MATCH_LED_STATE alone, as a COMMAND (BL-D23). As
+-- after paint, nothing counts as sent for the link until its settle. Anything
+-- but 301 to 306 is refused, sending nothing.
+function links:light(link, lit)
+	local n = whole(link, FIRST_SPEED, LAST_SPEED)
+	if n == nil then
+		self.log.warn("light on link %s refused: only the speed links %d to %d are lit by the animation",
+			tostring(link), FIRST_SPEED, LAST_SPEED)
+		return
+	end
+	self:send_led(n, lit == true)
+	self.led[n], self.led_speed[n] = nil, nil
+end
+
+-- A pixel given back (BL-D8, BL-D11): its real state from the shown state,
+-- sent whatever was sent before. held is not asked: the animation settles a
+-- pixel just before it lets it go. Only 301 to 306. With Per speed (the mode
+-- at this call) the link's resting colours go first, lit or dark, so no frame
+-- colour stays behind as its on colour: on = current = the colour of the
+-- speed it is lit at (as push_led sends it), or of its own speed while dark
+-- (none sent when that speed has no colour); off = Speed LED Off Color. With
+-- the keypad's own colours, the state alone, as push_led sends it.
+function links:settle(link)
+	local n = whole(link, FIRST_SPEED, LAST_SPEED)
+	if n == nil then
+		self.log.warn("settle on link %s refused: only the speed links %d to %d are settled", tostring(link),
+			FIRST_SPEED, LAST_SPEED)
+		return
+	end
+	self.led[n], self.led_speed[n] = nil, nil
+	local shown = self.model:shown() or {}
+	if self.mode ~= "per_speed" then
+		self:push_led(n, shown, true)
+		return
+	end
+	local lit, speed = self:lit(n, shown)
+	if lit == nil then
+		return
+	end
+	local colour = lit and self:colour_for(n, speed) or nil
+	local colour_speed = colour and speed or nil
+	if not lit then
+		colour = self.colors[n - 300]
+	end
+	if colour then
+		self:send_colors(n, colour)
+	end
+	self:send_led(n, lit)
+	self.led_speed[n] = colour_speed
 end
 
 -- Keypad Links (section 5.3) -----------------------------------------------------------
@@ -497,6 +658,50 @@ function links:publish()
 	end
 end
 
+-- The Breeze animation's pixels (BL-D2): the speed links 301 to 306 with a
+-- keypad bound, ascending. Bound is what the Keypad Links property lists for
+-- the link: a keypad in consumers, whether its buttons are known by number or
+-- only from Director's table (the UNKNOWN marker in buttons; merge and
+-- binding_changed keep those keypads in consumers too). A link not read yet
+-- (consumers nil) is not bound.
+function links:pixels_list()
+	local list = {}
+	for link = FIRST_SPEED, LAST_SPEED do
+		local set = self.consumers[link]
+		if set and next(set) ~= nil then
+			list[#list + 1] = link
+		end
+	end
+	return list
+end
+
+-- Hands pixels() the list when it differs from the last one it took, or
+-- always with `force` (late init). A pixels() that raises is logged, and the
+-- list is offered again at the next change of the bookkeeping.
+function links:send_pixels(force)
+	if not self.pixels then
+		return
+	end
+	local list = self:pixels_list()
+	local key = table.concat(list, ",")
+	if not force and key == self.pixels_sent then
+		return
+	end
+	local ok, err = pcall(self.pixels, list)
+	if ok then
+		self.pixels_sent = key
+	else
+		self.log.error("the Breeze animation could not take the pixels %s: %s", key, tostring(err))
+	end
+end
+
+-- The bound bookkeeping changed (or was read at late init, `force`): the
+-- Keypad Links property and the pixel list follow it.
+function links:bookkeeping_changed(force)
+	self:publish()
+	self:send_pixels(force)
+end
+
 -- OnBindingChanged for any of the thirteen links. The event names the keypad;
 -- Director's own table may still lag behind it (a Bind is asynchronous), so
 -- the table says who else is bound and the event settles the one it names.
@@ -557,7 +762,9 @@ function links:binding_changed(id, bound, other_device, other_binding)
 	self.consumers[link], self.touched[link] = set, true
 	self.log.debug("%s: keypad %s %s (its binding %s)", name, tostring(device_id), bound and "bound" or "unbound",
 		tostring(other_binding))
-	self:publish()
+	-- The pixels first: a speed link that gains a button mid-animation is held
+	-- before its answer, which the animation then paints (BL-D16).
+	self:bookkeeping_changed(false)
 	if bound and links.LINKS[link] then
 		self:answer(link)
 	end
@@ -602,7 +809,7 @@ function links:reread_later(link)
 		end
 		self.buttons[link] = self:merge(link, set)
 		self.consumers[link] = set
-		self:publish()
+		self:bookkeeping_changed(false)
 	end)
 	if ok then
 		self.rereads[link] = t
@@ -627,11 +834,12 @@ function links:look_again(unknown)
 			self.consumers[link] = self:read_bound(link) or {}
 		end
 	end
-	self:publish()
+	self:bookkeeping_changed(false)
 end
 
 -- OnDriverLateInit: every link read once; the ones that answered nil are
--- read again 5 s later (one nil is "unknown", ECC C15).
+-- read again 5 s later (one nil is "unknown", ECC C15). The pixel list goes
+-- out now whether it changed or not.
 function links:late_init()
 	self:cancel_second_look()
 	local unknown = {}
@@ -643,7 +851,7 @@ function links:late_init()
 			unknown[#unknown + 1] = link
 		end
 	end
-	self:publish()
+	self:bookkeeping_changed(true)
 	if #unknown > 0 and self.timer then
 		local ok, t = pcall(self.timer, links.SECOND_LOOK_MS, function()
 			self.second_look = nil

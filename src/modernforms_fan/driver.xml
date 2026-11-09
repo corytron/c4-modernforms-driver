@@ -272,6 +272,47 @@
 				<default>0,0,0</default>
 				<readonly>false</readonly>
 			</property>
+			<!-- #137 (docs/breeze-leds-design.md BL-D18): gusts on the bound speed
+			     links while Breeze blows, only with Speed LED Colors = Per speed. Off
+			     by default, so an update animates no one's keypad. -->
+			<property>
+				<name>Breeze LED Animation</name>
+				<type>LIST</type>
+				<items>
+					<item>Off</item>
+					<item>Gusts</item>
+				</items>
+				<default>Off</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Breeze LED Bottom</name>
+				<type>LIST</type>
+				<items>
+					<item>Lowest speed</item>
+					<item>Highest speed</item>
+				</items>
+				<default>Lowest speed</default>
+				<readonly>false</readonly>
+			</property>
+			<property>
+				<name>Breeze LED Step (ms)</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>60</minimum>
+				<maximum>400</maximum>
+				<default>120</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- BL-D28: the animation's colours at this percent between sunset and
+			     sunrise at the project's location; 100 turns it off. -->
+			<property>
+				<name>Breeze LED Night Brightness (%)</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>10</minimum>
+				<maximum>100</maximum>
+				<default>50</default>
+				<readonly>false</readonly>
+			</property>
 			<property>
 				<name>Debug Mode</name>
 				<type>LIST</type>

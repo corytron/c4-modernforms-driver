@@ -40,6 +40,9 @@ local follow_mod = require("fan.follow")
 local search_mod = require("fan.search")
 local found_mod = require("fan.found")
 local breeze_mod = require("fan.breeze")
+local breezeleds_mod = require("fan.breezeleds")
+local fanmode = require("fan.mode")
+local sun_mod = require("fan.sun")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -183,7 +186,7 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze
+local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 -- Found Fans as last written (auto-discovery-design 3): the rows, the entry
 -- behind each item row, and the text the row was written with.
@@ -242,10 +245,26 @@ function listener.idle(group, st)
 	end
 end
 
+-- What the Breeze LEDs follow (breeze-leds-design BL-D9, BL-D11): Breeze
+-- mode in the shown state, its strength, and whether the fan is online.
+-- The fan's airflow for the gusts (BL-D30): forward blows down, reverse up.
+local AIRFLOW = { forward = "down", reverse = "up" }
+
+local function leds_view(shown, phase)
+	return {
+		breeze = fanmode.breeze(shown),
+		strength = shown and shown.wind_speed,
+		online = phase == "online",
+		direction = shown and AIRFLOW[shown.direction] or nil,
+	}
+end
+
 function listener.shown(shown)
 	if breeze then
 		breeze:shown(shown) -- first: link 311's LED reads it (BZ4)
 	end
+	-- Before the links, so the pixels are held before they look (breeze-leds-design 3.3).
+	bleds:update(leds_view(shown, model:phase()))
 	links:shown(shown)
 	light:shown()
 	refresh_status()
@@ -271,6 +290,7 @@ function listener.phase(phase, detail, old)
 	if breeze then
 		breeze:phase(phase)
 	end
+	bleds:update(leds_view(model:shown(), phase))
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -356,6 +376,26 @@ local function write_keypad_links(items)
 	prop_list("Keypad Links", items, items[1])
 end
 
+-- Breeze on the keypad LEDs (#137, breeze-leds-design): created before the
+-- links, which reach it through closures, as it reaches them.
+bleds = breezeleds_mod.new({
+	paint = function(link, colour, with_state)
+		links:paint(link, colour, with_state)
+	end,
+	settle = function(link)
+		links:settle(link)
+	end,
+	light = function(link, lit)
+		links:light(link, lit)
+	end,
+	timer = timer,
+	now = now_ms,
+	random = function(lo, hi)
+		return math.random(lo, hi)
+	end,
+	log = log,
+})
+
 links = links_mod.new({
 	model = model,
 	fan = fan,
@@ -380,6 +420,16 @@ links = links_mod.new({
 	end,
 	breeze_blows = function()
 		return breeze ~= nil and breeze:blows_shown()
+	end,
+	-- The Breeze LEDs (breeze-leds-design 3.2, BL-D15, BL-D16).
+	held = function(link)
+		return bleds:held(link)
+	end,
+	repaint = function(link)
+		bleds:repaint(link)
+	end,
+	pixels = function(list)
+		bleds:set_pixels(list)
 	end,
 	log = log,
 })
@@ -645,7 +695,100 @@ local function apply_colors()
 	links:set_colors(mode, colors, read("Speed LED Off Color"))
 end
 
-dispatch.properties["Speed_LED_Colors"] = apply_colors
+-- Night for the Breeze LEDs (breeze-leds-design BL-D28, BL-D29): from the
+-- project's location, the one Director computes its own sunrise and sunset
+-- from [API 24_properties/_2], worked out again at every sunrise and sunset
+-- (and every 6 h) while the animation is on. Only the animation's colours are
+-- scaled; nothing outside Breeze changes.
+local NIGHT_RECHECK_MS = 6 * 3600 * 1000
+local CLOCK_SET_S = 1577836800 -- 2020-01-01: before it the controller's clock is not set
+local night_timer, night_said = nil, nil
+
+local function project_property(name)
+	local ok, value = pcall(function()
+		return C4:GetProjectProperty(name)
+	end)
+	return ok and value or nil
+end
+
+local function cancel_night_timer()
+	if night_timer then
+		pcall(function()
+			night_timer:Cancel()
+		end)
+		night_timer = nil
+	end
+end
+
+-- Each different line once, so the 6-hourly look does not repeat itself.
+local function say_night(template, ...)
+	local line = string.format(template, ...)
+	if line ~= night_said then
+		night_said = line
+		log.info("Breeze LEDs: %s", line)
+	end
+end
+
+local apply_breeze_night
+apply_breeze_night = function()
+	cancel_night_timer()
+	local percent = tonumber(Properties["Breeze LED Night Brightness (%)"]) or 50
+	if Properties["Breeze LED Animation"] ~= "Gusts" then
+		bleds:configure({ night = false, night_percent = percent })
+		return
+	end
+	local night, next_change = false, nil
+	local now = os.time()
+	local lat, lon_or_why = sun_mod.location(project_property("Latitude"), project_property("Longitude"))
+	if not lat then
+		say_night("never night: %s", tostring(lon_or_why))
+	elseif now < CLOCK_SET_S then
+		say_night("never night: the controller's clock is not set")
+	else
+		night, next_change = sun_mod.night(lat, lon_or_why, now)
+		if next_change then
+			say_night("%s until %s", night and "night" or "day", os.date("%H:%M", next_change))
+		else
+			say_night("%s: the sun neither rises nor sets today", night and "night" or "day")
+		end
+	end
+	bleds:configure({ night = night == true, night_percent = percent })
+	local wait_ms = NIGHT_RECHECK_MS
+	if next_change then
+		wait_ms = math.min(wait_ms, math.max(1000, (next_change - now + 5) * 1000))
+	end
+	night_timer = timer(wait_ms, apply_breeze_night)
+end
+
+-- Breeze LED Animation, Bottom, Step and Night Brightness (breeze-leds-design
+-- section 2, BL-D3, BL-D18, BL-D28): every row read together, with Speed LED
+-- Colors' mode.
+local function apply_breeze_leds()
+	local enabled = Properties["Breeze LED Animation"] == "Gusts"
+	local per_speed = Properties["Speed LED Colors"] == "Per speed"
+	bleds:configure({
+		enabled = enabled,
+		per_speed = per_speed,
+		bottom = Properties["Breeze LED Bottom"] == "Highest speed" and 6 or 1,
+		step = tonumber(Properties["Breeze LED Step (ms)"]) or breezeleds_mod.STEP_DEFAULT,
+	})
+	apply_breeze_night()
+	-- L42 for a change the owner makes, not for the late-init replay.
+	if enabled and not per_speed and started then
+		result("breeze_leds_need_per_speed")
+	end
+end
+
+dispatch.properties["Speed_LED_Colors"] = function()
+	-- The Breeze LEDs first: leaving Per speed settles the pixels while the links
+	-- still send the per-speed colours, so no frame colour stays on a button.
+	apply_breeze_leds()
+	apply_colors()
+end
+dispatch.properties["Breeze_LED_Animation"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Bottom"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds
 dispatch.properties["Speed_LED_Off_Color"] = apply_colors
 for speed = 1, 6 do
 	dispatch.properties["Speed_" .. speed .. "_LED_Color"] = apply_colors
@@ -1094,6 +1237,8 @@ function OnDriverDestroyed()
 	discovery:stop()
 	names_job:stop()
 	breeze:stop()
+	cancel_night_timer()
+	bleds:stop() -- before the links: nothing is sent (breeze-leds-design BL-D17)
 	links:stop()
 	light:stop()
 	model:stop()

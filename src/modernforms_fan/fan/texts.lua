@@ -60,7 +60,8 @@ texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign"
 -- then the address follower's two, L30 and L31 (address-follow-design 2.4),
 -- then the waiting pick, L32 (auto-discovery-design 5), then Breeze's eight,
 -- L33 to L40 (breeze-design section 5; "Breeze fan" since section 11), and
--- L41, the 1.2 switch still bound (breeze-design BF-D10).
+-- L41, the 1.2 switch still bound (breeze-design BF-D10), then L42, the Breeze
+-- LED animation without Per speed (breeze-leds-design BL-D3, section 2).
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 	"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
@@ -69,6 +70,7 @@ texts.RESULT_KEYS = {
 	"name_busy", "followed", "follow_refused", "picked_wait",
 	"breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added", "breeze_switch_exists",
 	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed", "breeze_old_switch",
+	"breeze_leds_need_per_speed",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -1087,6 +1089,12 @@ end
 -- switch (BF-D10), which has to go before the Breeze fan is added; named.
 function RESULTS.breeze_old_switch(f)
 	return OLD_SWITCH .. item_name(f.name, ROW_MAX - #OLD_SWITCH)
+end
+
+-- L42: Breeze LED Animation is Gusts while Speed LED Colors is not Per speed
+-- (breeze-leds-design BL-D3, section 2): the driver owns no colours to put back.
+function RESULTS.breeze_leds_need_per_speed()
+	return "Breeze LEDs need Speed LED Colors set to Per speed"
 end
 
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see

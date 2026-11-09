@@ -53,6 +53,12 @@ specification, and `status.md` says what of them is live.
   current with a summary as its first item; a pick that takes the fan at
   once (another fan on a device that has its fan waits for Use Selected
   Fan); the Find Fans action removed; the checks on the house.
+- [`breeze-leds-design.md`](breeze-leds-design.md): Breeze on the keypad
+  LEDs (#137): the driver plays gusts in white, teal and azure on the
+  bound speed links while Breeze blows, a rising wipe in and a falling wipe
+  out, only under Per speed, colours only so the keypad's ambient dimming
+  applies; the properties, the module interfaces, the tests and the checks
+  on the house.
 - [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
   "Breeze is on" means (the fan runs with Breeze), the programming
   commands, variable, events and condition, the Fan Breeze link (311), the
@@ -139,6 +145,17 @@ Read-only research written before a feature's contract, in the same style.
   order, and the two-device model of one motor (fan mode or Breeze mode,
   the request order, the keypad LEDs, groups and loops), cases BF1 to
   BF106.
+- [`breeze-leds-sdk-research.md`](breeze-leds-sdk-research.md): a keypad
+  LED animation while Breeze blows (#137), from the SDK's side: every
+  documented way to change a keypad button's LED, which source wins under
+  each LED Behavior, driver timers, and what programming alone can reach.
+- [`breeze-leds-field-research.md`](breeze-leds-field-research.md): the
+  same animation from outside the SDK (#137): the keypad's LEDs, Composer's
+  Delay and Timer agent, field reports and drivers that animate keypads,
+  Zigbee message rates, and how few LEDs can still look like motion.
+- [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md): the lifecycle
+  cases of that animation (#137), done by programming or by the driver, and
+  what is automatic, offered or forbidden without a click.
 
 ## Start here
 
