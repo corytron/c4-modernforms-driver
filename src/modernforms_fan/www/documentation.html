@@ -403,19 +403,19 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <table>
 <tr><th>Property</th><th>Default</th><th>What it does</th></tr>
 <tr><td><b>Breeze LED Animation</b></td><td><code>Off</code></td><td><code>Off</code> or <code>Gusts</code>. Gusts plays the animation while the fan blows in Breeze mode. An update leaves it Off, so no keypad starts animating by itself.</td></tr>
-<tr><td><b>Breeze LED Bottom</b></td><td><code>Speed 1</code></td><td><code>Speed 1</code> or <code>Speed 6</code>: which end of the speed buttons is at the bottom of the keypad (below).</td></tr>
+<tr><td><b>Breeze LED Bottom</b></td><td><code>Lowest speed</code></td><td><code>Lowest speed</code> or <code>Highest speed</code>: which end of the speed buttons is at the bottom of the keypad (below).</td></tr>
 <tr><td><b>Breeze LED Step (ms)</b></td><td>300</td><td>200 to 600: the time the head takes from one button to the next. Wipes and gusts use the same step.</td></tr>
 </table>
 <ol>
 <li>If they are not set yet, pick the speed colours and set <b>Speed LED Colors</b> to <code>Per speed</code> (above).</li>
 <li>Set <b>Breeze LED Animation</b> to <code>Gusts</code> and click <b>Set</b>. If Breeze blows at that moment, the rising wipe plays at once.</li>
-<li>Watch one gust. If it runs down the keypad instead of up, set <b>Breeze LED Bottom</b> to <code>Speed 6</code> and click <b>Set</b>.</li>
+<li>Watch one gust. If it runs down the keypad instead of up, set <b>Breeze LED Bottom</b> to <code>Highest speed</code> and click <b>Set</b>.</li>
 </ol>
 <p><b>Why Per speed.</b> The animation recolours buttons, and when it ends it must give them back the colours they had. The driver can give back only colours it owns, the speed colours of <code>Per speed</code>. With <code>Keypad's own</code> nothing animates, and <b>Last Action</b> reads <code>Breeze LEDs need Speed LED Colors set to Per speed</code>, both when you set <code>Gusts</code> and when you switch <b>Speed LED Colors</b> away from <code>Per speed</code> while <code>Gusts</code> is set.</p>
 
 <p><b>Which buttons take part.</b> Only buttons bound to <b>Fan Speed 1</b> to <b>Fan Speed 6</b>, one place in the column for each speed link that has a button: a keypad with buttons on Fan Speed 2 to Fan Speed 5 plays it over four buttons, and a speed with no button leaves no gap. Every button on one link shows the same colour at the same moment, so several keypads bound to the same links play in step. <b>Fan Off</b>, <b>Fan Toggle</b>, <b>Fan Cycle</b>, <b>Fan Breeze</b> and the light's three links never animate and follow the fan as before: in Breeze mode Off, Toggle and Cycle dark, Fan Breeze lit. They show the keypad's own colours, which the driver cannot read: a colour of the animation sent to Off would stay on it as its colour after Breeze, and Off would light white or azure the next time the fan stops. A keypad with no button on a speed link, for example a 2-button keypad, or a switch used as one, bound to Fan Toggle and Fan Off, shows no animation: its LEDs work as before. A fan without Breeze never animates.</p>
 
-<p><b>The order, and Breeze LED Bottom.</b> The driver cannot see where a button sits on the keypad: Control4 tells it which links are bound, not where the buttons are. It orders them by speed number, the lowest speed at the bottom, which suits a keypad with the highest speed at the top. On a keypad laid out the other way round, set <b>Breeze LED Bottom</b> to <code>Speed 6</code>. The row belongs to the fan device, so all its keypads share it: on a second keypad laid out the other way round from the first, the animation runs downward.</p>
+<p><b>The order, and Breeze LED Bottom.</b> The driver cannot see where a button sits on the keypad: Control4 tells it which links are bound, not where the buttons are. It orders them by speed number, the lowest speed at the bottom, which suits a keypad with the highest speed at the top. On a keypad laid out the other way round, with the lowest speed at the top, set <b>Breeze LED Bottom</b> to <code>Highest speed</code>. The row belongs to the fan device, so all its keypads share it: on a second keypad laid out the other way round from the first, the animation runs downward.</p>
 
 <p><b>A press during Breeze.</b> A press acts as it always does (chapter 4); only its LED shows differently.</p>
 <ul>
@@ -568,7 +568,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><b>Speed 1 LED Color</b> to <b>Speed 6 LED Color</b></td><td><code>0,0,255</code> (blue)</td><td>The colour a speed link shows while the fan runs at that speed, used only with <code>Per speed</code>. Editable.</td></tr>
 <tr><td><b>Speed LED Off Color</b></td><td><code>0,0,0</code> (black)</td><td>The colour a speed link shows when it is dark, sent with the speed colours. Editable.</td></tr>
 <tr><td><b>Breeze LED Animation</b></td><td><code>Off</code></td><td><code>Off</code> or <code>Gusts</code>: whether the buttons on the speed links play gusts while the fan blows in Breeze mode; needs <code>Per speed</code> (<a href="#breeze-leds">The Breeze animation</a>, chapter 5). Editable.</td></tr>
-<tr><td><b>Breeze LED Bottom</b></td><td><code>Speed 1</code></td><td><code>Speed 1</code> or <code>Speed 6</code>: which end of the speed buttons the animation starts from (chapter 5). Editable.</td></tr>
+<tr><td><b>Breeze LED Bottom</b></td><td><code>Lowest speed</code></td><td><code>Lowest speed</code> or <code>Highest speed</code>: which end of the speed buttons the animation starts from (chapter 5). Editable.</td></tr>
 <tr><td><b>Breeze LED Step (ms)</b></td><td>300</td><td>200 to 600: the animation's step, the time from one button to the next (chapter 5). Editable.</td></tr>
 <tr><td><b>Debug Mode</b></td><td>Off</td><td><code>Off</code> or <code>On</code>. On, the driver writes a line for every request and answer to this device's Lua output (the Lua tab); off, only warnings and errors. Leave it Off in normal use. Editable.</td></tr>
 </table>

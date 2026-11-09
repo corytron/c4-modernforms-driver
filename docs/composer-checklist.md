@@ -884,10 +884,12 @@ the standing-approval sentence and names the Sets on the three new rows.
     Low, Medium, Med-High and High is lowest, and do Up and Down sit below
     them?
     - **Expect:** the order bottom to top. With Low at the bottom, `Breeze
-      LED Bottom` stays `Speed 1`; with High at the bottom, the Windows
-      session sets it to `Speed 6` and clicks **Set**. Record the order and
-      the value left in the row.
-    - **Done:** open.
+      LED Bottom` stays `Lowest speed`; with High at the bottom, the Windows
+      session sets it to `Highest speed` and clicks **Set**. Record the order
+      and the value left in the row.
+    - **Done:** 2026-11-09, the owner's look: top to bottom Low, Medium,
+      Med-High, High, then Off, then Up and Down. High is the lowest speed
+      button, so the house's row is `Highest speed`.
 65. **A colour message alone (HB2).** `Breeze LED Animation` still `Off`.
     The Windows session sets the fan to Level 3 from the fan item, so
     Medium is lit in its speed colour. The coordinator sends one

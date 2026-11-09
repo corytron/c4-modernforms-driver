@@ -32,7 +32,7 @@ BF-D15); the links are [`v1-design.md`](v1-design.md) section 5 and
 | BL-D1 | **The driver animates its own links.** Only `BUTTON_COLORS` and `MATCH_LED_STATE` on the links the buttons are bound to; never a keypad proxy command by device id, never a keypad setting, never the keypad's Ambient Light Level input. | owner 2026-11-08; SDK 1, 3, 8; BL1 to BL4 |
 | BL-D2 | **Pixels** are the speed links 301 to 306 that have a button bound (a known keypad, or a binding not yet known by number), one pixel per link. Every button on one link shows the same pixel. Off (300), Toggle (307), Cycle (308), Breeze (311) and the light's links (200 to 202) never animate and keep following their state as in 1.3 (in Breeze: Off dark, Toggle and Cycle dark, Breeze lit). On the house: Low (302), Medium (303), Med-High (304), High (305), four pixels. | owner 2026-11-09 ("off does not join"); SDK 6 (e); BL21 to BL24 |
 | BL-D3 | **Only with `Speed LED Colors` = `Per speed`.** The driver may recolour only links whose resting colours it owns. Under `Keypad's own` nothing animates, and turning the animation on writes L42 to Last Action. | SDK 6 (e); BL22 |
-| BL-D4 | **Order by speed number.** Pixel 1 (the bottom) is the lowest speed link by default; `Breeze LED Bottom` = `Speed 6` reverses it. The driver cannot learn button positions. | SDK 3; field Q1; BL25 |
+| BL-D4 | **Order by speed number.** Pixel 1 (the bottom) is the lowest speed link by default; `Breeze LED Bottom` = `Highest speed` reverses it (the house: Low at the top, High at the bottom, so `Highest speed`, owner 2026-11-09). The driver cannot learn button positions. | SDK 3; field Q1; BL25 |
 | BL-D5 | **Colours only, full values, lit state only.** Every visible pixel is a lit button whose on colour is the frame colour; the off colour stays `Speed LED Off Color`, never touched. No brightness is ever computed or baked into a colour, so the keypad's active brightness and ambient dimming apply as to any lit LED. Palette: head `ffffff` (white), trail `00ffff` (teal), base `0080ff` (azure). Hue changes, not dimmed values, make the fade, so nothing vanishes when the keypad dims at night. | owner 2026-11-08 (dimming); SDK 8; field Q1a, Q6; BL61 to BL70 |
 | BL-D6 | **Enter.** When the shown state turns to Breeze mode, the pixels are taken at once and a **rising wipe** plays: the white head climbs one pixel per step, each pixel it leaves turns base azure. Then the gust cycle starts with a rest. | owner; field Q6 |
 | BL-D7 | **Gusts.** A rest (nothing sent; every pixel lit azure), then a **gust**: the white head climbs from below pixel 1 to above the top, the teal trail one pixel behind it, each pixel the trail leaves turning azure again; then the next rest. The rest is random within a range set by the Breeze strength: Breeze 1: 6 to 9 s, Breeze 2: 3.5 to 6 s, Breeze 3: 1.5 to 3.5 s (unknown strength: as 2). A strength change applies from the next rest. | owner 2026-11-09 ("gusts"); field Q5, Q6, rec. 3 |
@@ -53,7 +53,7 @@ BF-D15); the links are [`v1-design.md`](v1-design.md) section 5 and
 | Name | Type | Values | Default |
 | --- | --- | --- | --- |
 | `Breeze LED Animation` | LIST | `Off`, `Gusts` | `Off` |
-| `Breeze LED Bottom` | LIST | `Speed 1`, `Speed 6` | `Speed 1` |
+| `Breeze LED Bottom` | LIST | `Lowest speed`, `Highest speed` | `Lowest speed` |
 | `Breeze LED Step (ms)` | RANGED_INTEGER | 200 to 600 | 300 |
 
 Text **L42**, written to Last Action when `Breeze LED Animation` is set to

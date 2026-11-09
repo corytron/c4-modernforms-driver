@@ -289,10 +289,10 @@
 				<name>Breeze LED Bottom</name>
 				<type>LIST</type>
 				<items>
-					<item>Speed 1</item>
-					<item>Speed 6</item>
+					<item>Lowest speed</item>
+					<item>Highest speed</item>
 				</items>
-				<default>Speed 1</default>
+				<default>Lowest speed</default>
 				<readonly>false</readonly>
 			</property>
 			<property>

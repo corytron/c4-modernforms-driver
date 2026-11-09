@@ -695,7 +695,7 @@ local function apply_breeze_leds()
 	bleds:configure({
 		enabled = enabled,
 		per_speed = per_speed,
-		bottom = Properties["Breeze LED Bottom"] == "Speed 6" and 6 or 1,
+		bottom = Properties["Breeze LED Bottom"] == "Highest speed" and 6 or 1,
 		step = tonumber(Properties["Breeze LED Step (ms)"]) or breezeleds_mod.STEP_DEFAULT,
 	})
 	-- L42 for a change the owner makes, not for the late-init replay.
