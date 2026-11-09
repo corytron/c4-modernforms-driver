@@ -4,9 +4,21 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.4 "Sietch Tabr" runs on the house: build 152, released and installed
-in place on 2026-11-09 (deploy issue #142, the announcement in Discussion
-#144).** It adds the
+**1.5 "Shadout Mapes" is installed on the house: build 165, released and
+installed in place on 2026-11-09 (#141, deploy issue #154, the announcement
+in Discussion #155).** It adds simulated fades for the fan's light
+([`light-fades-design.md`](light-fades-design.md), the research and review
+rounds in Discussions #148, #151 and #152). **Nothing of it has run on the
+hardware:** the owner said to ship without the probes. It needs one
+controller reboot from System Manager before the new Click Rates rows load;
+until then taps keep the old rates. After the reboot the light's Default
+Brightness Rate is set to 3 s, and the probes H1 to H7 (including H4, which
+sets `light.LEDS_FOLLOW`) and FP0 to FP7 run one at a time with the owner
+watching.
+
+Before it, 1.4 "Sietch Tabr" ran on the house: build 152, released and
+installed in place on 2026-11-09 (deploy issue #142, the announcement in Discussion
+#144). It adds the
 Breeze animation on the keypad LEDs (#137,
 [`breeze-leds-design.md`](breeze-leds-design.md), the rounds in Discussion
 #138):
@@ -75,7 +87,17 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.4, build 152** (since 2026-11-09), the fan and its Breeze fan:
+- **v1.5, build 165** (since 2026-11-09), the fan and its Breeze fan:
+  `deploy/house.yaml` and the environment `house` agree (deployment
+  7668744012, success; deploy issue #154 closed). The Windows session
+  installed both packages in place: Composer asked "Restart Director?" once,
+  for the fan driver (answered Yes: the build adds Click Rates, which loads
+  only after the owner reboots the controller from System Manager), then
+  "Update Succeeded"; no device deleted or re-added. Read back: Driver
+  Version 165 and Debug Mode Off on both; the fan `Online: fan off, light
+  100 %`, the Breeze fan `Breeze off on Aviator 5`; every other row as under
+  1.4. The log from the install onward has no error or warning.
+- **v1.4, build 152** (2026-11-09 until the 1.5 install), the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
   7649366122, success; deploy issue #142 closed). The Windows session
   installed both packages in place through Driver ▸ "Add or Update Driver or
@@ -163,11 +185,9 @@ passed, the follow to a new address included (#58).
 ## Open
 
 Every open item is an issue (`gh issue list --state open`). On 2026-11-09
-the one in progress is **#141, simulated light fades**. The research is on
-draft PR #147 (`light-fades-sdk-research.md`, `edge-cases-light-fades.md`),
-and the owner answered its questions in #146 with "all recommended". The
-contract `light-fades-design.md` is next. The probes that flash the light
-run only with the owner watching. The list below is what was open on
+nothing is open: #141 (simulated light fades) shipped as 1.5 and its
+hardware checks wait for the controller reboot and the owner at the keypad
+(see the top of this page). The list below is what was open on
 2026-10-27 and how each ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,
