@@ -1,5 +1,5 @@
--- fan/speedleds.lua: the speed LED chase (#159). The contract is docs/speed-leds-design.md: section 1 (SL-D1 to
--- SL-D18), this module's interface (section 3.1) and what the owner sees (section 4); the reasons are
+-- fan/speedleds.lua: the speed LED chase (#159, #177). The contract is docs/speed-leds-design.md: section 1 (SL-D1
+-- to SL-D19), this module's interface (section 3.1) and what the owner sees (section 4); the reasons are
 -- docs/edge-cases-speed-leds.md, docs/speed-leds-c4-guidelines.md and docs/speed-leds-engine-options.md.
 --
 -- At a fixed fan speed a single dot in that speed's colour (SL-D7) runs across the keypad buttons on the fan's
@@ -7,11 +7,22 @@
 -- button per STEP_MS[speed] (SL-D5). Between chases a constant rest (SL-D6) in which the engine holds nothing and
 -- the links light the selected speed's button exactly as they do without the feature (SL-D3).
 --
+-- Runs (SL-D19, #177): the chase becoming possible, and every real change of its inputs while it is (SL-D10),
+-- starts a new run, whatever selected the speed. A run's first chase comes FIRST_MS after the engine saw the
+-- change; every later one a rest after the previous one ended. The same inputs again change nothing, so an
+-- update that repeats the view never pushes a chase back.
+--
 --   off       no chase can run (SL-D9): nothing held, no timer.
---   resting   nothing held; one timer for the rest, then the chase. A start, and every real change, rest first.
+--   resting   nothing held; one timer, then the chase: FIRST_MS from a new run's start while `first` (SL-D19),
+--             else the rest from the previous chase's end (SL-D6).
 --   waiting   the chase fell due while another engine (Breeze's leave wipe) held a pixel: nothing held; one timer
---             for RETRY_MS, then the chase is tried again (SL-D14).
+--             for RETRY_MS, then the chase is tried again (SL-D14). After Breeze ends at a speed the first chase
+--             comes FIRST_MS later or as soon as the wipe lets go, whichever is later.
 --   chasing   every pixel held; one timer per step.
+--
+-- The rest is not an input of a run (SL-D19): a rest change while resting moves the next chase to a rest after
+-- the previous chase's end (a run's first chase stays FIRST_MS after its start), never earlier than now; while
+-- chasing or waiting it applies after the chase.
 --
 -- Pixel 1 is the bottom: the lowest link, or the highest with bottom = 6. The lane is the order the dot runs:
 -- forward (blowing down) from the top pixel to pixel 1, reverse from pixel 1 up; an unknown direction, no chase.
@@ -38,9 +49,9 @@
 -- differs from the start (Also Lit At changed mid-chase), or that is lit at rest while colour(speed) now differs
 -- from C (Speed N LED Color edited mid-chase). In the house that costs nothing: no such pixel, no settle.
 --
--- Stops (SL-D9 to SL-D11, SL-D16): a real change of the inputs (speeds, per_speed, bottom, rest, fan_mode, speed,
+-- Stops (SL-D9 to SL-D11, SL-D16): a real change of the inputs (speeds, per_speed, bottom, fan_mode, speed,
 -- online, direction, the pixel list), repaint(link) on a held link, or stop() settles every held pixel at once,
--- ascending (a link that just left the list too), and holds nothing; then a fresh full rest while a chase can
+-- ascending (a link that just left the list too), and holds nothing; then a new run (SL-D19) while a chase can
 -- still run, else off. The same inputs again send nothing and keep the timer (SL-D10).
 --
 -- One clock and a budget (SL-D13, the Breeze window BL-D24): one one-shot timer at a time; every re-arm, change
@@ -57,7 +68,11 @@
 --   * blocked(link) that raises counts as held (one owner per pixel first), warned once until it answers again;
 --     without a `blocked` option nothing is held elsewhere.
 --   * stop() is final, as Breeze's: every later call is ignored and held() answers false.
---   * A timer that cannot be armed mid-chase settles every held pixel; the engine then waits for a real change.
+--   * A timer that cannot be armed mid-chase settles every held pixel; the engine then waits for a real change
+--     (or a rest change, which arms the rest from there).
+--   * A repaint (SL-D16) ends the chase as a real change does, so it starts a new run too: the next chase
+--     FIRST_MS later (SL-D19).
+--   * A chase skipped for want of a colour counts as one that ended when it fell due: the next a rest later.
 --
 -- Pure like fan/links.lua: nothing here touches Director, no globals. Every option is called through pcall (try);
 -- a failure is logged at warn and the engine goes on:
@@ -76,9 +91,10 @@ local speedleds = {}
 
 speedleds.STEP_MS = { [1] = 500, [2] = 400, [3] = 300, [4] = 200, [5] = 120, [6] = 100 } -- SL-D5
 speedleds.STEP_FLOOR_MS = 100 -- SL-D5: no step is shorter
-speedleds.REST_DEFAULT = 10 -- seconds (SL-D6)
+speedleds.REST_DEFAULT = 5 -- seconds (SL-D6, #177; 10 before 1.7)
 speedleds.REST_MIN = 5
 speedleds.REST_MAX = 60
+speedleds.FIRST_MS = 2500 -- a new run's first chase (SL-D19, #177), fixed
 speedleds.RETRY_MS = 200 -- SL-D14
 speedleds.BUDGET_PER_S = 30 -- messages in any WINDOW_MS (SL-D13, BL-D24)
 speedleds.WINDOW_MS = 1000
@@ -238,6 +254,10 @@ function speedleds.new(opts)
 		hold = {}, -- [link] = true while a chase holds it
 		chase = nil, -- the running chase: lane, n, speed, colour, step, rest, dirty, frames, frame
 		blocked_failed = false,
+		-- the run (SL-D19)
+		first = false, -- true from a new run's start until its first chase starts
+		run_vt = 0, -- the engine's time when the run started
+		end_vt = nil, -- and when its last chase ended (nil: none yet)
 		-- time and the budget
 		vt = 0, -- the engine's time, ms
 		cref = nil, -- the clock when vt was last brought up to it
@@ -292,10 +312,11 @@ function Leds:active()
 	return self:why_not() == nil
 end
 
--- Everything a real change is made of (SL-D10), as one string.
+-- Everything a real change is made of (SL-D10), as one string. The rest is not one: a rest change reschedules
+-- the run it is in instead of starting a new one (SL-D19).
 function Leds:inputs()
 	return table.concat({
-		self.speeds, tostring(self.per_speed), tostring(self.bottom), tostring(self.rest),
+		self.speeds, tostring(self.per_speed), tostring(self.bottom),
 		tostring(self.fan_mode), tostring(self.speed), tostring(self.online), tostring(self.direction),
 		table.concat(self.links, ","),
 	}, "|")
@@ -554,26 +575,59 @@ function Leds:settle_all(why)
 	end
 end
 
+-- The rest after a chase that ended now (SL-D6): the next one a rest from here (SL-D19).
 function Leds:start_rest(why)
-	self.state, self.chase = "resting", nil
+	self.state, self.chase, self.first = "resting", nil, false
+	self.end_vt = self.vt
 	self:say("debug", "%s; the next chase in %d s", why, self.rest)
 	self:arm(self.rest * 1000)
 end
 
--- After a real change, a repaint or a chase that cannot go on: every held pixel settled, then a fresh full rest
--- while a chase can still run (SL-D6, SL-D11), else off (SL-D9).
+-- A new run (SL-D19): its first chase FIRST_MS after the engine saw the change, whatever its source.
+function Leds:start_run(why)
+	self.state, self.chase, self.first = "resting", nil, true
+	self.run_vt, self.end_vt = self.vt, nil
+	self:say("debug", "%s: a new run, the first chase in %d ms", why, speedleds.FIRST_MS)
+	self:arm(speedleds.FIRST_MS)
+end
+
+-- After a real change, a repaint or a chase that cannot go on: every held pixel settled, then a new run while a
+-- chase can still run (SL-D11, SL-D19), else off (SL-D9).
 function Leds:evaluate(why)
 	self:cancel()
 	self:settle_all(why)
 	local reason = self:why_not()
 	if reason == nil then
-		self:start_rest(why .. ": a full rest first")
+		self:start_run(why)
 		return
 	end
 	if self.state ~= "off" then
 		self:say("debug", "off (%s)", reason)
 	end
-	self.state = "off"
+	self.state, self.first, self.end_vt = "off", false, nil
+end
+
+-- A rest change (SL-D19): while resting the next chase comes a rest after the previous chase's end, or FIRST_MS
+-- after the run's start when none has started yet, never earlier than now; a timer already armed for that time
+-- is kept. While chasing or waiting the chase falls due anyway: the new rest applies after it. Off: nothing.
+function Leds:rest_changed()
+	if self.state ~= "resting" then
+		return
+	end
+	local due
+	if self.first then
+		due = self.run_vt + speedleds.FIRST_MS
+	elseif self.end_vt ~= nil then
+		due = self.end_vt + self.rest * 1000
+	else
+		return
+	end
+	if self.armed and self.arm_vt + self.arm_ms == due then
+		return
+	end
+	local wait = math.max(0, due - self:advance_time())
+	self:say("debug", "the rest is now %d s; the next chase in %d ms", self.rest, wait)
+	self:arm(wait)
 end
 
 -- The chase that fell due (SL-D12): wait for another engine's pixels (SL-D14), read the colour (SL-D7) and what
@@ -621,7 +675,7 @@ function Leds:start_chase()
 		frames = frames_of(lane, rest),
 		frame = 1, -- the frame played next; n + 1 is the last
 	}
-	self.state = "chasing"
+	self.state, self.first = "chasing", false
 	for _, link in ipairs(lane) do
 		self:take(link)
 	end
@@ -660,7 +714,7 @@ end
 function Leds:abandon()
 	self:say("warn", "the chase stopped: no timer")
 	self:settle_all("no timer")
-	self.state = "resting"
+	self.state, self.end_vt = "resting", self.vt -- a rest change arms the rest from here (rest_changed)
 end
 
 -- The chase's next frame, within the budget (SL-D13): delayed whole while the window is full, never dropped.
@@ -703,13 +757,15 @@ function Leds:play()
 	end
 end
 
--- A real change of the inputs (SL-D10): settle, then rest or off; the same inputs send nothing.
+-- A real change of the inputs (SL-D10): settle, then a new run (SL-D19) or off; the same inputs send nothing.
+-- True when it was one.
 function Leds:changed(before, why)
 	if self:inputs() == before then
-		return
+		return false
 	end
 	self:advance_time()
 	self:evaluate(why)
+	return true
 end
 
 -- The interface ----------------------------------------------------------------------------------------------
@@ -738,10 +794,13 @@ function Leds:configure(c)
 			self:reorder()
 		end
 	end
+	local rest = self.rest
 	if c.rest ~= nil then
 		self.rest = seconds_of(c.rest)
 	end
-	self:changed(before, "configure")
+	if not self:changed(before, "configure") and self.rest ~= rest then
+		self:rest_changed() -- SL-D19: not a new run
+	end
 end
 
 function Leds:set_pixels(list)
@@ -807,7 +866,7 @@ function Leds:stop()
 	self:cancel()
 	self:settle_all("stopped")
 	self.stopped = true
-	self.state = "off"
+	self.state, self.first = "off", false
 end
 
 function Leds:debug()
@@ -834,6 +893,7 @@ function Leds:debug()
 	self:prune()
 	return {
 		state = self.state,
+		first = self.first, -- a new run's first chase not started yet: due FIRST_MS after the run's start (SL-D19)
 		speed = self.speed,
 		step = step,
 		frame = c and c.frame or nil,

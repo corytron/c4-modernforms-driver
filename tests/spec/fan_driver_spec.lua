@@ -1236,15 +1236,15 @@ describe("Modern Forms Fan driver", function()
 			-- #159, docs/speed-leds-design.md: the chase at a fixed speed.
 			local FWD3 = { fanOn = true, fanSpeed = 3, wind = false, fanDirection = "forward" }
 
-			it("rests first, then runs a dot in the speed's colour down the speed buttons at speed 3, with Medium dark"
-				.. " during the chase and lit again after it (speed-leds-design SL-D3 to SL-D12)", function()
+			it("waits 2.5 s after the speed is selected, then runs a dot in the speed's colour down the speed buttons"
+				.. " at speed 3, with Medium dark during the chase and lit again after it (SL-D3 to SL-D12, SL-D19)", function()
 					local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
 					assert.is_not_nil(env)
 					c4.calls = {}
-					hold_state(c4, FWD3, 9000)
-					assert.same({}, shows(c4, { [303] = PURPLE }), "nothing changes during the first rest")
+					hold_state(c4, FWD3, 2400)
+					assert.same({}, shows(c4, { [303] = PURPLE }), "nothing changes before 2.5 s")
 					c4.calls = {}
-					hold_state(c4, FWD3, 3000)
+					hold_state(c4, FWD3, 1600)
 					local list = shows(c4, { [303] = PURPLE })
 					assert.same({ 303, "dark" }, list[1], "the selected button goes dark first")
 					-- Lowest speed at the bottom and the fan blowing down: High to Low.
@@ -1271,7 +1271,7 @@ describe("Modern Forms Fan driver", function()
 						local state = { fanOn = true, fanSpeed = case.speed, wind = false, fanDirection = "forward" }
 						local _, c4 = leds_driver(state, { ["Speed LED Animation"] = "Speeds 2 to 5" })
 						c4.calls = {}
-						hold_state(c4, state, 12000)
+						hold_state(c4, state, 4500) -- the first chase only (2.5 s to 4.1 s at speed 2)
 						local seen = {}
 						for _, item in ipairs(shows(c4, { [case.link] = PURPLE })) do
 							if item[1] == case.link then
@@ -1285,7 +1285,7 @@ describe("Modern Forms Fan driver", function()
 
 			it("leaves the buttons to the gusts when Breeze starts during a chase (SL-D2, SL-D11)", function()
 				local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
-				hold_state(c4, FWD3, 10400)
+				hold_state(c4, FWD3, 3000) -- the first chase plays from 2.5 s to 3.7 s
 				c4.calls = {}
 				env.ReceivedFromProxy(311, "DO_PUSH", {})
 				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2, fanDirection = "forward" }, 6000)
@@ -1302,7 +1302,7 @@ describe("Modern Forms Fan driver", function()
 
 			it("ends a chase when the speed's colour changes, so Medium lights in the new colour (SL-D11)", function()
 				local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
-				hold_state(c4, FWD3, 10400)
+				hold_state(c4, FWD3, 3000) -- the first chase plays from 2.5 s to 3.7 s
 				c4.calls = {}
 				env.Properties["Speed 3 LED Color"] = "255,0,0"
 				env.OnPropertyChanged("Speed 3 LED Color")
@@ -1318,6 +1318,75 @@ describe("Modern Forms Fan driver", function()
 					assert.is_false(last_state(c4, link), link .. " ends dark")
 				end
 			end)
+
+			-- When `link` is first lit after `start` and when it first goes dark after that, in ms, while the fan
+			-- answers every read and command with `state` (#177).
+			local function lit_then_dark(c4, state, ms, link)
+				local lit_at, dark_at
+				for t = 100, ms, 100 do
+					for _, transfer in ipairs(c4.open_transfers()) do
+						transfer:respond(200, mf.state(state))
+					end
+					c4.advance(100)
+					for _, args in ipairs(c4.calls_to("SendToProxy")) do
+						if args[1] == link and args[2] == "MATCH_LED_STATE" then
+							if args[3].STATE == true and not lit_at then
+								lit_at = t
+							elseif args[3].STATE == false and lit_at and not dark_at then
+								dark_at = t
+							end
+						end
+					end
+				end
+				return lit_at, dark_at
+			end
+
+			describe("starts the first chase 2.5 s after a speed is selected, whatever selected it (#177, SL-D19)",
+				function()
+					local FWD4 = { fanOn = true, fanSpeed = 4, wind = false, fanDirection = "forward" }
+
+					local function settled_driver(state)
+						local env, c4 = leds_driver(state, { ["Speed LED Animation"] = "Speeds 2 to 5" })
+						hold_state(c4, state, 4000) -- past the first chase at the old speed
+						c4.calls = {}
+						return env, c4
+					end
+
+					local function assert_first_chase(lit_at, dark_at, what)
+						assert.is_not_nil(lit_at, what .. ": Med-High lights")
+						assert.is_not_nil(dark_at, what .. ": the chase starts")
+						local wait = dark_at - lit_at
+						assert.is_true(wait >= 2400 and wait <= 2700, what .. ": 2.5 s, not " .. wait .. " ms")
+					end
+
+					it("a keypad press", function()
+						local env, c4 = settled_driver(FWD3)
+						env.ReceivedFromProxy(304, "DO_PUSH", {})
+						env.ReceivedFromProxy(304, "DO_RELEASE", {})
+						local lit_at, dark_at = lit_then_dark(c4, FWD4, 6000, 304)
+						assert_first_chase(lit_at, dark_at, "keypad")
+					end)
+
+					it("programming or a Navigator, through the fan proxy", function()
+						local env, c4 = settled_driver(FWD3)
+						env.ReceivedFromProxy(5001, "SET_SPEED", { SPEED = "4" })
+						local lit_at, dark_at = lit_then_dark(c4, FWD4, 6000, 304)
+						assert_first_chase(lit_at, dark_at, "programming")
+					end)
+
+					it("the Modern Forms app, its remote or the wall control, seen at the next poll", function()
+						local _, c4 = settled_driver(FWD3)
+						local lit_at, dark_at = lit_then_dark(c4, FWD4, 25000, 304)
+						assert_first_chase(lit_at, dark_at, "app")
+					end)
+
+					it("the fan started at a speed", function()
+						local env, c4 = settled_driver({ fanOn = false, fanSpeed = 3, wind = false, fanDirection = "forward" })
+						env.ReceivedFromProxy(5001, "SET_SPEED", { SPEED = "4" })
+						local lit_at, dark_at = lit_then_dark(c4, FWD4, 6000, 304)
+						assert_first_chase(lit_at, dark_at, "start")
+					end)
+				end)
 
 			it("chases nothing by default (SL-D8)", function()
 				local _, c4 = leds_driver(FWD3, { ["Breeze LED Animation"] = "Off" })
