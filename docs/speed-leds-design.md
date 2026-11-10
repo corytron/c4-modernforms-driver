@@ -45,8 +45,8 @@ same, and its colour is the one set for that speed in the driver.
 | `Speed LED Animation` | LIST | `Off`, `Speeds 2 to 5`, `Speeds 1 to 6` | `Off` |
 | `Speed LED Rest (s)` | RANGED_INTEGER | 5 to 60 | 10 |
 
-Both are shown and hidden together with the Breeze LED rows (only under
-`Per speed`). The chase also reads `Breeze LED Bottom`; its description in
+Both sit with the Breeze LED rows and, like them, are always shown and take
+effect only under `Per speed`. The chase also reads `Breeze LED Bottom`; its description in
 the documentation says so.
 
 ## 3. Interfaces
@@ -94,8 +94,8 @@ s:debug()       -- a table for the dev loop: state ("off", "resting", "chasing",
 local hub = require("fan.ledhub").new({ breeze = bleds, speed = sleds })
 hub:held(link)           -- breeze:held(link) or speed:held(link)
 hub:repaint(link)        -- to the engine that holds it (Breeze first); nothing if neither
-hub:set_pixels(list)     -- to both
-hub:stop()               -- to both
+hub:set_pixels(list)     -- to both, the speed engine first, each its own copy of the list
+hub:stop()               -- to both, the speed engine first
 hub:update(breeze_view, speed_view) -- speed:update(speed_view) first, then breeze:update(breeze_view)
 hub:debug()              -- { breeze = breeze:debug(), speed = speed:debug(), both = { links held by both } }
 ```
@@ -111,8 +111,11 @@ every sequence it plays.
   calls `hub:stop()`.
 - `listener.shown` and `listener.phase` call `hub:update(leds_view(...), speed_view(...))`
   where `bleds:update(...)` is called today, before `links:shown`.
-- Property dispatch for the two rows; a `Speed_N_LED_Color`, `Speed LED Colors`
-  or `Breeze LED Bottom` change calls `sleds:configure` again.
+- Property dispatch for the two rows; a `Speed LED Colors` or `Breeze LED Bottom`
+  change calls `sleds:configure` again; a `Speed N LED Color` or `Speed LED Off
+  Color` change ends a chase in progress (`repaint` on a held link, SL-D11)
+  before the links take the new colours, because the chase's relight sends no
+  colour of its own.
 
 ## 4. What the owner sees (house: four buttons, Low to High, all purple, defaults)
 

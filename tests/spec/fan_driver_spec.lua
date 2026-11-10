@@ -203,7 +203,7 @@ describe("Modern Forms Fan driver", function()
 		end)
 
 		it("declares the properties of section 2.5 in order, the colour per speed rows (V27) and the Breeze LED rows"
-			.. " (breeze-leds-design 2) among them, Dev rows in a block",
+			.. " (breeze-leds-design 2) and the speed chase rows (speed-leds-design 2) among them, Dev rows in a block",
 			function()
 				local names = {}
 				for body in bare:gmatch("<property>(.-)</property>") do names[#names + 1] = field(body, "name") end
@@ -215,7 +215,7 @@ describe("Modern Forms Fan driver", function()
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
 					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
-					"Debug Mode", "Dev Server", "Dev State" }, names)
+					"Speed LED Animation", "Speed LED Rest (s)", "Debug Mode", "Dev Server", "Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
@@ -1229,6 +1229,95 @@ describe("Modern Forms Fan driver", function()
 				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2 }, 5000)
 				assert.is_false(any_frame(shows(c4)))
 				for _, link in ipairs(PIXELS) do
+					assert.same({}, sent(c4, link, "BUTTON_COLORS"), link .. " takes no colour")
+				end
+			end)
+
+			-- #159, docs/speed-leds-design.md: the chase at a fixed speed.
+			local FWD3 = { fanOn = true, fanSpeed = 3, wind = false, fanDirection = "forward" }
+
+			it("rests first, then runs a dot in the speed's colour down the speed buttons at speed 3, with Medium dark"
+				.. " during the chase and lit again after it (speed-leds-design SL-D3 to SL-D12)", function()
+					local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
+					assert.is_not_nil(env)
+					c4.calls = {}
+					hold_state(c4, FWD3, 9000)
+					assert.same({}, shows(c4, { [303] = PURPLE }), "nothing changes during the first rest")
+					c4.calls = {}
+					hold_state(c4, FWD3, 3000)
+					local list = shows(c4, { [303] = PURPLE })
+					assert.same({ 303, "dark" }, list[1], "the selected button goes dark first")
+					-- Lowest speed at the bottom and the fan blowing down: High to Low.
+					local order = { 305, 304, 303, 302 }
+					for index = 1, #order - 1 do
+						local upper, lower = first(list, order[index], PURPLE), first(list, order[index + 1], PURPLE)
+						assert.is_not_nil(upper, "the dot reaches " .. order[index])
+						assert.is_not_nil(lower, "the dot reaches " .. order[index + 1])
+						assert.is_true(upper < lower, "top to bottom")
+					end
+					for _, item in ipairs(list) do
+						assert.is_true(item[2] == PURPLE or item[2] == "dark", "only the speed's colour or dark")
+					end
+					assert.same({ 303, PURPLE }, list[#list], "Medium is lit again at the end")
+					for _, link in ipairs({ 302, 304, 305 }) do
+						assert.is_false(last_state(c4, link), link .. " ends dark")
+					end
+				end)
+
+			it("leaves the buttons to the gusts when Breeze starts during a chase (SL-D2, SL-D11)", function()
+				local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
+				hold_state(c4, FWD3, 10400)
+				c4.calls = {}
+				env.ReceivedFromProxy(311, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2, fanDirection = "forward" }, 6000)
+				local list = shows(c4, { [302] = PURPLE, [303] = PURPLE, [304] = PURPLE, [305] = PURPLE })
+				assert.is_true(any_frame(list), "the gusts run")
+				local gusting = false
+				for _, item in ipairs(list) do
+					gusting = gusting or FRAME[item[2]] ~= nil
+					if gusting then
+						assert.is_true(item[2] ~= PURPLE, "no dot once the gusts run (" .. item[1] .. ")")
+					end
+				end
+			end)
+
+			it("ends a chase when the speed's colour changes, so Medium lights in the new colour (SL-D11)", function()
+				local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
+				hold_state(c4, FWD3, 10400)
+				c4.calls = {}
+				env.Properties["Speed 3 LED Color"] = "255,0,0"
+				env.OnPropertyChanged("Speed 3 LED Color")
+				hold_state(c4, FWD3, 2000)
+				local list, medium = shows(c4), nil
+				for _, item in ipairs(list) do
+					if item[1] == 303 then
+						medium = item[2]
+					end
+				end
+				assert.equal("ff0000", medium, "Medium ends lit in the new colour")
+				for _, link in ipairs({ 302, 304, 305 }) do
+					assert.is_false(last_state(c4, link), link .. " ends dark")
+				end
+			end)
+
+			it("chases nothing by default (SL-D8)", function()
+				local _, c4 = leds_driver(FWD3, { ["Breeze LED Animation"] = "Off" })
+				c4.calls = {}
+				hold_state(c4, FWD3, 25000)
+				for _, link in ipairs(PIXELS) do
+					assert.same({}, sent(c4, link, "MATCH_LED_STATE"), link .. " is left alone")
+				end
+			end)
+
+			it("writes L43 and chases nothing under Keypad's own colours (SL-D9)", function()
+				local env, c4 = leds_driver(FWD3, { ["Speed LED Colors"] = "Keypad's own" })
+				env.Properties["Speed LED Animation"] = "Speeds 2 to 5"
+				env.OnPropertyChanged("Speed LED Animation")
+				assert.equal("LED chase needs Speed LED Colors set to Per speed", env.Properties["Last Action"])
+				c4.calls = {}
+				hold_state(c4, FWD3, 25000)
+				for _, link in ipairs(PIXELS) do
+					assert.same({}, sent(c4, link, "MATCH_LED_STATE"), link .. " is left alone")
 					assert.same({}, sent(c4, link, "BUTTON_COLORS"), link .. " takes no colour")
 				end
 			end)

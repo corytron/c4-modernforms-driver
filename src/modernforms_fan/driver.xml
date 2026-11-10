@@ -313,6 +313,29 @@
 				<default>50</default>
 				<readonly>false</readonly>
 			</property>
+			<!-- speed-leds-design SL-D8: a chase across the bound speed buttons at a
+			     fixed speed, only under Per speed; off by default. -->
+			<property>
+				<name>Speed LED Animation</name>
+				<type>LIST</type>
+				<items>
+					<item>Off</item>
+					<item>Speeds 2 to 5</item>
+					<item>Speeds 1 to 6</item>
+				</items>
+				<default>Off</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- SL-D6: the time between the end of one chase and the start of the next,
+			     the same at every speed. -->
+			<property>
+				<name>Speed LED Rest (s)</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>5</minimum>
+				<maximum>60</maximum>
+				<default>10</default>
+				<readonly>false</readonly>
+			</property>
 			<property>
 				<name>Debug Mode</name>
 				<type>LIST</type>
