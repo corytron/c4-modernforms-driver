@@ -59,6 +59,11 @@ specification, and `status.md` says what of them is live.
   out, only under Per speed, colours only so the keypad's ambient dimming
   applies; the properties, the module interfaces, the tests and the checks
   on the house.
+- [`speed-leds-design.md`](speed-leds-design.md): the chase on the keypad
+  LEDs at a fixed speed (#159): a dot in the speed's colour runs across the
+  bound speed buttons in the airflow direction, at a pace set by the speed,
+  with a constant rest in which the selected speed's LED is lit; the
+  properties, the second engine and its arbiter, the tests and the checks
 - [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
   "Breeze is on" means (the fan runs with Breeze), the programming
   commands, variable, events and condition, the Fan Breeze link (311), the
@@ -156,6 +161,15 @@ Read-only research written before a feature's contract, in the same style.
 - [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md): the lifecycle
   cases of that animation (#137), done by programming or by the driver, and
   what is automatic, offered or forbidden without a click.
+- [`edge-cases-speed-leds.md`](edge-cases-speed-leds.md): the lifecycle
+  cases of the speed chase (#159) on both sides, and what is automatic,
+  offered or forbidden without a click.
+- [`speed-leds-c4-guidelines.md`](speed-leds-c4-guidelines.md): Control4's
+  guidance on keypad LEDs applied to the chase (#159): the messages, their
+  cost, the budget and the default timings.
+- [`speed-leds-engine-options.md`](speed-leds-engine-options.md): where the
+  chase engine lives beside the Breeze one (#159), the hand-over between the
+  two, the frames and the proposed interface.
 - [`light-fades-sdk-research.md`](light-fades-sdk-research.md): simulated
   fades for the fan's light (#141), from Control4's side: every way a light
   is asked to change level and which carry a rate, click rates and their
