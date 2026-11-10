@@ -1,9 +1,9 @@
--- fan.speedleds on fakes: the speed LED chase (#159, docs/speed-leds-design.md section 1, SL-D1 to SL-D17, the
--- interface of section 3.1 and the tests of section 5). The paint, light and settle calls are recorded in order
--- and replayed on a keypad that behaves as the house keypad was measured to (#137): a colour preloaded while dark
--- stays dark, MATCH_LED_STATE shows the loaded colour or dark, and a settle shows what the links would show (lit
--- at rest in the speed's colour, or dark). The timer records its ms and callback and the spec fires the callbacks
--- by hand on a fake clock.
+-- fan.speedleds on fakes: the speed LED chase (#159, docs/speed-leds-design.md section 1, SL-D1 to SL-D18, the
+-- interface of section 3.1 and the tests of section 5; SL-D18 is #172, no double blink at the edges). The paint,
+-- light and settle calls are recorded in order and replayed on a keypad that behaves as the house keypad was
+-- measured to (#137): a colour preloaded while dark stays dark, MATCH_LED_STATE shows the loaded colour or dark, and
+-- a settle shows what the links would show (lit at rest in the speed's colour, or dark). The timer records its ms
+-- and callback and the spec fires the callbacks by hand on a fake clock.
 --
 -- What the keypad shows is written one letter a pixel, along the lane (where the dot starts first): "#" lit in
 -- the chase colour, "x" lit in another, "." dark, "?" unknown.
@@ -231,20 +231,59 @@ local function look(r, lane, colour)
 	return table.concat(out)
 end
 
--- Fires the rest timer and every step until the chase is over: every call, and the keypad after each frame.
+-- Fires the rest timer and every step until the chase is over: every call, the keypad after each frame, and the
+-- calls of each frame (frames[1] is frame 1, played when the rest timer fires).
 local function run_chase(r)
 	local lane = r.s:debug().lane
-	local calls, looks = {}, {}
+	local calls, looks, frames = {}, {}, {}
 	for _ = 1, 40 do
-		for _, call in ipairs(tick(r)) do
+		local frame = tick(r)
+		for _, call in ipairs(frame) do
 			calls[#calls + 1] = call
 		end
+		frames[#frames + 1] = frame
 		looks[#looks + 1] = look(r, lane)
 		if r.s:debug().state ~= "chasing" then
-			return calls, looks
+			return calls, looks, frames
 		end
 	end
 	error("the chase never ended")
+end
+
+-- The blinks of a chase (#172): a link sent light(link, false) and then light(link, true) within one frame, so
+-- the keypad turns it off and on again at once. Each as "link in frame f".
+local function blinks(frames)
+	local out = {}
+	for f, frame in ipairs(frames) do
+		local dark = {}
+		for _, call in ipairs(frame) do
+			if call[1] == "light" and call[3] == false then
+				dark[call[2]] = true
+			elseif call[1] == "light" and call[3] == true and dark[call[2]] then
+				out[#out + 1] = string.format("%d in frame %d", call[2], f)
+			end
+		end
+	end
+	return out
+end
+
+-- What one link was sent, frame by frame: "f:preload", "f:light", "f:dark" or "f:settle", in order.
+local function schedule(frames, link)
+	local out = {}
+	for f, frame in ipairs(frames) do
+		for _, call in ipairs(frame) do
+			if call[2] == link then
+				local kind = call[1]
+				if kind == "light" then
+					kind = call[3] and "light" or "dark"
+				elseif kind == "paint" and call[4] == false and call[5] == true then
+					kind = "preload"
+				end
+				out[#out + 1] = string.format("%d:%s", f, kind)
+			end
+		end
+	end
+	return out
 end
 
 local function held_any(r)
@@ -275,7 +314,7 @@ local function settles(links)
 	return out
 end
 
--- The house's chase at speed 3, forward (SL-D12): 13 messages.
+-- The house's chase at speed 3, forward (SL-D12): 13 messages. Medium is a middle place, so SL-D18 leaves it as is.
 local HOUSE_CHASE = {
 	{ "light", 303, false }, { "paint", 305, PURPLE, false, true }, { "light", 305, true },
 	{ "paint", 304, PURPLE, false, true }, { "light", 304, true }, { "light", 305, false },
@@ -493,65 +532,285 @@ describe("fan.speedleds", function()
 		end)
 	end)
 
-	describe("messages per chase (SL-D12)", function()
+	describe("messages per chase (SL-D12, SL-D18)", function()
 		local LINKS = { 301, 302, 303, 304, 305, 306 }
+		-- The pixels lit at rest, by their place among the N bound links (ascending); nil: not with N buttons.
+		local SETS = {
+			{ "none", function() return {} end },
+			{ "one in the middle", function(n) return n >= 3 and { 2 } or nil end },
+			{ "the lowest", function() return { 1 } end },
+			{ "the highest", function(n) return { n } end },
+			{ "both ends", function(n) return { 1, n } end },
+			{ "two in the middle", function(n) return n >= 4 and { 2, 3 } or nil end },
+		}
+		local function case(n, places, direction)
+			local pixels = {}
+			for i = 1, n do
+				pixels[i] = LINKS[i]
+			end
+			local lit, l = {}, #places
+			for _, i in ipairs(places) do
+				lit[pixels[i]] = true
+			end
+			local r = rig()
+			start(r, { pixels = pixels, lit = lit, direction = direction })
+			local lane = r.s:debug().lane
+			-- SL-D18: each pixel lit at rest where the dot starts or ends saves two messages.
+			local edges = (lit[lane[1]] and 1 or 0) + (lit[lane[n]] and 1 or 0)
+			local calls, looks, frames = run_chase(r)
+			assert.are.equal(2 * n + 2 * l + (n - l) - 2 * edges, #calls)
+			assert.are.equal(#calls, #r.stamps)
+			assert.are.same({}, blinks(frames))
+			-- Frame 1 starts with the L lit pixels darkened along the lane, all but one where the dot starts, which
+			-- is the dot's first position as it is (SL-D18); a dark one is preloaded and lit.
+			local k = 0
+			for i, link in ipairs(lane) do
+				if lit[link] and i > 1 then
+					k = k + 1
+					assert.are.same({ "light", link, false }, frames[1][k])
+				end
+			end
+			if lit[lane[1]] then
+				assert.are.equal(k, #frames[1])
+			else
+				assert.are.same({ { "paint", lane[1], PURPLE, false, true }, { "light", lane[1], true } },
+					{ frames[1][k + 1], frames[1][k + 2] })
+				assert.are.equal(k + 2, #frames[1])
+			end
+			-- The last frame darkens lane[N] unless it is lit at rest, where the dot stays (SL-D18), and relights
+			-- the others lit at rest.
+			local want = {}
+			if not lit[lane[n]] then
+				want[1] = { "light", lane[n], false }
+			end
+			for i, link in ipairs(lane) do
+				if lit[link] and i < n then
+					want[#want + 1] = { "light", link, true }
+				end
+			end
+			assert.are.same(want, frames[n + 1])
+			-- A preload on each pixel dark at rest, just before it is lit; none on a lit one.
+			local preloads = 0
+			for i, call in ipairs(calls) do
+				if call[1] == "paint" then
+					preloads = preloads + 1
+					assert.is_nil(lit[call[2]])
+					assert.are.same({ "paint", call[2], PURPLE, false, true }, call)
+					assert.are.same({ "light", call[2], true }, calls[i + 1])
+				end
+			end
+			assert.are.equal(n - l, preloads)
+			-- What the keypad shows is unchanged by SL-D18: exactly one pixel lit after each of frames 1 to N, the
+			-- dot on lane[k].
+			for f = 1, n do
+				assert.are.equal(string.rep(".", f - 1) .. "#" .. string.rep(".", n - f), looks[f])
+			end
+			-- After the last frame the pixels lit at rest are lit, the others dark; the chase lasted N steps.
+			local final = {}
+			for i, link in ipairs(lane) do
+				final[i] = lit[link] and "#" or "."
+			end
+			assert.are.equal(table.concat(final), looks[n + 1])
+			assert.are.equal(n + 1, #looks)
+			assert.is_false(held_any(r))
+			assert.are.equal(10000, pending(r).ms)
+		end
 		for n = 2, 6 do
-			for l = 0, 2 do
-				for _, direction in ipairs({ "forward", "reverse" }) do
-					it(string.format("sends 2N + 2L + (N - L) for N = %d, L = %d, %s", n, l, direction), function()
-						local pixels = {}
-						for i = 1, n do
-							pixels[i] = LINKS[i]
-						end
-						local lit = {}
-						if l == 1 then
-							lit[pixels[2]] = true
-						elseif l == 2 then
-							lit[pixels[1]], lit[pixels[n]] = true, true
-						end
-						local r = rig()
-						start(r, { pixels = pixels, lit = lit, direction = direction })
-						local lane = r.s:debug().lane
-						local calls, looks = run_chase(r)
-						assert.are.equal(2 * n + 2 * l + (n - l), #calls)
-						assert.are.equal(#calls, #r.stamps)
-						-- Frame 1 starts with the L lit pixels darkened, along the lane.
-						local k = 0
-						for _, link in ipairs(lane) do
-							if lit[link] then
-								k = k + 1
-								assert.are.same({ "light", link, false }, calls[k])
-							end
-						end
-						-- A preload on each pixel dark at rest, just before it is lit; none on a lit one.
-						local preloads = 0
-						for i, call in ipairs(calls) do
-							if call[1] == "paint" then
-								preloads = preloads + 1
-								assert.is_nil(lit[call[2]])
-								assert.are.same({ "paint", call[2], PURPLE, false, true }, call)
-								assert.are.same({ "light", call[2], true }, calls[i + 1])
-							end
-						end
-						assert.are.equal(n - l, preloads)
-						-- Exactly one pixel lit after each of frames 1 to N, the dot on lane[k].
-						for f = 1, n do
-							local want = string.rep(".", f - 1) .. "#" .. string.rep(".", n - f)
-							assert.are.equal(want, looks[f])
-						end
-						-- After the last frame the pixels lit at rest are lit again, the others dark.
-						local final = {}
-						for i, link in ipairs(lane) do
-							final[i] = lit[link] and "#" or "."
-						end
-						assert.are.equal(table.concat(final), looks[n + 1])
-						assert.are.equal(n + 1, #looks)
-						assert.is_false(held_any(r))
-						assert.are.equal(10000, pending(r).ms)
+			for _, set in ipairs(SETS) do
+				local places = set[2](n)
+				for _, direction in ipairs(places and { "forward", "reverse" } or {}) do
+					it(string.format("sends 2N + 2L + (N - L), less 2 an edge lit at rest, for N = %d, %s lit, %s",
+						n, set[1], direction), function()
+						case(n, places, direction)
 					end)
 				end
 			end
 		end
+
+		it("sends 11 for the house's four buttons with the selected one at an edge, 10 with Also Lit At at both", function()
+			local r = rig()
+			start(r, { speed = 2 })
+			assert.are.equal(11, #(run_chase(r)))
+			r = rig()
+			start(r, { speed = 5 })
+			assert.are.equal(11, #(run_chase(r)))
+			r = rig()
+			start(r, { speed = 2, lit = { [302] = true, [305] = true } })
+			assert.are.equal(10, #(run_chase(r)))
+		end)
+
+		it("plays two buttons both lit at rest in four messages", function()
+			local r = rig()
+			start(r, { speed = 2, pixels = { 302, 303 }, lit = { [302] = true, [303] = true } })
+			local lane = r.s:debug().lane
+			assert.are.same({ 303, 302 }, lane)
+			local before = look(r, lane)
+			local calls, looks = run_chase(r)
+			assert.are.same({
+				{ "light", 302, false }, -- frame 1: 303 stays lit as the dot's first position
+				{ "light", 302, true }, { "light", 303, false }, -- frame 2: the dot moves on to 302
+				{ "light", 303, true }, -- frame 3: 303 relit; 302 keeps the dot
+			}, calls)
+			assert.are.same({ "##", "#.", ".#", "##" }, { before, looks[1], looks[2], looks[3] })
+			assert.is_false(held_any(r))
+		end)
+	end)
+
+	describe("no double blink at the edges (SL-D18, #172)", function()
+		-- The house's four buttons, the selected speed's button lit at rest, at each place of the lane.
+		local CASES = {
+			{ direction = "forward", bottom = 1, lane = { 305, 304, 303, 302 } },
+			{ direction = "reverse", bottom = 1, lane = { 302, 303, 304, 305 } },
+			{ direction = "forward", bottom = 6, lane = { 302, 303, 304, 305 } },
+			{ direction = "reverse", bottom = 6, lane = { 305, 304, 303, 302 } },
+		}
+		-- What each pixel along the lane is sent, frame by frame (5 is the last frame), with the selected button at
+		-- lane place p. The dark pixels are the same at every p; only the selected one differs.
+		local DOT = {
+			{ "1:preload", "1:light", "2:dark" }, { "2:preload", "2:light", "3:dark" },
+			{ "3:preload", "3:light", "4:dark" }, { "4:preload", "4:light", "5:dark" },
+		}
+		local SELECTED = {
+			[1] = { "2:dark", "5:light" }, -- lit at rest as the dot's first position, darkened as the dot moves on
+			[2] = { "1:dark", "2:light", "3:dark", "5:light" }, -- a middle place: as before #172
+			[3] = { "1:dark", "3:light", "4:dark", "5:light" },
+			[4] = { "1:dark", "4:light" }, -- dark while the dot runs; the dot stays on it for the rest
+		}
+		local PICTURES = { "#...", ".#..", "..#.", "...#" }
+		local function chase_at(case, p)
+			local r = rig()
+			start(r, { direction = case.direction, bottom = case.bottom, speed = case.lane[p] - 300 })
+			assert.are.same(case.lane, r.s:debug().lane)
+			return r
+		end
+		for _, case in ipairs(CASES) do
+			local where = string.format("%s, bottom = %d", case.direction, case.bottom)
+			for p = 1, 4 do
+				local edge = p == 1 or p == 4
+				local what = p == 1 and "keeps the selected button lit where the dot starts"
+					or p == 4 and "leaves the dot on the selected button where it ends"
+					or "still darkens a selected middle button at the start and relights it at the end"
+				it(string.format("%s (%s, place %d): %d messages, no blink", what, where, p, edge and 11 or 13),
+					function()
+						local r = chase_at(case, p)
+						local selected = case.lane[p]
+						local before = look(r, case.lane)
+						local calls, looks, frames = run_chase(r)
+						assert.are.equal(edge and 11 or 13, #calls)
+						assert.are.same({}, blinks(frames))
+						for i, link in ipairs(case.lane) do
+							assert.are.same(i == p and SELECTED[p] or DOT[i], schedule(frames, link),
+								"what link " .. link .. " is sent")
+						end
+						if p == 1 then
+							assert.are.same({}, frames[1]) -- nothing else lit at rest: nothing to send at once
+						end
+						-- What the keypad shows after each frame is the dot's run, then the rest, as before #172.
+						assert.are.same(PICTURES[p], before)
+						assert.are.same({ PICTURES[1], PICTURES[2], PICTURES[3], PICTURES[4], PICTURES[p] }, looks)
+						assert.is_true(r.kp[selected].lit)
+						assert.are.equal(COLOURS[selected - 300], r.kp[selected].loaded)
+						assert.is_false(held_any(r))
+						assert.are.equal(10000, pending(r).ms)
+						assert.are.equal(r.clock, pending(r).at)
+						-- The next chase is the same.
+						local again = run_chase(r)
+						assert.are.same(calls, again)
+					end)
+			end
+
+			for _, p in ipairs({ 1, 4 }) do
+				it(string.format("settles every held pixel when stopped after any frame, the edge button too (%s,"
+					.. " place %d)", where, p), function()
+					for after = 1, 4 do
+						local r = chase_at(case, p)
+						for _ = 1, after do
+							tick(r)
+						end
+						for _, link in ipairs(case.lane) do
+							assert.is_true(r.s:held(link))
+						end
+						r.calls, r.stamps = {}, {}
+						r.s:stop()
+						assert.are.same(settles(HOUSE), r.calls)
+						assert.are.equal(8, #r.stamps)
+						assert.is_false(held_any(r))
+						assert.is_nil(pending(r))
+						for _, link in ipairs(HOUSE) do
+							assert.are.equal(r.rest[link] == true, r.kp[link].lit)
+						end
+						assert.are.equal(PICTURES[p], look(r, case.lane))
+					end
+				end)
+
+				it(string.format("settles every held pixel on a speed change or a repaint of the edge button"
+					.. " mid-chase (%s, place %d)", where, p), function()
+					local r = chase_at(case, p)
+					tick(r)
+					r.calls = {}
+					r.speed = case.lane[5 - p] - 300 -- the other edge, which then rests lit
+					r.rest = { [case.lane[5 - p]] = true }
+					r.s:update(view(r))
+					assert.are.same(settles(HOUSE), r.calls)
+					assert.is_false(held_any(r))
+					assert.are.equal(PICTURES[5 - p], look(r, case.lane))
+					assert.are.equal(10000, pending(r).ms)
+					r = chase_at(case, p)
+					tick(r)
+					r.calls = {}
+					assert.is_true(r.s:repaint(case.lane[p])) -- held although nothing was sent to it yet at place 1
+					assert.are.same(settles(HOUSE), r.calls)
+					assert.are.equal(PICTURES[p], look(r, case.lane))
+					assert.are.equal(10000, pending(r).ms)
+				end)
+			end
+		end
+
+		it("settles an edge button lit at rest that is not known to be right at the end, instead of leaving it", function()
+			local LANE = { 305, 304, 303, 302 }
+			-- Place 4: Low lit at speed 3 through Also Lit At, which is cleared while the dot is on Low.
+			local r = rig()
+			start(r, { lit = { [302] = true, [303] = true } })
+			for _ = 1, 4 do
+				tick(r)
+			end
+			assert.are.equal("...#", look(r, LANE))
+			r.rest = { [303] = true }
+			assert.are.same({ { "light", 303, true }, { "settle", 302 } }, tick(r))
+			assert.are.equal("..#.", look(r, LANE))
+			assert.is_false(held_any(r))
+			-- Place 4, the selected button: Speed 2 LED Color changes mid-chase.
+			r = rig()
+			start(r, { speed = 2 })
+			tick(r)
+			r.colours[2] = "ff00ff"
+			for _ = 1, 3 do
+				tick(r)
+			end
+			assert.are.same({ { "settle", 302 } }, tick(r))
+			assert.are.equal("...#", look(r, LANE, "ff00ff"))
+			-- Place 1, the selected button: Speed 5 LED Color changes mid-chase; settled instead of relit.
+			r = rig()
+			start(r, { speed = 5 })
+			tick(r)
+			r.colours[5] = "ff00ff"
+			for _ = 1, 3 do
+				tick(r)
+			end
+			assert.are.same({ { "light", 302, false }, { "settle", 305 } }, tick(r))
+			assert.are.equal("#...", look(r, LANE, "ff00ff"))
+			assert.is_false(held_any(r))
+		end)
+
+		it("settles a last edge button whose arrival failed, instead of leaving it as it is", function()
+			local r = rig()
+			start(r, { speed = 2 })
+			r.fail_light = function(link, lit) return link == 302 and lit end
+			local _, _, frames = run_chase(r)
+			assert.are.same({ { "settle", 302 } }, frames[5])
+			assert.is_true(r.kp[302].lit)
+			assert.is_false(held_any(r))
+		end)
 	end)
 
 	describe("idempotent inputs (SL-D10)", function()

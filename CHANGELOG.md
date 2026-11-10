@@ -11,6 +11,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Changed
+
+- The speed LED chase no longer blinks the selected button twice at the keypad's edge speeds: when the dot starts on the selected button (on a keypad with the lowest speed at the top and the fan blowing down, speed 2) that button stays lit as the dot's first position, and when the dot ends on it (speed 5) it stays lit into the rest (#172).
+
 ## 1.6 "Crysknife", build 176 (2026-11-09)
 
 ### Added
