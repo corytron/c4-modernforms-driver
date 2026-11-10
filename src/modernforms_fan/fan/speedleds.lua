@@ -1,5 +1,5 @@
 -- fan/speedleds.lua: the speed LED chase (#159). The contract is docs/speed-leds-design.md: section 1 (SL-D1 to
--- SL-D17), this module's interface (section 3.1) and what the owner sees (section 4); the reasons are
+-- SL-D18), this module's interface (section 3.1) and what the owner sees (section 4); the reasons are
 -- docs/edge-cases-speed-leds.md, docs/speed-leds-c4-guidelines.md and docs/speed-leds-engine-options.md.
 --
 -- At a fixed fan speed a single dot in that speed's colour (SL-D7) runs across the keypad buttons on the fan's
@@ -16,15 +16,21 @@
 -- Pixel 1 is the bottom: the lowest link, or the highest with bottom = 6. The lane is the order the dot runs:
 -- forward (blowing down) from the top pixel to pixel 1, reverse from pixel 1 up; an unknown direction, no chase.
 --
--- A chase (SL-D12), N pixels along the lane, L of them lit at rest (lit(link), asked when the chase starts), the
--- colour C = colour(speed) read when it starts (none: no chase this time, another full rest):
---   frame 1      (at once) the L lit pixels darkened, light(link, false); then the dot arrives on lane[1].
+-- A chase (SL-D12, SL-D18), N pixels along the lane, L of them lit at rest (lit(link), asked when the chase
+-- starts), the colour C = colour(speed) read when it starts (none: no chase this time, another full rest):
+--   frame 1      (at once) the L lit pixels darkened, light(link, false), except lane[1]; then the dot arrives on
+--                lane[1].
 --   frame k      (k = 2 .. N, one step apart) the dot arrives on lane[k], then lane[k - 1] is darkened.
---   frame N + 1  (one step after frame N) lane[N] darkened, then the L pixels relit, light(link, true); every
---                pixel handed back (held false) without a message: each shows what the links would show.
+--   frame N + 1  (one step after frame N) lane[N] darkened, then the L pixels relit, light(link, true), lane[N]
+--                neither when it is lit at rest; every pixel handed back (held false) without a message: each
+--                shows what the links would show.
 -- The dot arriving on a pixel dark at rest is paint(link, C, false, true) (the preload: loaded, still dark), then
--- light(link, true); on a pixel lit at rest light(link, true) alone, its loaded colour being C already. That is
--- 2N + 2L + (N - L) messages, 13 for the house's four buttons with one lit; a chase lasts N steps.
+-- light(link, true); on a pixel lit at rest light(link, true) alone, its loaded colour being C already.
+-- No double blink at the edges (SL-D18, #172): a pixel lit at rest where the dot starts (lane[1]) is neither
+-- darkened nor lit in frame 1: it stays lit as the dot's first position and is darkened in frame 2 like any other.
+-- One where the dot ends (lane[N]) is lit by the dot in frame N and left lit by frame N + 1, which neither darkens
+-- nor relights it. That is 2N + 2L + (N - L) messages less 2 for each edge pixel lit at rest: 13 for the house's
+-- four buttons with a middle one lit, 11 with an edge one; a chase lasts N steps either way.
 -- Step order: the next pixel is lit before the previous one is darkened, so the dot never vanishes mid-chase.
 --
 -- Truthful at the end: frame N + 1 settles (settle(link): the links send their truth) instead of darkening or
@@ -177,7 +183,9 @@ local function copy(list)
 	return out
 end
 
--- Frames 1 to N of a chase (SL-D12): { { kind, link }, ... } each; kind is preload, light or dark.
+-- Frames 1 to N of a chase (SL-D12): { { kind, link }, ... } each; kind is preload, light or dark. A pixel lit at
+-- rest where the dot starts is left lit as its first position (SL-D18): no darkening and no light in frame 1, so
+-- frame 1 can be empty.
 local function frames_of(lane, rest)
 	local frames = {}
 	local function arrive(frame, link)
@@ -187,12 +195,14 @@ local function frames_of(lane, rest)
 		frame[#frame + 1] = { "light", link }
 	end
 	local first = {}
-	for _, link in ipairs(lane) do
-		if rest[link] == true then
+	for k, link in ipairs(lane) do
+		if rest[link] == true and k > 1 then
 			first[#first + 1] = { "dark", link }
 		end
 	end
-	arrive(first, lane[1])
+	if rest[lane[1]] ~= true then
+		arrive(first, lane[1])
+	end
 	frames[1] = first
 	for k = 2, #lane do
 		local frame = {}
@@ -621,7 +631,8 @@ function Leds:start_chase()
 end
 
 -- Frame N + 1 (SL-D12): lane[N] darkened, the pixels lit at rest relit; a pixel that is not known to be right
--- is settled instead (lit now differs, the colour changed, a send failed).
+-- is settled instead (lit now differs, the colour changed, a send failed). lane[N] lit at rest keeps the dot
+-- (SL-D18): already lit in C, it is handed back without a message.
 function Leds:last_frame()
 	local c = self.chase
 	local colour = self:colour_of(c.speed)
@@ -632,13 +643,13 @@ function Leds:last_frame()
 		end
 	end
 	local last, frame = c.lane[c.n], {}
-	if not c.dirty[last] then
+	if not c.dirty[last] and c.rest[last] ~= true then
 		frame[1] = { "dark", last }
 	end
 	for _, link in ipairs(c.lane) do
 		if c.dirty[link] then
 			frame[#frame + 1] = { "settle", link }
-		elseif c.rest[link] then
+		elseif c.rest[link] and link ~= last then
 			frame[#frame + 1] = { "light", link }
 		end
 	end

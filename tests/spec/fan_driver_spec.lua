@@ -1264,6 +1264,25 @@ describe("Modern Forms Fan driver", function()
 					end
 				end)
 
+			it("never blinks the selected button twice at the edge speeds: it is the dot's first or last position"
+				.. " (SL-D18, #172)", function()
+					-- Lowest speed at the bottom, blowing down: the dot runs High (305) to Low (302).
+					for _, case in ipairs({ { speed = 5, link = 305 }, { speed = 2, link = 302 } }) do
+						local state = { fanOn = true, fanSpeed = case.speed, wind = false, fanDirection = "forward" }
+						local _, c4 = leds_driver(state, { ["Speed LED Animation"] = "Speeds 2 to 5" })
+						c4.calls = {}
+						hold_state(c4, state, 12000)
+						local seen = {}
+						for _, item in ipairs(shows(c4, { [case.link] = PURPLE })) do
+							if item[1] == case.link then
+								seen[#seen + 1] = item[2]
+							end
+						end
+						assert.same({ "dark", PURPLE }, seen, "speed " .. case.speed .. ": one dark, one lit, per chase")
+						assert.is_true(last_state(c4, case.link), "speed " .. case.speed .. " ends lit")
+					end
+				end)
+
 			it("leaves the buttons to the gusts when Breeze starts during a chase (SL-D2, SL-D11)", function()
 				local env, c4 = leds_driver(FWD3, { ["Speed LED Animation"] = "Speeds 2 to 5" })
 				hold_state(c4, FWD3, 10400)
