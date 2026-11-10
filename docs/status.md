@@ -4,9 +4,22 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.5 "Shadout Mapes" is installed on the house: build 165, released and
+**1.6 "Crysknife" is installed on the house: build 176, released and
+installed in place on 2026-11-09 (#159, deploy issue #169, the announcement
+in Discussion #168, the install round in Discussion #170).** It adds a chase
+on the keypad's speed LEDs at a fixed speed
+([`speed-leds-design.md`](speed-leds-design.md)): a dot in the speed's
+colour runs across the bound speed buttons in the direction the fan blows,
+faster at higher speeds, with a constant rest between chases in which the
+selected speed's LED is lit. It also fixes #164 (the Breeze engine's preload
+flag). The house has `Speed LED Animation` set to `Speeds 2 to 5` and
+`Speed LED Rest (s)` at 10. **Nobody has watched it on the keypad yet:** the
+four checks of the contract's section 6 wait for the owner. No controller
+reboot was needed for 1.6.
+
+Before it, 1.5 "Shadout Mapes" ran on the house: build 165, released and
 installed in place on 2026-11-09 (#141, deploy issue #154, the announcement
-in Discussion #155).** It adds simulated fades for the fan's light
+in Discussion #155). It adds simulated fades for the fan's light
 ([`light-fades-design.md`](light-fades-design.md), the research and review
 rounds in Discussions #148, #151 and #152). **Nothing of it has run on the
 hardware:** the owner said to ship without the probes. It needs one
@@ -90,7 +103,17 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.5, build 165** (since 2026-11-09), the fan and its Breeze fan:
+- **v1.6, build 176** (since 2026-11-09), the fan and its Breeze fan:
+  `deploy/house.yaml` and the environment `house` agree (deployment
+  7673708993, success; deploy issue #169 closed). The Windows session
+  installed both packages in place: one "Update Succeeded" dialog, no
+  "Restart Director?", no device deleted or re-added. Read back: Driver
+  Version 176 and Debug Mode Off on both; the new rows `Speed LED Animation`
+  (set to `Speeds 2 to 5` after the install) and `Speed LED Rest (s)` 10;
+  `Speed LED Colors` Per speed; the fan `Online: fan speed 3, light off`;
+  Keypad Links `7 of 13 links bound`; every other row as under 1.5. The log
+  from the install onward has no error or warning.
+- **v1.5, build 165** (2026-11-09 until the 1.6 install), the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
   7668744012, success; deploy issue #154 closed). The Windows session
   installed both packages in place: Composer asked "Restart Director?" once,
@@ -188,11 +211,9 @@ passed, the follow to a new address included (#58).
 ## Open
 
 Every open item is an issue (`gh issue list --state open`). On 2026-11-09:
-**#159**, a chase on the keypad's speed LEDs at a fixed speed, is being built
-on PR #165 ([`speed-leds-design.md`](speed-leds-design.md), the research in
-Discussions #161 to #163), with **#164** (the Breeze engine's preload flag
-dropped in `driver.lua`) fixed on the same branch; it will ship as 1.6
-"Crysknife". #141 (simulated light fades) shipped as 1.5 and its hardware
+nothing is open. #159 (the speed chase on the keypad LEDs, PR #165, the
+research in Discussions #161 to #163, the agents' hand-backs in #166) and
+#164 shipped as 1.6; its keypad checks wait for the owner. #141 (simulated light fades) shipped as 1.5 and its hardware
 checks wait for the controller reboot and the owner at the keypad (see the
 top of this page). The list below is what was open on
 2026-10-27 and how each ended; all of them are closed.
