@@ -70,8 +70,23 @@ MISSING = (
     "the owner approves (docs/changelog-design.md)"
 )
 
+# The meaning of each of those codenames (the tests' .github/codename-meanings.json; docs/changelog-design.md,
+# section 1), invented for the tests like the names: what a meaning says is not the tool's business.
+MEANING_OF = {
+    "0.9": "**Jamis** is the name 0.9 has in these tests, and this sentence stands for its meaning.",
+    "1.0": "**Arrakis** is the name 1.0 has in these tests, and this sentence stands for its meaning.",
+    "1.1": "**Shishakli** is the name 1.1 has in these tests, and this sentence stands for its meaning.",
+}
+MEANINGS = json.dumps(MEANING_OF, indent=2) + "\n"
+NO_MEANING = (
+    "has no meaning: every X.Y of %s has the meaning of its codename here, written with the name before its "
+    "first build (docs/changelog-design.md)"
+)
+
 TEMPLATE = (
     '## {version} "{codename}" (build {build})\n'
+    "\n"
+    "{meaning}\n"
     "\n"
     'Released {date}. Braces that name no placeholder stay: {"key": 1}, ${{ github.sha }}, {Version}.\n'
     "\n"
@@ -97,6 +112,8 @@ PRERELEASE_H3 = "<h3>1.1 beta 1 &quot;Shishakli&quot; (prerelease), build 70 (20
 PRERELEASE_TEMPLATE = (
     '## {release} beta {beta} "{codename}" (build {build})\n'
     "\n"
+    "{meaning}\n"
+    "\n"
     "Version {version}, built {date}, follows [{stable}](https://example.com/v{stable_version}).\n"
     "\n"
     "{this_build}\n"
@@ -105,6 +122,8 @@ PRERELEASE_TEMPLATE = (
 # (docs/changelog-design.md, section 4).
 BLOCK_TEMPLATE = (
     '## {release} beta {beta} "{codename}" (build {build})\n'
+    "\n"
+    "{meaning}\n"
     "\n"
     "Version {version}, built {date}.\n"
     "\n"
@@ -123,6 +142,22 @@ FIRST_PRERELEASE = ("--version", "1.0-beta.1", "--build", "12", "--date", "2026-
 def text_of(*rows):
     """A file made of rows, one per line: row k is line k + 1."""
     return "\n".join(rows) + "\n"
+
+
+def meanings_for(codenames_text):
+    """A meanings file that gives every X.Y of a codenames file a meaning that contains its codename
+    (MEANING_OF's where the name is CODENAME_OF's), so that the tests of other rules pass the meanings'
+    rules; "{}" for a codenames file that is not a JSON object."""
+    try:
+        pairs = json.loads(codenames_text, object_pairs_hook=changelog.JsonObject)
+    except ValueError:
+        return "{}\n"
+    meanings = {}
+    for key, name in pairs if isinstance(pairs, changelog.JsonObject) else ():
+        if changelog.CODENAMES_KEY_RE.fullmatch(key) and key not in meanings:
+            own = CODENAME_OF.get(key) == name
+            meanings[key] = MEANING_OF[key] if own else "**%s** is what %s is called in these tests." % (name, key)
+    return json.dumps(meanings, indent=2) + "\n"
 
 
 # A CHANGELOG.md that lists no release yet, with something to release.
@@ -637,6 +672,182 @@ class CodenamesFileTest(unittest.TestCase):
         self.assertEqual(changelog.read_codenames(changelog.CODENAMES_FILE).problems, [])
 
 
+class MeaningsFileTest(unittest.TestCase):
+    """.github/codename-meanings.json (docs/changelog-design.md, section 1): the meaning of each X.Y's
+    codename, the first paragraph of its notes."""
+
+    def setUp(self):
+        self.codenames = changelog.parse_codenames(CODENAMES)
+
+    def problems(self, meanings):
+        """The problems of a meanings file: a JSON text, or a dict of X.Y to value."""
+        text = meanings if isinstance(meanings, str) else json.dumps(meanings)
+        return changelog.parse_meanings(text, self.codenames).problems
+
+    def bad(self, value, key="1.1"):
+        """The problems of MEANING_OF with key's meaning replaced by value."""
+        return self.problems({**MEANING_OF, key: value})
+
+    def test_gives_each_version_its_meaning(self):
+        meanings = changelog.parse_meanings(MEANINGS, self.codenames)
+        self.assertEqual(
+            (meanings.path, meanings.texts, meanings.problems),
+            (
+                changelog.MEANINGS_FILE,
+                {(0, 9): MEANING_OF["0.9"], (1, 0): MEANING_OF["1.0"], (1, 1): MEANING_OF["1.1"]},
+                [],
+            ),
+        )
+        # Codenames and meanings start empty together; a meaning may be anywhere in it, and anything else.
+        self.assertEqual(changelog.parse_meanings("{}", changelog.parse_codenames("{}")).problems, [])
+        for meaning in (
+            "Shishakli",
+            "In these tests, *Shishakli* is the name of 1.1.",
+            "Ünïcode and “quotes” around Shishakli, `code` and {build} are text like any other.",
+        ):
+            with self.subTest(meaning=meaning):
+                self.assertEqual(self.bad(meaning), [])
+
+    def test_every_codename_has_its_meaning(self):
+        self.assertEqual(
+            self.problems({"1.0": MEANING_OF["1.0"]}),
+            ["0.9 " + NO_MEANING % ".github/codenames.json", "1.1 " + NO_MEANING % ".github/codenames.json"],
+        )
+        self.assertEqual(
+            self.problems("{}"), ["%s %s" % (key, NO_MEANING % ".github/codenames.json") for key in CODENAME_OF]
+        )
+
+    def test_a_meaning_is_one_paragraph_of_text(self):
+        for value, shown in ((42, "42"), (None, "null"), (True, "true"), (["Shishakli"], "an array")):
+            with self.subTest(value=value):
+                self.assertEqual(self.bad(value), ['"1.1": a meaning is one paragraph of text, not %s' % shown])
+        self.assertEqual(
+            self.problems('{"0.9": "**Jamis**", "1.0": "**Arrakis**", "1.1": {"text": "**Shishakli**"}}'),
+            ['"1.1": a meaning is one paragraph of text, not an object'],
+        )
+        for value in ("", " ", "\t", "\n"):
+            with self.subTest(value=value):
+                self.assertEqual(self.bad(value), ['"1.1": the meaning is empty'])
+
+    def test_no_line_break(self):
+        message = '"1.1": the meaning has a line break: it is one paragraph, on one line'
+        for value in (
+            "**Shishakli**\nis the name of 1.1.",
+            "**Shishakli**\r\nis the name of 1.1.",
+            "**Shishakli**\ris the name of 1.1.",
+            "**Shishakli** is the name of 1.1.\n",
+            "**Shishakli** is the name of 1.1.",
+            "**Shishakli**\x85is the name of 1.1.",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(self.bad(value), [message])
+
+    def test_at_most_450_characters(self):
+        start = "**Shishakli** "
+        for length in (len(start), 449, 450):
+            with self.subTest(length=length):
+                self.assertEqual(self.bad(start + "x" * (length - len(start))), [])
+        # Characters, not bytes: 450 that take more than 450 bytes in UTF-8 pass.
+        self.assertEqual(self.bad(start + "é" * (450 - len(start))), [])
+        for length in (451, 900):
+            with self.subTest(length=length):
+                self.assertEqual(
+                    self.bad(start + "x" * (length - len(start))),
+                    ['"1.1": the meaning is %d characters long, over 450' % length],
+                )
+
+    def test_contains_its_codename_as_written(self):
+        message = '"1.1": the meaning does not contain its codename "Shishakli" as .github/codenames.json writes it'
+        for value in (MEANING_OF["1.0"], "**shishakli** is the name of 1.1.", "**Shi shakli**", "1.1"):
+            with self.subTest(value=value):
+                self.assertEqual(self.bad(value), [message])
+        # Two words, or a hyphen, as the codenames file writes them.
+        codenames = changelog.parse_codenames('{"2.0": "Gurney Halleck", "2.1": "Shai-Hulud"}')
+        meanings = '{"2.0": "**Gurney Halleck**, a test name.", "2.1": "**Shai Hulud**, a test name."}'
+        self.assertEqual(
+            changelog.parse_meanings(meanings, codenames).problems,
+            ['"2.1": the meaning does not contain its codename "Shai-Hulud" as .github/codenames.json writes it'],
+        )
+        # A codename that fails its own rules is reported by the codenames file, not here.
+        codenames = changelog.parse_codenames('{"1.1": 42}')
+        self.assertEqual(changelog.parse_meanings('{"1.1": "Its meaning."}', codenames).problems, [])
+
+    def test_every_problem_of_a_meaning(self):
+        self.assertEqual(
+            self.bad("Line one\nline two " + "x" * 450),
+            [
+                '"1.1": the meaning has a line break: it is one paragraph, on one line',
+                '"1.1": the meaning is 468 characters long, over 450',
+                '"1.1": the meaning does not contain its codename "Shishakli" as .github/codenames.json writes it',
+            ],
+        )
+
+    def test_a_key_is_a_version_x_y_of_the_codenames_file(self):
+        for key in ("1.1-beta.1", "v1.1", "1", "1.1.0", "01.1", "1.01", "", " 1.1"):
+            with self.subTest(key=key):
+                self.assertEqual(
+                    self.problems({"0.9": MEANING_OF["0.9"], "1.0": MEANING_OF["1.0"], key: MEANING_OF["1.1"]}),
+                    [
+                        '%s: a key is a version X.Y, such as "1.0", without leading zeros, as in '
+                        ".github/codenames.json" % json.dumps(key),
+                        "1.1 " + NO_MEANING % ".github/codenames.json",
+                    ],
+                )
+        self.assertEqual(
+            self.problems({**MEANING_OF, "2.0": "**Gurney Halleck** is a name no version has in these tests."}),
+            [
+                '"2.0": .github/codenames.json does not name 2.0: a meaning explains the codename that file gives its '
+                "X.Y"
+            ],
+        )
+
+    def test_a_version_once(self):
+        text = MEANINGS.replace("\n}", ',\n  "1.1": "**Shishakli**, a second time."\n}')
+        meanings = changelog.parse_meanings(text, self.codenames)
+        self.assertEqual(meanings.problems, ['"1.1" is a key twice: each X.Y has one meaning'])
+        self.assertEqual(meanings.texts[(1, 1)], MEANING_OF["1.1"])
+
+    def test_refuses_what_is_not_one_json_object(self):
+        for text, fragment in (
+            ("", ".github/codename-meanings.json is not JSON: Expecting value: line 1 column 1"),
+            ('{"1.0": "**Arrakis**",}', ".github/codename-meanings.json is not JSON: "),
+            ("﻿{}", "is not JSON: Unexpected UTF-8 BOM"),
+            (
+                '["**Arrakis**"]',
+                ".github/codename-meanings.json holds one JSON object that gives the meaning of each version's "
+                'codename, such as {"1.0": "**Name** is ..."}, not an array',
+            ),
+            ('"**Arrakis**"', 'such as {"1.0": "**Name** is ..."}, not "**Arrakis**"'),
+            ("null", "not null"),
+        ):
+            with self.subTest(text=text):
+                with self.assertRaises(changelog.ChangelogError) as raised:
+                    changelog.parse_meanings(text, self.codenames)
+                self.assertIn(fragment, str(raised.exception))
+
+    def test_a_version_without_a_meaning_is_refused(self):
+        meanings = changelog.parse_meanings(json.dumps({"1.0": MEANING_OF["1.0"]}), self.codenames)
+        self.assertEqual(changelog.meaning_of(meanings, self.codenames, (1, 0)), MEANING_OF["1.0"])
+        with self.assertRaises(changelog.ChangelogError) as raised:
+            changelog.meaning_of(meanings, self.codenames, (1, 1))
+        self.assertEqual(
+            str(raised.exception),
+            "1.1 has no meaning in .github/codename-meanings.json: every X.Y of .github/codenames.json has the "
+            "meaning of its codename there, written with the name before its first build (docs/changelog-design.md)",
+        )
+
+    def test_the_repository_file(self):
+        self.assertEqual(
+            changelog.MEANINGS_FILE, os.path.join(os.path.dirname(TOOLS), ".github", "codename-meanings.json")
+        )
+        for path in (changelog.CODENAMES_FILE, changelog.MEANINGS_FILE):
+            if not os.path.isfile(path):
+                self.skipTest("%s is not in this checkout" % changelog.display_path(path))
+        # Whatever it says, it passes the file's rules against the repository's codenames.
+        codenames = changelog.read_codenames(changelog.CODENAMES_FILE)
+        self.assertEqual(changelog.read_meanings(changelog.MEANINGS_FILE, codenames).problems, [])
+
+
 # ---------------------------------------------------------------------------
 # The command line
 # ---------------------------------------------------------------------------
@@ -649,6 +860,7 @@ class CliCase(unittest.TestCase):
         self.file = os.path.join(self.tmp.name, "CHANGELOG.md")
         self.template = os.path.join(self.tmp.name, "release-notes.md")
         self.codenames = os.path.join(self.tmp.name, "codenames.json")
+        self.meanings = os.path.join(self.tmp.name, "codename-meanings.json")
         self.write(SAMPLE)
         self.write_codenames(CODENAMES)
         self.write_template(TEMPLATE)
@@ -658,7 +870,14 @@ class CliCase(unittest.TestCase):
             handle.write(text)
 
     def write_codenames(self, text):
+        """The codenames file, and a meanings file that passes with it (meanings_for); a test of the
+        meanings writes its own afterwards."""
         with open(self.codenames, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        self.write_meanings(meanings_for(text))
+
+    def write_meanings(self, text):
+        with open(self.meanings, "w", encoding="utf-8") as handle:
             handle.write(text)
 
     def write_template(self, text):
@@ -669,10 +888,17 @@ class CliCase(unittest.TestCase):
         with open(self.file, encoding="utf-8", newline="") as handle:
             return handle.read()
 
+    def argv(self, command, *argv):
+        """The command line of command on the test's files: check and notes read the meanings too."""
+        files = ["--file", self.file, "--codenames", self.codenames]
+        if command in ("check", "notes"):
+            files += ["--meanings", self.meanings]
+        return [command, *files, *argv]
+
     def run_main(self, command, *argv):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = changelog.main([command, "--file", self.file, "--codenames", self.codenames, *argv])
+            code = changelog.main(self.argv(command, *argv))
         return code, out.getvalue(), err.getvalue()
 
     def usage_error(self, command, *argv):
@@ -680,7 +906,7 @@ class CliCase(unittest.TestCase):
         err = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             with self.assertRaises(SystemExit) as raised:
-                changelog.main([command, "--file", self.file, "--codenames", self.codenames, *argv])
+                changelog.main(self.argv(command, *argv))
         return raised.exception.code, err.getvalue()
 
     def html(self, *argv):
@@ -761,6 +987,71 @@ class CheckCommandTest(CliCase):
         code, out, err = self.run_main("check")
         self.assertEqual((code, out), (1, ""))
         self.assertIn("error: cannot read %s" % self.codenames, err)
+
+    def test_every_codename_has_its_meaning(self):
+        self.write_meanings(json.dumps({"0.9": MEANING_OF["0.9"], "1.0": "**Stilgar** is not 1.0's name."}))
+        self.assertEqual(
+            self.run_main("check"),
+            (
+                1,
+                "",
+                '%s: "1.0": the meaning does not contain its codename "Arrakis" as %s writes it\n'
+                "%s: 1.1 %s\n"
+                "%s: 2 problems\n"
+                % (self.meanings, self.codenames, self.meanings, NO_MEANING % self.codenames, self.meanings),
+            ),
+        )
+        # A new X.Y named without its meaning fails; with it, it passes.
+        self.write_codenames(json.dumps({**CODENAME_OF, "2.0": "Gurney Halleck"}))
+        self.write_meanings(MEANINGS)
+        self.assertEqual(
+            self.run_main("check"),
+            (1, "", "%s: 2.0 %s\n%s: 1 problem\n" % (self.meanings, NO_MEANING % self.codenames, self.meanings)),
+        )
+        self.write_meanings(json.dumps({**MEANING_OF, "2.0": "**Gurney Halleck**, in these tests."}))
+        self.assertEqual(self.run_main("check"), (0, "%s: ok (3 releases)\n" % self.file, ""))
+
+    def test_every_file_with_its_problems(self):
+        self.write(SAMPLE.replace("### Changed", "### Removed"))
+        self.write_codenames(json.dumps({**CODENAME_OF, "1.2": "jamis"}))
+        self.write_meanings(json.dumps({**MEANING_OF, "1.2": "**Jamis**\nagain."}))
+        code, out, err = self.run_main("check")
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(
+            err.splitlines(),
+            [
+                "%s:21: unknown category 'Removed': %s" % (self.file, changelog.CATEGORY_ORDER),
+                '%s: "1.2": "jamis" names 0.9 already (as "Jamis"): each X.Y has its own codename' % self.codenames,
+                '%s: "1.2": the meaning has a line break: it is one paragraph, on one line' % self.meanings,
+                '%s: "1.2": the meaning does not contain its codename "jamis" as %s writes it'
+                % (self.meanings, self.codenames),
+                "%s: 1 problem" % self.file,
+                "%s: 1 problem" % self.codenames,
+                "%s: 2 problems" % self.meanings,
+            ],
+        )
+
+    def test_a_meanings_file_that_cannot_be_read(self):
+        self.write_meanings("[]")
+        code, out, err = self.run_main("check")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn(
+            "error: %s holds one JSON object that gives the meaning of each version's codename" % self.meanings, err
+        )
+        os.unlink(self.meanings)
+        code, out, err = self.run_main("check")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("error: cannot read %s" % self.meanings, err)
+
+    def test_check_reads_the_default_meanings_file(self):
+        missing = os.path.join(self.tmp.name, "nowhere", "codename-meanings.json")
+        self.addCleanup(setattr, changelog, "MEANINGS_FILE", changelog.MEANINGS_FILE)
+        changelog.MEANINGS_FILE = missing
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = changelog.main(["check", "--file", self.file, "--codenames", self.codenames])
+        self.assertEqual((code, out.getvalue()), (1, ""))
+        self.assertIn("error: cannot read %s" % missing, err.getvalue())
 
 
 class StartStateTest(CliCase):
@@ -1080,6 +1371,7 @@ class NotesTest(CliCase):
         self.assertEqual(
             out,
             '## 1.0 "Arrakis" (build 70)\n'
+            "\n" + MEANING_OF["1.0"] + "\n"
             "\n"
             'Released 2026-12-09. Braces that name no placeholder stay: {"key": 1}, ${{ github.sha }}, {Version}.\n'
             "\n"
@@ -1154,9 +1446,107 @@ class NotesTest(CliCase):
 
     def test_values_are_not_filled_in_again(self):
         self.write(SAMPLE.replace("after a dim (#31).", "after a dim; the notes name `{build}` (#31)."))
+        self.write_meanings(MEANINGS.replace("stands for its meaning.", "stands for {codename} and {build}."))
         code, out, err = self.notes(*RELEASE)
         self.assertEqual(code, 0, err)
         self.assertIn("the notes name `{build}` (#31).", out)
+        self.assertIn(
+            "\n\n**Arrakis** is the name 1.0 has in these tests, and this sentence stands for {codename} and "
+            "{build}.\n\n",
+            out,
+        )
+
+    def test_the_meaning_is_the_first_paragraph(self):
+        """CM-D4: the meaning of the version's codename right after the heading, before anything else."""
+        for template, argv, key in (
+            (TEMPLATE, RELEASE, "1.0"),
+            (TEMPLATE, ("--version", "1.1", "--build", "70", "--date", "2026-12-09"), "1.1"),
+            (PRERELEASE_TEMPLATE, PRERELEASE, "1.1"),
+            (PRERELEASE_TEMPLATE, ("--version", "1.1-beta.7", "--build", "70", "--date", "2026-12-09"), "1.1"),
+        ):
+            with self.subTest(argv=argv):
+                self.write_template(template)
+                code, out, err = self.notes(*argv)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(out.split("\n\n")[1], MEANING_OF[key])
+        # A template in CRLF, with spaces around {meaning} and two blank lines before it.
+        self.write_template(TEMPLATE.replace("\n\n{meaning}\n", "\n\n\n  {meaning} \n").replace("\n", "\r\n"))
+        code, out, err = self.notes(*RELEASE)
+        self.assertEqual(code, 0, err)
+        self.assertIn("\r\n  %s \r\n" % MEANING_OF["1.0"], out)
+
+    def test_refuses_a_version_without_a_meaning(self):
+        """Every X.Y the codenames file names has a meaning, or the meanings file fails check, and
+        notes refuses it, whatever the version, as it refuses a codenames file that fails check."""
+        self.write_meanings(json.dumps({"0.9": MEANING_OF["0.9"], "1.0": MEANING_OF["1.0"]}))
+        for template, argv in ((PRERELEASE_TEMPLATE, PRERELEASE), (TEMPLATE, RELEASE)):
+            with self.subTest(argv=argv):
+                self.write_template(template)
+                self.assertEqual(
+                    self.notes(*argv),
+                    (
+                        1,
+                        "",
+                        "%s: 1.1 %s\nerror: %s fails check: nothing done\n"
+                        % (self.meanings, NO_MEANING % self.codenames, self.meanings),
+                    ),
+                )
+        self.write_meanings(json.dumps({**MEANING_OF, "1.0": ""}))
+        code, out, err = self.notes(*RELEASE)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(
+            err.splitlines(),
+            ['%s: "1.0": the meaning is empty' % self.meanings, "error: %s fails check: nothing done" % self.meanings],
+        )
+        os.unlink(self.meanings)
+        code, out, err = self.notes(*RELEASE)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("error: cannot read %s" % self.meanings, err)
+        # The changelog, the codenames and the meanings all failing: each is named.
+        self.write(SAMPLE.replace("### Changed", "### Removed"))
+        self.write_codenames(json.dumps({**CODENAME_OF, "1.2": "Arrakis"}))
+        self.write_meanings(MEANINGS)
+        code, out, err = self.notes(*RELEASE)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(
+            err.splitlines()[-1],
+            "error: %s, %s and %s fail check: nothing done" % (self.file, self.codenames, self.meanings),
+        )
+
+    def test_a_template_opens_with_the_meaning(self):
+        for template, message in (
+            (
+                TEMPLATE.replace("{meaning}\n\n", ""),
+                "error: %s has no {meaning}: the notes would not open with what the codename means\n",
+            ),
+            (
+                TEMPLATE.replace("{meaning}\n\n", "").replace("{this_build}", "{meaning}\n\n{this_build}"),
+                "error: %s: {meaning} is not the first paragraph after the heading line: it stands alone on the first "
+                "line after the heading that is not blank, so that the notes open with what the codename means\n",
+            ),
+            (
+                TEMPLATE.replace("{meaning}", "{meaning} And more."),
+                "error: %s: {meaning} is not the first paragraph",
+            ),
+            (
+                TEMPLATE.replace("{meaning}\n\n", "").replace("\n\nReleased", "\n\nReleased {meaning}"),
+                "error: %s: {meaning} is not the first paragraph",
+            ),
+        ):
+            with self.subTest(template=template[:80]):
+                self.write_template(template)
+                code, out, err = self.notes(*RELEASE)
+                self.assertEqual((code, out), (1, ""))
+                self.assertTrue(err.startswith(message % self.template), err)
+        # A block counts as it is kept: the meaning comes first on the side that applies.
+        self.write_template(
+            TEMPLATE.replace("{meaning}\n", "<!-- if no stable -->\nThe first.\n<!-- end if -->\n{meaning}\n")
+        )
+        self.assertEqual(self.notes(*RELEASE)[0], 0)
+        self.write(FIRST)
+        code, _out, err = self.notes("--version", "1.0", "--build", "12", "--date", "2026-11-30")
+        self.assertEqual(code, 1)
+        self.assertIn("{meaning} is not the first paragraph after the heading line", err)
 
     def test_template_refusals(self):
         for template, fragment in (
@@ -1181,6 +1571,7 @@ class NotesTest(CliCase):
         self.assertEqual(
             out,
             '## 1.1 beta 1 "Shishakli" (build 70)\n'
+            "\n" + MEANING_OF["1.1"] + "\n"
             "\n"
             'Version 1.1-beta.1, built 2026-12-09, follows [1.0 "Arrakis", build 61 (2026-12-02)]'
             "(https://example.com/v1.0).\n"
@@ -1211,8 +1602,8 @@ class NotesTest(CliCase):
         code, out, err = self.notes(*PRERELEASE)
         self.assertEqual((code, out), (1, ""))
         self.assertIn(
-            "names {history}; the placeholders are {version}, {release}, {beta}, {codename}, {build}, {date}, "
-            "{this_build}, {stable}, {stable_version}",
+            "names {history}; the placeholders are {version}, {release}, {beta}, {codename}, {meaning}, {build}, "
+            "{date}, {this_build}, {stable}, {stable_version}",
             err,
         )
         self.write_template(PRERELEASE_TEMPLATE)
@@ -1305,6 +1696,51 @@ class NotesTest(CliCase):
         for leftover in ("c4-hue-driver", "Andor"):
             self.assertNotIn(leftover, out)
 
+    def test_the_repository_templates_open_with_the_meaning(self):
+        """CM-D4: in every kind of notes, the heading the Release workflow reads the title from, a
+        blank line, the meaning alone, a blank line, then what the template says first."""
+        release = self.repository_template(changelog.TEMPLATE_FILE)
+        prerelease = self.repository_template(changelog.PRERELEASE_TEMPLATE_FILE)
+        for template, changes, argv, heading, key, then in (
+            (release, SAMPLE, RELEASE, '## 1.0 "Arrakis" (build 70)', "1.0", "Released 2026-12-09."),
+            (
+                release,
+                FIRST,
+                ("--version", "1.0", "--build", "12", "--date", "2026-11-30"),
+                '## 1.0 "Arrakis" (build 12)',
+                "1.0",
+                "Released 2026-11-30.",
+            ),
+            (
+                prerelease,
+                SAMPLE,
+                PRERELEASE,
+                '## 1.1 beta 1 "Shishakli" (build 70)',
+                "1.1",
+                "**A prerelease for testing**",
+            ),
+            (
+                prerelease,
+                FIRST,
+                FIRST_PRERELEASE,
+                '## 1.0 beta 1 "Arrakis" (build 12)',
+                "1.0",
+                "**A prerelease for testing**",
+            ),
+        ):
+            with self.subTest(template=changelog.display_path(template), argv=argv):
+                self.write(changes)
+                code, out, err = self.run_main("notes", "--template", template, *argv)
+                self.assertEqual(code, 0, err)
+                lines = out.splitlines()
+                self.assertEqual(lines[:4], [heading, "", MEANING_OF[key], ""])
+                self.assertTrue(lines[4].startswith(then), lines[4])
+                self.assertEqual(out.count(MEANING_OF[key]), 1)
+        for template in (release, prerelease):
+            with self.subTest(template=changelog.display_path(template)):
+                with open(template, encoding="utf-8") as handle:
+                    self.assertEqual(handle.read().split("\n")[1:4], ["", "{meaning}", ""])
+
 
 class TemplateBlocksTest(unittest.TestCase):
     """The alternatives of a notes template (docs/changelog-design.md, section 4)."""
@@ -1356,6 +1792,7 @@ class FirstPrereleaseTest(CliCase):
         self.assertEqual(
             out,
             '## 1.0 beta 1 "Arrakis" (build 12)\n'
+            "\n" + MEANING_OF["1.0"] + "\n"
             "\n"
             "Version 1.0-beta.1, built 2026-11-30.\n"
             "\n"
@@ -1601,6 +2038,19 @@ class CommandLineTest(CliCase):
                 self.assertIn("--file" if argv else "Exit codes: 0 done, 1 refused or invalid, 2 usage.", done.stdout)
                 if argv:
                     self.assertIn("--codenames", done.stdout)
+                    # Only check and notes read the meanings (html and stamp never show them).
+                    self.assertEqual("--meanings" in done.stdout, argv[0] in ("check", "notes"))
+
+    def test_html_and_stamp_never_read_the_meanings(self):
+        self.addCleanup(setattr, changelog, "MEANINGS_FILE", changelog.MEANINGS_FILE)
+        changelog.MEANINGS_FILE = os.path.join(self.tmp.name, "nowhere", "codename-meanings.json")
+        self.write_meanings("not JSON")
+        self.assertIn("&quot;Arrakis&quot;, build 70", self.html(*HTML_RELEASE))
+        code, _out, err = self.run_main("stamp", *RELEASE)
+        self.assertEqual(code, 0, err)
+        for command, argv in (("html", HTML_RELEASE), ("stamp", RELEASE)):
+            with self.subTest(command=command):
+                self.assertEqual(self.usage_error(command, *argv, "--meanings", self.meanings)[0], 2)
 
     def test_usage_errors_exit_2_and_change_nothing(self):
         for command, *argv in (
