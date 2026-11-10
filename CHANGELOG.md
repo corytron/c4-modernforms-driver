@@ -11,6 +11,14 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- A chase on the keypad's speed LEDs at a fixed speed: with `Speed LED Colors` set to Per speed and the new `Speed LED Animation` set to `Speeds 2 to 5` (or `Speeds 1 to 6`), a dot in the selected speed's colour runs across the bound speed buttons, one after the other, in the direction the fan blows, faster at higher speeds (one button every 0.4 s at speed 2, 0.12 s at speed 5); between chases, for the same time at every speed (`Speed LED Rest (s)`, 10 s by default), the selected speed's LED is lit as before. Off by default; Breeze, Off, the fan going offline or the keypad's own colours stop it at once. About 13 messages to the keypad per chase with four buttons; no controller reboot (#159).
+
+### Fixed
+
+- During Breeze on the keypad LEDs, loading the next colour into a dark speed button now sends only the button's on and off colours, as the design says, instead of also its current colour (no difference was seen on the house; #164).
+
 ## 1.5 "Shadout Mapes", build 165 (2026-11-09)
 
 ### Added

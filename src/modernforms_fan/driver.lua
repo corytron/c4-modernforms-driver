@@ -41,6 +41,8 @@ local search_mod = require("fan.search")
 local found_mod = require("fan.found")
 local breeze_mod = require("fan.breeze")
 local breezeleds_mod = require("fan.breezeleds")
+local speedleds_mod = require("fan.speedleds")
+local ledhub_mod = require("fan.ledhub")
 local fanmode = require("fan.mode")
 local sun_mod = require("fan.sun")
 
@@ -187,7 +189,7 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds
+local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds, sleds, ledhub
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 -- Found Fans as last written (auto-discovery-design 3): the rows, the entry
 -- behind each item row, and the text the row was written with.
@@ -268,12 +270,26 @@ local function leds_view(shown, phase)
 	}
 end
 
+-- The chase at a fixed speed (#159, speed-leds-design 3.1): fan mode, the
+-- shown speed, the airflow as the fan names it, and whether it is online.
+local function speed_view(shown, phase)
+	return {
+		fan_mode = fanmode.fan_on(shown),
+		speed = shown and shown.speed,
+		online = phase == "online",
+		direction = shown and shown.direction,
+	}
+end
+
 function listener.shown(shown)
 	if breeze then
 		breeze:shown(shown) -- first: link 311's LED reads it (BZ4)
 	end
-	-- Before the links, so the pixels are held before they look (breeze-leds-design 3.3).
-	bleds:update(leds_view(shown, model:phase()))
+	-- Before the links, so the pixels are held before they look (breeze-leds-design
+	-- 3.3); the hub tells the chase first, so it lets go before Breeze takes them
+	-- (speed-leds-design SL-D2).
+	local phase = model:phase()
+	ledhub:update(leds_view(shown, phase), speed_view(shown, phase))
 	links:shown(shown)
 	light:shown()
 	refresh_status()
@@ -299,7 +315,8 @@ function listener.phase(phase, detail, old)
 	if breeze then
 		breeze:phase(phase)
 	end
-	bleds:update(leds_view(model:shown(), phase))
+	local shown = model:shown()
+	ledhub:update(leds_view(shown, phase), speed_view(shown, phase))
 	if detail and detail.online ~= nil then
 		set_online_variable(detail.online)
 	end
@@ -388,8 +405,8 @@ end
 -- Breeze on the keypad LEDs (#137, breeze-leds-design): created before the
 -- links, which reach it through closures, as it reaches them.
 bleds = breezeleds_mod.new({
-	paint = function(link, colour, with_state)
-		links:paint(link, colour, with_state)
+	paint = function(link, colour, with_state, preload)
+		links:paint(link, colour, with_state, preload)
 	end,
 	settle = function(link)
 		links:settle(link)
@@ -404,6 +421,33 @@ bleds = breezeleds_mod.new({
 	end,
 	log = log,
 })
+
+-- The chase at a fixed speed (#159, speed-leds-design): a second engine on the
+-- same pixels, and the hub that gives each pixel one owner (SL-D1, SL-D2).
+sleds = speedleds_mod.new({
+	paint = function(link, colour, with_state, preload)
+		links:paint(link, colour, with_state, preload)
+	end,
+	settle = function(link)
+		links:settle(link)
+	end,
+	light = function(link, lit)
+		links:light(link, lit)
+	end,
+	lit = function(link)
+		return links:lit(link, model:shown()) == true
+	end,
+	colour = function(speed)
+		return links:colour_for(300 + speed, speed)
+	end,
+	blocked = function(link)
+		return bleds:held(link)
+	end,
+	timer = timer,
+	now = now_ms,
+	log = log,
+})
+ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
 
 links = links_mod.new({
 	model = model,
@@ -430,15 +474,16 @@ links = links_mod.new({
 	breeze_blows = function()
 		return breeze ~= nil and breeze:blows_shown()
 	end,
-	-- The Breeze LEDs (breeze-leds-design 3.2, BL-D15, BL-D16).
+	-- The Breeze LEDs and the chase, through the hub (breeze-leds-design 3.2,
+	-- BL-D15, BL-D16; speed-leds-design 3.2).
 	held = function(link)
-		return bleds:held(link)
+		return ledhub:held(link)
 	end,
 	repaint = function(link)
-		bleds:repaint(link)
+		ledhub:repaint(link)
 	end,
 	pixels = function(list)
-		bleds:set_pixels(list)
+		ledhub:set_pixels(list)
 	end,
 	log = log,
 })
@@ -788,19 +833,55 @@ local function apply_breeze_leds()
 	end
 end
 
+-- The chase at a fixed speed (speed-leds-design section 2, SL-D6, SL-D8, SL-D9),
+-- with Speed LED Colors' mode and the keypad's orientation from Breeze LED Bottom.
+local SPEED_LED_SPEEDS = { ["Speeds 2 to 5"] = "2-5", ["Speeds 1 to 6"] = "1-6" }
+local function apply_speed_leds()
+	local speeds = SPEED_LED_SPEEDS[Properties["Speed LED Animation"]] or "off"
+	local per_speed = Properties["Speed LED Colors"] == "Per speed"
+	sleds:configure({
+		speeds = speeds,
+		per_speed = per_speed,
+		bottom = Properties["Breeze LED Bottom"] == "Highest speed" and 6 or 1,
+		rest = tonumber(Properties["Speed LED Rest (s)"]) or speedleds_mod.REST_DEFAULT,
+	})
+	-- L43 for a change the owner makes, not for the late-init replay.
+	if speeds ~= "off" and not per_speed and started then
+		result("speed_leds_need_per_speed")
+	end
+end
+
 dispatch.properties["Speed_LED_Colors"] = function()
-	-- The Breeze LEDs first: leaving Per speed settles the pixels while the links
+	-- The LED engines first: leaving Per speed settles the pixels while the links
 	-- still send the per-speed colours, so no frame colour stays on a button.
 	apply_breeze_leds()
+	apply_speed_leds()
 	apply_colors()
 end
 dispatch.properties["Breeze_LED_Animation"] = apply_breeze_leds
-dispatch.properties["Breeze_LED_Bottom"] = apply_breeze_leds
+dispatch.properties["Breeze_LED_Bottom"] = function()
+	apply_breeze_leds()
+	apply_speed_leds()
+end
+dispatch.properties["Speed_LED_Animation"] = apply_speed_leds
+dispatch.properties["Speed_LED_Rest_(s)"] = apply_speed_leds
 dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds
-dispatch.properties["Speed_LED_Off_Color"] = apply_colors
+-- A colour change during a chase ends it first (speed-leds-design SL-D11): the
+-- chase relights the selected button with the colour it loaded, so the links
+-- must send the new one themselves, which they do only to pixels nobody holds.
+local function apply_colors_after_chase()
+	for link = 301, 306 do
+		if sleds:held(link) then
+			sleds:repaint(link)
+			break
+		end
+	end
+	apply_colors()
+end
+dispatch.properties["Speed_LED_Off_Color"] = apply_colors_after_chase
 for speed = 1, 6 do
-	dispatch.properties["Speed_" .. speed .. "_LED_Color"] = apply_colors
+	dispatch.properties["Speed_" .. speed .. "_LED_Color"] = apply_colors_after_chase
 end
 
 -- Keypad Links lists; a pick changes nothing and snaps back to the first row.
@@ -1247,7 +1328,7 @@ function OnDriverDestroyed()
 	names_job:stop()
 	breeze:stop()
 	cancel_night_timer()
-	bleds:stop() -- before the links: nothing is sent (breeze-leds-design BL-D17)
+	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
 	links:stop()
 	light:stop()
 	model:stop()

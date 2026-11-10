@@ -11,10 +11,13 @@ in Discussion #155).** It adds simulated fades for the fan's light
 rounds in Discussions #148, #151 and #152). **Nothing of it has run on the
 hardware:** the owner said to ship without the probes. It needs one
 controller reboot from System Manager before the new Click Rates rows load;
-until then taps keep the old rates. After the reboot the light's Default
-Brightness Rate is set to 3 s, and the probes H1 to H7 (including H4, which
-sets `light.LEDS_FOLLOW`) and FP0 to FP7 run one at a time with the owner
-watching.
+until then taps keep the old rates. The Windows session set the light's
+Default Brightness Rate to 3 s on 2026-11-09 (and a room's outlet dimmer's
+rates to 3 s); typing 3.000 into the light's Click Rates rows sent the
+commands, but the rows read 0.250 and 0.750 again, which fits the capability
+not being live before the reboot (Discussion #160). After the reboot the
+probes H1 to H7 (including H4, which sets `light.LEDS_FOLLOW`) and FP0 to
+FP7 run one at a time with the owner watching.
 
 Before it, 1.4 "Sietch Tabr" ran on the house: build 152, released and
 installed in place on 2026-11-09 (deploy issue #142, the announcement in Discussion
@@ -184,10 +187,14 @@ passed, the follow to a new address included (#58).
 
 ## Open
 
-Every open item is an issue (`gh issue list --state open`). On 2026-11-09
-nothing is open: #141 (simulated light fades) shipped as 1.5 and its
-hardware checks wait for the controller reboot and the owner at the keypad
-(see the top of this page). The list below is what was open on
+Every open item is an issue (`gh issue list --state open`). On 2026-11-09:
+**#159**, a chase on the keypad's speed LEDs at a fixed speed, is being built
+on PR #165 ([`speed-leds-design.md`](speed-leds-design.md), the research in
+Discussions #161 to #163), with **#164** (the Breeze engine's preload flag
+dropped in `driver.lua`) fixed on the same branch; it will ship as 1.6
+"Crysknife". #141 (simulated light fades) shipped as 1.5 and its hardware
+checks wait for the controller reboot and the owner at the keypad (see the
+top of this page). The list below is what was open on
 2026-10-27 and how each ended; all of them are closed.
 
 - **#17** M1, the probes: all but one check done. The fan-side checks K11,

@@ -71,6 +71,7 @@ texts.RESULT_KEYS = {
 	"breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added", "breeze_switch_exists",
 	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed", "breeze_old_switch",
 	"breeze_leds_need_per_speed",
+	"speed_leds_need_per_speed",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -1095,6 +1096,11 @@ end
 -- (breeze-leds-design BL-D3, section 2): the driver owns no colours to put back.
 function RESULTS.breeze_leds_need_per_speed()
 	return "Breeze LEDs need Speed LED Colors set to Per speed"
+end
+
+-- L43 (speed-leds-design SL-D9): the chase is on but the colours are the keypad's own.
+function RESULTS.speed_leds_need_per_speed()
+	return "LED chase needs Speed LED Colors set to Per speed"
 end
 
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see
