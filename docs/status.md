@@ -4,18 +4,22 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.6 "Crysknife" is installed on the house: build 176, released and
-installed in place on 2026-11-09 (#159, deploy issue #169, the announcement
-in Discussion #168, the install round in Discussion #170).** It adds a chase
+**1.6 "Crysknife" is installed on the house: build 182, released and
+installed in place on 2026-11-10 (#159 and #172, deploy issues #169 and
+#175, the announcement in Discussion #168, the install rounds in Discussion
+#170).** It adds a chase
 on the keypad's speed LEDs at a fixed speed
 ([`speed-leds-design.md`](speed-leds-design.md)): a dot in the speed's
 colour runs across the bound speed buttons in the direction the fan blows,
 faster at higher speeds, with a constant rest between chases in which the
 selected speed's LED is lit. It also fixes #164 (the Breeze engine's preload
 flag). The house has `Speed LED Animation` set to `Speeds 2 to 5` and
-`Speed LED Rest (s)` at 10. **Nobody has watched it on the keypad yet:** the
-four checks of the contract's section 6 wait for the owner. No controller
-reboot was needed for 1.6.
+`Speed LED Rest (s)` at 5 (the owner's choice). The owner checked it at the
+keypad on 2026-11-10: the chase at speed 3, the pace at speeds 2 and 5, and
+the reversed direction look right; the selected button blinked twice at the
+edge speeds in build 176, which build 182 fixed (#172, rechecked). The
+Breeze press between chases (check 4) was not watched. No controller reboot
+was needed for 1.6.
 
 Before it, 1.5 "Shadout Mapes" ran on the house: build 165, released and
 installed in place on 2026-11-09 (#141, deploy issue #154, the announcement
@@ -103,7 +107,13 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.6, build 176** (since 2026-11-09), the fan and its Breeze fan:
+- **v1.6, build 182** (since 2026-11-10), the fan and its Breeze fan:
+  deployment 7674344885, success; deploy issue #175 closed. Installed in
+  place: "Update Succeeded" only, no "Restart Director?". Driver Version
+  182 and Debug Mode Off on both; `Speed LED Animation` Speeds 2 to 5,
+  `Speed LED Rest (s)` 5; every other row as under build 176. No error or
+  warning in the log.
+- **v1.6, build 176** (2026-11-09 until build 182), the fan and its Breeze fan:
   `deploy/house.yaml` and the environment `house` agree (deployment
   7673708993, success; deploy issue #169 closed). The Windows session
   installed both packages in place: one "Update Succeeded" dialog, no
