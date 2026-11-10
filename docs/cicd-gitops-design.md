@@ -63,11 +63,11 @@ nothing is silently skipped on the runner).
 
 | Name | What it runs |
 | --- | --- |
-| `lua-lint` | `luacheck src tests tools` |
-| `lua-test` | `busted tests` |
+| `lua-lint` | `luacheck src tests tools`; in parallel `LUA_INIT=@tools/luacheck_jobs.lua luacheck -j N src tests tools` |
+| `lua-test` | `busted tests`; in parallel `python3 -I tools/busted_parallel.py tests` |
 | `shell` | `shellcheck -S style` over `tools/*.sh` |
-| `python-lint` | `ruff check tools` and `ruff format --check tools` |
-| `python-test` | `python3 -B -m unittest discover -s tools/tests` (`-B`: no `__pycache__`, whose folded test vectors the secrets scan would flag) |
+| `python-lint` | `ruff check --no-cache tools` and `ruff format --check --no-cache tools` (no `.ruff_cache` written while the secrets check reads the tree) |
+| `python-test` | `python3 -B -m unittest discover -s tools/tests` (`-B`: no `__pycache__`, whose folded test vectors the secrets scan would flag); in parallel `python3 -B tools/unittest_parallel.py discover -s tools/tests` |
 | `xml` | every `src/*/driver.xml` is well-formed (`xml.etree`) |
 | `powershell` | PSScriptAnalyzer over `tools/composer`; skipped where there is no `pwsh` (the VM) |
 | `workflows` | `actionlint`, then `zizmor --min-severity medium .github/workflows` |
@@ -75,6 +75,20 @@ nothing is silently skipped on the runner).
 | `house` | `python3 tools/deploy.py validate` (section 6, offline) |
 | `changelog` | `python3 -I tools/changelog.py check --file CHANGELOG.md` |
 | `links` | `python3 -I tools/check_links.py`: every link of every tracked Markdown file and Documentation tab resolves, heading anchors included |
+
+The checks run in parallel (#183): at most `JOBS` at a time (default
+`nproc`), each one's output kept apart and printed in the order of the table,
+so the report and the exit status are those of a serial run. The three slow
+ones are parallel inside too, with the same `JOBS`: luacheck's own `-j` with
+processes instead of LuaLanes threads (`tools/luacheck_jobs.lua`, loaded
+through `LUA_INIT`), busted one process per spec file with busted's own
+output and summary (`tools/busted_parallel.py` and its output handler
+`tools/busted_parallel.lua`), and unittest one process per test class with
+unittest's own output (`tools/unittest_parallel.py`). `JOBS=1` runs one check
+at a time with the serial commands. No check writes into the working tree,
+so the secrets check can read it while the others run. `tools/build.sh`
+builds the drivers at the same time, under the same `JOBS`, byte for byte the
+packages a serial build makes.
 
 `tools/setup-checks.sh` installs what the VM lacks into `~/.local/bin`
 without `sudo`: `ruff`, `zizmor` and `shellcheck-py` from

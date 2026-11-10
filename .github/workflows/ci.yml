@@ -70,9 +70,10 @@ jobs:
   # The name is a required status check on main, so it names no count: the job
   # builds and checks one package per src/<driver>/driver.xml, however many
   # (today two, modernforms_fan and modernforms_breeze_fan).
+  # It runs beside the tests rather than after them (#183): it uses nothing of
+  # theirs, and main's branch protection still needs every check green to merge.
   build:
     name: Build the .c4z packages
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

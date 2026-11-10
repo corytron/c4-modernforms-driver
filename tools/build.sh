@@ -117,19 +117,42 @@ elif [[ -n "$release_tag" ]]; then
 fi
 changelog_html="$ROOT/build/changelog.html"
 mkdir -p "$ROOT/build"
-python3 -I "$ROOT/tools/changelog.py" check --file "$ROOT/CHANGELOG.md" >/dev/null
-python3 -I "$ROOT/tools/changelog.py" html --file "$ROOT/CHANGELOG.md" "${changelog_args[@]}" > "$changelog_html"
+logs="$(mktemp -d)"
+cleanup() {
+	rm -rf "$logs"
+	if [[ "$dev_build" == yes ]]; then
+		# Even a build that fails half-way leaves no key in the stage.
+		rm -f "$ROOT/build/stage"/*/common/devkey.lua
+	fi
+}
+trap cleanup EXIT
+
+# The check and the rendering run at the same time; the check's verdict comes first, as when they
+# ran one after the other.
+python3 -I "$ROOT/tools/changelog.py" check --file "$ROOT/CHANGELOG.md" >/dev/null &
+check_pid=$!
+python3 -I "$ROOT/tools/changelog.py" html --file "$ROOT/CHANGELOG.md" "${changelog_args[@]}" \
+	> "$changelog_html" 2> "$logs/changelog.err" &
+html_pid=$!
+wait "$check_pid" && status=0 || status=$?
+if [[ $status -ne 0 ]]; then
+	wait "$html_pid" || true
+	exit "$status"
+fi
+wait "$html_pid" && status=0 || status=$?
+cat "$logs/changelog.err" >&2
+if [[ $status -ne 0 ]]; then
+	exit "$status"
+fi
 
 stage_root="$ROOT/build/stage"
 rm -rf "$stage_root"
 mkdir -p "$stage_root"
-if [[ "$dev_build" == yes ]]; then
-	# Even a build that fails half-way leaves no key in the stage.
-	trap 'rm -f "$stage_root"/*/common/devkey.lua' EXIT
-fi
 
-for driver in "${DRIVERS[@]}"; do
-	stage="$stage_root/$driver"
+# Stages and packs one driver in build/stage/<driver>/ into build/<driver>.c4z. The drivers share
+# nothing but their inputs, so they build at the same time (#183).
+build_driver() {
+	local driver="$1" stage="$stage_root/$1" item leftover doc manifest entry name
 	cp -R "$ROOT/src/$driver" "$stage"
 	cp -R "$ROOT/src/common" "$stage/common"
 	if [[ "$dev_build" == yes ]]; then
@@ -189,7 +212,7 @@ PY
 		echo "<Driver type=\"c4z\" name=\"$driver\" squishLua=\"false\">"
 		echo "<Items>"
 		for entry in "$stage"/*; do
-			name="$(basename "$entry")"
+			name="${entry##*/}"
 			[[ "$name" == "$driver.c4zproj" ]] && continue
 			if [[ -d "$entry" ]]; then
 				echo "	<Item type=\"dir\" name=\"$name\" recurse=\"true\"/>"
@@ -216,6 +239,37 @@ PY
 		echo "built build/$driver.c4z (version $version, DEV build, carries the dev key)"
 	else
 		echo "built build/$driver.c4z (version $version)"
+	fi
+}
+
+# Every driver at once (at most JOBS at a time, default nproc; JOBS=1 builds one after the other),
+# each one's output kept apart and printed in the order of DRIVERS. As when they were built in turn,
+# the first driver that fails ends the build after its own messages, with its exit status.
+jobs="${JOBS:-$(nproc)}"
+if [[ ! "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+	echo "build.sh: JOBS must be a positive integer, not '$jobs'" >&2
+	exit 2
+fi
+pids=()
+statuses=()
+waited=0
+for index in "${!DRIVERS[@]}"; do
+	if ((index - waited >= jobs)); then
+		wait "${pids[$waited]}" && statuses[waited]=0 || statuses[waited]=$?
+		waited=$((waited + 1))
+	fi
+	build_driver "${DRIVERS[$index]}" > "$logs/$index.out" 2> "$logs/$index.err" &
+	pids+=($!)
+done
+while ((waited < ${#DRIVERS[@]})); do
+	wait "${pids[$waited]}" && statuses[waited]=0 || statuses[waited]=$?
+	waited=$((waited + 1))
+done
+for index in "${!DRIVERS[@]}"; do
+	cat "$logs/$index.out"
+	cat "$logs/$index.err" >&2
+	if [[ ${statuses[$index]} -ne 0 ]]; then
+		exit "${statuses[$index]}"
 	fi
 done
 

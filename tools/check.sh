@@ -13,7 +13,7 @@
 #   lua-lint     luacheck src tests tools (and probes/ if present)
 #   lua-test     busted tests
 #   shell        shellcheck -S style tools/*.sh (and probes/*.sh and setup-vm.sh if present)
-#   python-lint  ruff check tools; ruff format --check tools
+#   python-lint  ruff check --no-cache tools; ruff format --check --no-cache tools
 #   python-test  python3 -B -m unittest discover -s tools/tests (-B: no __pycache__,
 #                whose constant-folded test vectors the secrets tree scan would flag)
 #   xml          every src/*/driver.xml (and probes/*/driver.xml) is well-formed (xml.etree, no xmllint)
@@ -30,6 +30,16 @@
 # failing command(s), or "skip <name> (<tool> not installed)". Exit 1 when a
 # check failed, 2 on a usage error, else 0. Tools are looked up on PATH with
 # ~/.local/bin first, where tools/setup-checks.sh installs them.
+#
+# Parallel (#183): the checks run at the same time, at most JOBS at once (default:
+# every core, as nproc counts them), each with its output kept apart and printed in
+# the order above, so the report reads as if they had run one after the other. The
+# slow ones are parallel inside too, with the same JOBS: luacheck -j through
+# tools/luacheck_jobs.lua, tools/busted_parallel.py (one busted process per spec
+# file) and tools/unittest_parallel.py (one process per test class). JOBS=1 runs one
+# check at a time with the plain commands (luacheck, busted tests, python3 -m
+# unittest), as before. No check writes into the working tree (ruff runs with
+# --no-cache), so the secrets check can scan it while the others run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,6 +47,13 @@ cd "$ROOT"
 export PATH="$HOME/.local/bin:$PATH"
 
 ALL_CHECKS=(lua-lint lua-test shell python-lint python-test xml powershell workflows secrets house changelog links)
+
+JOBS="${JOBS:-$(nproc)}"
+if [[ ! "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+	echo "check.sh: JOBS must be a positive integer, not '$JOBS'" >&2
+	exit 2
+fi
+export JOBS
 
 usage() {
 	echo "usage: tools/check.sh [--strict] [--only <name>...]" >&2
@@ -48,7 +65,7 @@ usage() {
 tools_for() {
 	case "$1" in
 		lua-lint) echo luacheck ;;
-		lua-test) echo busted ;;
+		lua-test) if [[ "$JOBS" -gt 1 ]]; then echo busted python3; else echo busted; fi ;;
 		shell) echo shellcheck ;;
 		python-lint) echo ruff ;;
 		python-test | xml | house | changelog) echo python3 ;;
@@ -72,11 +89,20 @@ check_lua_lint() {
 	if [[ -d probes ]]; then
 		dirs+=(probes)
 	fi
-	run luacheck "${dirs[@]}"
+	if [[ "$JOBS" -gt 1 ]]; then
+		# luacheck's own -j, with processes instead of LuaLanes threads.
+		run env LUA_INIT=@tools/luacheck_jobs.lua luacheck -j "$JOBS" "${dirs[@]}"
+	else
+		run luacheck "${dirs[@]}"
+	fi
 }
 
 check_lua_test() {
-	run busted tests
+	if [[ "$JOBS" -gt 1 ]]; then
+		run python3 -I tools/busted_parallel.py tests
+	else
+		run busted tests
+	fi
 }
 
 check_shell() {
@@ -95,8 +121,8 @@ check_shell() {
 
 check_python_lint() {
 	local rc=0
-	run ruff check tools || rc=1
-	run ruff format --check tools || rc=1
+	run ruff check --no-cache tools || rc=1
+	run ruff format --check --no-cache tools || rc=1
 	return "$rc"
 }
 
@@ -105,7 +131,11 @@ check_python_test() {
 		echo "tools/tests/ does not exist: there are no Python unit tests to run"
 		return 1
 	fi
-	run python3 -B -m unittest discover -s tools/tests
+	if [[ "$JOBS" -gt 1 ]]; then
+		run python3 -B tools/unittest_parallel.py discover -s tools/tests
+	else
+		run python3 -B -m unittest discover -s tools/tests
+	fi
 }
 
 check_xml() {
@@ -253,10 +283,42 @@ for name in "${ALL_CHECKS[@]}"; do
 done
 
 failed=()
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+logs="$(mktemp -d)"
+trap 'rm -rf "$logs"' EXIT
 
-for name in "${to_run[@]}"; do
+# Each check's verdict: a line already decided (a missing tool), or the pid of the
+# check running in the background; printed strictly in the order of to_run.
+verdicts=()
+pids=()
+printed=0
+running=0
+
+# Waits for the next check in order, if it runs, and prints its verdict.
+print_next() {
+	local name="${to_run[$printed]}" status
+	if [[ -n "${pids[$printed]}" ]]; then
+		wait "${pids[$printed]}" && status=0 || status=$?
+		running=$((running - 1))
+		if [[ $status -eq 0 ]]; then
+			echo "ok $name"
+		else
+			echo "FAIL $name"
+			sed 's/^/  /' "$logs/$name.log"
+			failed+=("$name")
+		fi
+	else
+		echo "${verdicts[$printed]}"
+		if [[ "${verdicts[$printed]}" == FAIL* ]]; then
+			failed+=("$name")
+		fi
+	fi
+	printed=$((printed + 1))
+}
+
+for index in "${!to_run[@]}"; do
+	name="${to_run[$index]}"
+	pids[index]=""
+	verdicts[index]=""
 	missing=""
 	read -r -a tools <<< "$(tools_for "$name")"
 	for tool in "${tools[@]}"; do
@@ -267,21 +329,24 @@ for name in "${to_run[@]}"; do
 	done
 	if [[ -n "$missing" ]]; then
 		if [[ "$strict" == yes ]]; then
-			echo "FAIL $name ($missing not installed)"
-			failed+=("$name")
+			verdicts[index]="FAIL $name ($missing not installed)"
 		else
-			echo "skip $name ($missing not installed)"
+			verdicts[index]="skip $name ($missing not installed)"
 		fi
 		continue
 	fi
+	while [[ $running -ge $JOBS ]]; do
+		print_next
+	done
 	fn="check_${name//-/_}"
-	if "$fn" >"$log" 2>&1; then
-		echo "ok $name"
-	else
-		echo "FAIL $name"
-		sed 's/^/  /' "$log"
-		failed+=("$name")
-	fi
+	# As `if "$fn"` did when the checks ran in turn: errexit off inside the check,
+	# whose status is its last command's.
+	( set +e; "$fn" ) >"$logs/$name.log" 2>&1 &
+	pids[index]=$!
+	running=$((running + 1))
+done
+while [[ $printed -lt ${#to_run[@]} ]]; do
+	print_next
 done
 
 if [[ ${#failed[@]} -gt 0 ]]; then
