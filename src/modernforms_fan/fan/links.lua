@@ -358,7 +358,7 @@ function links:push_led(link, shown, force)
 	return true
 end
 
--- Whether the Breeze animation holds a link now (BL-D15). Only a speed link
+-- Whether an LED animation (Breeze or the speed chase) holds a link now (BL-D15). Only a speed link
 -- can be held; held is not asked about any other. Without held, or when it
 -- raises (logged), nothing is held and the link follows its state as in 1.3.
 function links:is_held(link)
@@ -367,7 +367,7 @@ function links:is_held(link)
 	end
 	local ok, held = pcall(self.held, link)
 	if not ok then
-		self.log.warn("link %d: whether the Breeze animation holds it could not be read: %s", link, tostring(held))
+		self.log.warn("link %d: whether an LED animation holds it could not be read: %s", link, tostring(held))
 		return false
 	end
 	return held == true
@@ -377,7 +377,7 @@ end
 -- nothing, and the tables its settle reads stay as they are.
 function links:follow(link, shown, force)
 	if self:is_held(link) then
-		self.log.debug("link %d: held by the Breeze animation; nothing sent", link)
+		self.log.debug("link %d: held by an LED animation; nothing sent", link)
 		return false
 	end
 	return self:push_led(link, shown, force)
@@ -403,12 +403,12 @@ end
 -- BL-D16): the animation paints its current frame colour.
 function links:repaint_held(link)
 	if not self.repaint then
-		self.log.debug("link %d: held by the Breeze animation, nothing repaints it", link)
+		self.log.debug("link %d: held by an LED animation, nothing repaints it", link)
 		return
 	end
 	local ok, err = pcall(self.repaint, link)
 	if not ok then
-		self.log.error("link %d: the Breeze animation could not repaint it: %s", link, tostring(err))
+		self.log.error("link %d: the LED animation could not repaint it: %s", link, tostring(err))
 	end
 end
 
@@ -691,7 +691,7 @@ function links:send_pixels(force)
 	if ok then
 		self.pixels_sent = key
 	else
-		self.log.error("the Breeze animation could not take the pixels %s: %s", key, tostring(err))
+		self.log.error("the LED animations could not take the pixels %s: %s", key, tostring(err))
 	end
 end
 
