@@ -333,7 +333,7 @@
 				<type>RANGED_INTEGER</type>
 				<minimum>5</minimum>
 				<maximum>60</maximum>
-				<default>10</default>
+				<default>5</default>
 				<readonly>false</readonly>
 			</property>
 			<property>

@@ -25,12 +25,12 @@ same, and its colour is the one set for that speed in the driver.
 | SL-D3 | The chase **holds pixels only while it plays.** During the rest the links own every LED and light the selected speed's button exactly as a build without the feature does, `Also Lit At` included. | SL63: everything already right at rest stays right. |
 | SL-D4 | The shape is **a single dot** that travels across every bound speed button, in the airflow direction: `forward` (blowing down) runs from the top button to the bottom one, `reverse` from the bottom up. Which end is the top comes from the existing `Breeze LED Bottom` row. An unknown direction: no chase. | Owner: "one after the other, in the direction the fan is blowing"; an unknown direction cannot honour that. |
 | SL-D5 | **Pace by speed, fixed in the first build:** one dot step lasts 400, 300, 200, 120 ms at speeds 2, 3, 4, 5; 500 ms at speed 1 and 100 ms at speed 6 when those are on. Floor 100 ms. | Guidelines 8.3; with four buttons a chase lasts 1.6 s at speed 2 and 0.48 s at speed 5. |
-| SL-D6 | **Constant rest** between the end of one chase and the start of the next: `Speed LED Rest (s)`, 5 to 60, default 10, the same at every speed. After a start or a speed change the **rest comes first**. | Owner: "the amount of time in between animations is always the same"; 10 s keeps four buttons under about 1.2 messages a second. |
+| SL-D6 | **Constant rest** between the end of one chase and the start of the next: `Speed LED Rest (s)`, 5 to 60, **default 5** (#177; 10 before 1.7), the same at every speed. **After a speed is selected the first chase comes 2.5 s later** (`FIRST_MS`, fixed, not a property), then one every rest while the speed stays (#177); see SL-D19. | Owner: "the amount of time in between animations is always the same"; owner, 2026-11-10: "the default for everyone to be 5s", "after a speed is selected i want the chase to start after 2.5s that first time, then after that it switches to 5s". At 5 s four buttons send about 2 messages a second on average, inside the budget. |
 | SL-D7 | **Colour:** the chase uses the selected speed's `Speed N LED Color`, read at the start of every chase. No colour of its own. | Owner; SL49. |
 | SL-D8 | **Which speeds:** `Speed LED Animation` = `Off` (default), `Speeds 2 to 5`, `Speeds 1 to 6`. Off by default so an update animates nobody's keypad; the house is set to `Speeds 2 to 5`. | BL-D18; owner's text names 2 to 5. |
 | SL-D9 | **Only under `Speed LED Colors` = `Per speed`**, only in fan mode (`mode.fan_on(shown) == true`, so never in Breeze), only while the fan is online, only with at least two bound speed buttons. Otherwise no chase and every held pixel is put back at once. Under `Keypad's own` the driver writes the same kind of Last Action line the Breeze animation writes there. | SF2, SG truthful-stop row. |
-| SL-D10 | **Restart only on a real change** of the inputs (enabled speeds, mode, speed, direction, online, pixel list, rest). The model fires `shown` on any field, light level included; a light fade tick changes nothing. | SL7. |
-| SL-D11 | **Any change during a chase ends it** with a settle of every pixel the engine holds (the links send their truth), forgets what it loaded, and starts a fresh rest. A chase lasts under 2 s, so nothing is worth carrying over. | Engine options section 3. |
+| SL-D10 | **Restart only on a real change** of the inputs (enabled speeds, mode, speed, direction, online, pixel list). A rest change is not a restart: while resting it moves the next chase to the last chase's end plus the new rest, never earlier than now (SL-D19). The model fires `shown` on any field, light level included; a light fade tick changes nothing. | SL7. |
+| SL-D11 | **Any change during a chase ends it** with a settle of every pixel the engine holds (the links send their truth), forgets what it loaded, and starts a new run (its first chase `FIRST_MS` later, SL-D19). A chase lasts under 2 s, so nothing is worth carrying over. | Engine options section 3. |
 | SL-D12 | **Messages per chase** (N buttons, L of them lit at rest, usually 1): darken the L lit buttons; for each button in order, load the chase colour into it if it was dark at rest (`paint(link, colour, false, true)`, the preload), light it (`light(link, true)`), and darken the one before it; darken the last; relight the L buttons (`light(link, true)`, no colour: theirs is already the speed's colour). That is 2N + 2L + (N - L) messages, 13 for the house's four buttons (less at the edges, SL-D18). The preload is sent every chase, so nothing the links or a bind sent behind the engine's back can show a wrong colour. | Guidelines sections 4 and 8.2, with a stateless preload; `links:lit` / `colour_for` (`links.lua` 289 to 317): a lit speed button carries the colour of the speed the fan is at. |
 | SL-D13 | **Budget:** the Breeze window (30 messages per 1,000 ms, BL-D24). Every chase message is must-send; when the window is full the next step is delayed, never dropped. | Guidelines 8.2. |
 | SL-D14 | **Waiting for Breeze:** a chase that falls due while Breeze holds any pixel (its leave wipe) tries again after 200 ms. | SL15. |
@@ -38,13 +38,14 @@ same, and its colour is the one set for that speed in the driver.
 | SL-D16 | A **bind or `REQUEST_BUTTON_COLORS`** on a held pixel (`repaint`) ends the chase as SL-D11 does. `OnDriverDestroyed` stops it (the timer is cancelled). | SF7; BL-D11. |
 | SL-D17 | No `<capabilities>` change; property rows only, so no controller reboot. | BL44. |
 | SL-D18 | **No double blink at the edges** (#172, owner at the keypad, 2026-11-10). A button lit at rest that is the dot's **first** position is not darkened at the start: it stays lit and is the first frame, and darkens only when the dot moves on. A button lit at rest that is the dot's **last** position is not darkened at the end: the dot stays on it and it is lit again for the rest without a message. Each case saves two messages (11 instead of 13 for four buttons); the middle speeds do not change. | On the house, speed 2 (dot starts on Low) blinked at the start and speed 5 (dot ends on High) at the end. |
+| SL-D19 | **A new run starts with the short delay, whatever its source** (#177). A run is new when the chase becomes possible or its inputs change for real (SL-D10): a speed change from a keypad, a Navigator, programming, the driver's actions, the Modern Forms app, its remote or wall control (the last three seen at the driver's next poll of the fan), the fan starting at a speed, Breeze ending at a speed (after the Breeze leave wipe, SL-D14), the chase turned on or its speeds widened, the fan back online, a direction change, a changed pixel list. Its first chase comes `FIRST_MS` (2,500 ms) after the engine sees the change; every later chase comes a rest after the previous one ends. A light-level change or a poll that changes nothing is not a new run. A rest change while resting reschedules from the last chase's end (or from the run's start if none has played yet), never earlier than now. | Owner: "Make sure the chase starts no matter how speed is selected, ie from phone or api." |
 
 ## 2. Properties (`driver.xml`, after the Breeze LED rows)
 
 | Row | Type | Values | Default |
 | --- | --- | --- | --- |
 | `Speed LED Animation` | LIST | `Off`, `Speeds 2 to 5`, `Speeds 1 to 6` | `Off` |
-| `Speed LED Rest (s)` | RANGED_INTEGER | 5 to 60 | 10 |
+| `Speed LED Rest (s)` | RANGED_INTEGER | 5 to 60 | 5 |
 
 Both sit with the Breeze LED rows and, like them, are always shown and take
 effect only under `Per speed`. The chase also reads `Breeze LED Bottom`; its description in
@@ -57,7 +58,8 @@ the documentation says so.
 ```lua
 local speedleds = require("fan.speedleds")
 speedleds.STEP_MS      -- { [1] = 500, [2] = 400, [3] = 300, [4] = 200, [5] = 120, [6] = 100 }
-speedleds.REST_DEFAULT -- 10 (seconds); speedleds.REST_MIN 5, speedleds.REST_MAX 60
+speedleds.REST_DEFAULT -- 5 (seconds, #177); speedleds.REST_MIN 5, speedleds.REST_MAX 60
+speedleds.FIRST_MS     -- 2500: a new run's first chase (SL-D19)
 speedleds.RETRY_MS     -- 200
 
 local s = speedleds.new({
@@ -77,7 +79,7 @@ s:update({ fan_mode = bool | nil, speed = 0..6 | nil, online = bool, direction =
 s:held(link)    -- true while a chase holds the link
 s:repaint(link) -- a bind or REQUEST_BUTTON_COLORS on a held link: ends the chase (SL-D16)
 s:stop()        -- puts back every held pixel (settle), cancels the timer
-s:debug()       -- a table for the dev loop: state ("off", "resting", "chasing", "waiting"), speed, step, rest, held links
+s:debug()       -- a table for the dev loop: state ("off", "resting", "chasing", "waiting"), first (the run's first chase is still to come), speed, step, rest, held links
 ```
 
 - `configure`, `set_pixels` and `update` are idempotent: called with the
@@ -120,20 +122,22 @@ every sequence it plays.
 
 ## 4. What the owner sees (house: four buttons, Low to High, all purple, defaults)
 
-At speed 3 the Medium button is lit purple. Ten seconds later it goes dark,
+At speed 3 the Medium button is lit purple. 2.5 seconds after the speed was
+selected it goes dark,
 a purple dot runs down the four buttons (fan blowing down), one button every
 0.3 s, and when the dot leaves the last button the Medium button lights
-again; ten seconds later the next chase. At speed 5 the dot runs in under
-half a second; at speed 2 it takes 1.6 s; the ten seconds between them do not
-change. A speed press shows the new button at once and the first chase comes
-a full rest later. Breeze, Off, the fan going offline, or `Keypad's own` stop
+again; five seconds later the next chase, and so on. At speed 5 the dot runs
+in under half a second; at speed 2 it takes 1.6 s; the five seconds between
+them do not change. A speed press shows the new button at once and the first
+chase comes 2.5 s later, whatever selected the speed. Breeze, Off, the fan going offline, or `Keypad's own` stop
 the chase at once and leave the keypad as it is today.
 
 ## 5. Tests
 
 - `tests/spec/speedleds_spec.lua`: a fake timer and clock, recorded calls.
   The order per direction and per `bottom`; step times per speed; the rest is
-  constant across speeds and comes first; the message sequence and count of
+  constant across speeds, and a new run's first chase comes `FIRST_MS` after
+  the change (SL-D19); the message sequence and count of
   SL-D12 for 2 to 6 buttons with 0, 1 and 2 lit at rest; idempotent updates
   (a light-level change sends nothing); every stop path settles every held
   pixel and holds nothing after; `blocked` delays a chase by `RETRY_MS`;
@@ -152,7 +156,7 @@ the chase at once and leave the keypad as it is today.
 
 1. `Speed LED Animation` = `Speeds 2 to 5`, fan at speed 3, blowing down:
    the Medium LED goes dark, a purple dot runs top to bottom, Medium relights;
-   again ten seconds later.
+   again five seconds later.
 2. Speed 5, then speed 2: the dot is visibly faster, then slower; the gap is
    the same.
 3. Reverse the fan: the dot runs bottom to top.

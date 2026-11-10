@@ -1,5 +1,6 @@
--- fan.speedleds on fakes: the speed LED chase (#159, docs/speed-leds-design.md section 1, SL-D1 to SL-D18, the
--- interface of section 3.1 and the tests of section 5; SL-D18 is #172, no double blink at the edges). The paint,
+-- fan.speedleds on fakes: the speed LED chase (#159, docs/speed-leds-design.md section 1, SL-D1 to SL-D19, the
+-- interface of section 3.1 and the tests of section 5; SL-D18 is #172, no double blink at the edges; SL-D19 is
+-- #177, a new run's first chase 2.5 s after it starts, then one every rest). The paint,
 -- light and settle calls are recorded in order and replayed on a keypad that behaves as the house keypad was
 -- measured to (#137): a colour preloaded while dark stays dark, MATCH_LED_STATE shows the loaded colour or dark, and
 -- a settle shows what the links would show (lit at rest in the speed's colour, or dark). The timer records its ms
@@ -9,11 +10,13 @@
 -- the chase colour, "x" lit in another, "." dark, "?" unknown.
 --
 -- Unless a spec says otherwise: the house's four buttons (302 Low to 305 High, bottom = 1), Speeds 2 to 5, Per
--- speed, a rest of 10 s, the fan at speed 3 blowing down (forward, so the lane is 305, 304, 303, 302) and only
--- the Medium button (303) lit at rest, in purple.
+-- speed, the shipped rest of 5 s, the fan at speed 3 blowing down (forward, so the lane is 305, 304, 303, 302) and
+-- only the Medium button (303) lit at rest, in purple.
 
 local speedleds = require("fan.speedleds")
 
+local REST_MS = 5000 -- the shipped rest (SL-D6, #177), what start() configures unless told otherwise
+local FIRST_MS = 2500 -- a new run's first chase (SL-D19, #177)
 local HOUSE = { 302, 303, 304, 305 } -- Low, Medium, Med-High, High
 local PURPLE = "8000ff"
 local COLOURS = { [1] = "ff0000", [2] = "00ff00", [3] = PURPLE, [4] = "0000ff", [5] = "ffff00", [6] = "00ffff" }
@@ -204,7 +207,7 @@ local function start(r, o)
 	r.direction = o.direction or "forward"
 	r.rest = o.lit or { [300 + r.speed] = true }
 	r.pixels = o.pixels or HOUSE
-	r.s:configure({ speeds = o.speeds or "2-5", per_speed = true, bottom = o.bottom or 1, rest = o.rest or 10 })
+	r.s:configure({ speeds = o.speeds or "2-5", per_speed = true, bottom = o.bottom or 1, rest = o.rest or 5 })
 	r.s:set_pixels(r.pixels)
 	for _, link in ipairs(r.pixels) do
 		local lit = r.rest[link] == true
@@ -231,8 +234,8 @@ local function look(r, lane, colour)
 	return table.concat(out)
 end
 
--- Fires the rest timer and every step until the chase is over: every call, the keypad after each frame, and the
--- calls of each frame (frames[1] is frame 1, played when the rest timer fires).
+-- Fires the pending timer (a run's first delay or the rest) and every step until the chase is over: every call,
+-- the keypad after each frame, and the calls of each frame (frames[1] is frame 1, played when that timer fires).
 local function run_chase(r)
 	local lane = r.s:debug().lane
 	local calls, looks, frames = {}, {}, {}
@@ -245,6 +248,20 @@ local function run_chase(r)
 		looks[#looks + 1] = look(r, lane)
 		if r.s:debug().state ~= "chasing" then
 			return calls, looks, frames
+		end
+	end
+	error("the chase never ended")
+end
+
+-- Fires every step of the chase that is playing until it is over; its calls.
+local function finish(r)
+	local calls = {}
+	for _ = 1, 40 do
+		if r.s:debug().state ~= "chasing" then
+			return calls
+		end
+		for _, call in ipairs(tick(r)) do
+			calls[#calls + 1] = call
 		end
 	end
 	error("the chase never ended")
@@ -328,10 +345,11 @@ describe("fan.speedleds", function()
 		speedleds.BUDGET_PER_S = SHIPPED_BUDGET
 	end)
 
-	describe("constants (SL-D5, SL-D6, SL-D14)", function()
-		it("has the contract's step table, rest and retry", function()
+	describe("constants (SL-D5, SL-D6, SL-D14, SL-D19)", function()
+		it("has the contract's step table, rest, first delay and retry", function()
 			assert.are.same({ [1] = 500, [2] = 400, [3] = 300, [4] = 200, [5] = 120, [6] = 100 }, speedleds.STEP_MS)
-			assert.are.equal(10, speedleds.REST_DEFAULT)
+			assert.are.equal(5, speedleds.REST_DEFAULT)
+			assert.are.equal(2500, speedleds.FIRST_MS)
 			assert.are.equal(5, speedleds.REST_MIN)
 			assert.are.equal(60, speedleds.REST_MAX)
 			assert.are.equal(200, speedleds.RETRY_MS)
@@ -345,13 +363,14 @@ describe("fan.speedleds", function()
 			local r = rig()
 			start(r)
 			assert.are.same({}, r.calls)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			local calls, looks = run_chase(r)
 			assert.are.same(HOUSE_CHASE, calls)
 			-- Lane 305, 304, 303, 302: the dot runs top to bottom; Medium relights at the end.
 			assert.are.same({ "#...", ".#..", "..#.", "...#", "..#." }, looks)
 			assert.is_false(held_any(r))
 			local t = pending(r)
-			assert.are.equal(10000, t.ms)
+			assert.are.equal(REST_MS, t.ms)
 			assert.are.equal("resting", r.s:debug().state)
 		end)
 
@@ -405,7 +424,7 @@ describe("fan.speedleds", function()
 			r.colours[3] = nil
 			assert.are.same({}, tick(r))
 			assert.is_false(held_any(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(REST_MS, pending(r).ms)
 			assert.are.equal("resting", r.s:debug().state)
 			r.colours[3] = PURPLE
 			assert.are.same({ HOUSE_CHASE[1], HOUSE_CHASE[2], HOUSE_CHASE[3] }, tick(r))
@@ -447,11 +466,11 @@ describe("fan.speedleds", function()
 			{ speeds = "1-6", speed = 3, step = 300 },
 		}
 		for _, case in ipairs(cases) do
-			it(string.format("steps %d ms at speed %d under %s, after the same rest first", case.step, case.speed,
-				case.speeds), function()
+			it(string.format("steps %d ms at speed %d under %s, after the same first delay, then the same rest",
+				case.step, case.speed, case.speeds), function()
 				local r = rig()
 				start(r, { speeds = case.speeds, speed = case.speed })
-				assert.are.equal(10000, pending(r).ms) -- the rest comes first
+				assert.are.equal(FIRST_MS, pending(r).ms) -- a new run's first chase (SL-D19)
 				assert.are.equal(case.step, r.s:debug().step)
 				tick(r)
 				for _ = 1, 4 do
@@ -459,7 +478,7 @@ describe("fan.speedleds", function()
 					tick(r)
 				end
 				local t = pending(r)
-				assert.are.equal(10000, t.ms) -- measured from the end of the chase, the same at every speed
+				assert.are.equal(REST_MS, t.ms) -- measured from the end of the chase, the same at every speed
 				assert.are.equal(r.clock, t.at)
 			end)
 		end
@@ -477,28 +496,30 @@ describe("fan.speedleds", function()
 			assert(ok, err)
 		end)
 
-		it("takes the rest in seconds, held within 5 to 60, 10 for anything else", function()
+		it("takes the rest in seconds, held within 5 to 60, 5 for anything else", function()
 			local r = rig()
 			start(r, { rest = 30 })
+			assert.are.equal(FIRST_MS, pending(r).ms) -- the first chase does not wait for the rest (SL-D19)
+			run_chase(r)
 			assert.are.equal(30000, pending(r).ms)
-			for _, case in ipairs({ { 3, 5 }, { 99, 60 }, { "12", 12 }, { 7.4, 7 }, { "x", 10 } }) do
+			for _, case in ipairs({ { 3, 5 }, { 99, 60 }, { "12", 12 }, { 7.4, 7 }, { "x", 5 } }) do
 				r.s:configure({ rest = case[1] })
 				assert.are.equal(case[2], r.s:debug().rest)
-				assert.are.equal(case[2] * 1000, pending(r).ms)
+				assert.are.equal(case[2] * 1000, pending(r).ms) -- from the chase's end, which is now
 			end
 		end)
 
-		it("restarts a full rest on a speed change, sending nothing", function()
+		it("starts a new run on a speed change, its first chase FIRST_MS later, sending nothing", function()
 			local r = rig()
 			start(r)
 			local first = pending(r)
-			r.clock = r.clock + 6000
+			r.clock = r.clock + 1000
 			r.speed = 4
 			r.s:update(view(r))
 			assert.are.same({}, r.calls)
 			assert.is_true(first.cancelled)
 			local t = pending(r)
-			assert.are.equal(10000, t.ms)
+			assert.are.equal(FIRST_MS, t.ms)
 			assert.are.equal(r.clock, t.at)
 			-- A callback of the cancelled timer is ignored.
 			first.cb()
@@ -613,7 +634,7 @@ describe("fan.speedleds", function()
 			assert.are.equal(table.concat(final), looks[n + 1])
 			assert.are.equal(n + 1, #looks)
 			assert.is_false(held_any(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(REST_MS, pending(r).ms)
 		end
 		for n = 2, 6 do
 			for _, set in ipairs(SETS) do
@@ -711,7 +732,7 @@ describe("fan.speedleds", function()
 						assert.is_true(r.kp[selected].lit)
 						assert.are.equal(COLOURS[selected - 300], r.kp[selected].loaded)
 						assert.is_false(held_any(r))
-						assert.are.equal(10000, pending(r).ms)
+						assert.are.equal(REST_MS, pending(r).ms)
 						assert.are.equal(r.clock, pending(r).at)
 						-- The next chase is the same.
 						local again = run_chase(r)
@@ -754,14 +775,14 @@ describe("fan.speedleds", function()
 					assert.are.same(settles(HOUSE), r.calls)
 					assert.is_false(held_any(r))
 					assert.are.equal(PICTURES[5 - p], look(r, case.lane))
-					assert.are.equal(10000, pending(r).ms)
+					assert.are.equal(FIRST_MS, pending(r).ms)
 					r = chase_at(case, p)
 					tick(r)
 					r.calls = {}
 					assert.is_true(r.s:repaint(case.lane[p])) -- held although nothing was sent to it yet at place 1
 					assert.are.same(settles(HOUSE), r.calls)
 					assert.are.equal(PICTURES[p], look(r, case.lane))
-					assert.are.equal(10000, pending(r).ms)
+					assert.are.equal(FIRST_MS, pending(r).ms)
 				end)
 			end
 		end
@@ -821,9 +842,9 @@ describe("fan.speedleds", function()
 			local count = #r.timers
 			r.clock = r.clock + 2000
 			r.s:update(view(r, { level = 40, light_on = true })) -- a light-level change upstream
-			r.s:configure({ speeds = "2-5", per_speed = true, bottom = 1, rest = 10 })
+			r.s:configure({ speeds = "2-5", per_speed = true, bottom = 1, rest = 5 })
 			r.s:configure({})
-			r.s:configure({ rest = "10" })
+			r.s:configure({ rest = "5" })
 			r.s:set_pixels({ 305, 304, 303, 302, 302 })
 			assert.are.same({}, r.calls)
 			assert.are.equal(count, #r.timers)
@@ -897,48 +918,48 @@ describe("fan.speedleds", function()
 		it("chases speeds 1 and 6 only under 1-6", function()
 			local r = rig()
 			start(r, { speeds = "1-6", speed = 1 })
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			r.s:configure({ speeds = "2-5" })
 			assert.is_nil(pending(r))
 			r.s:configure({ speeds = "1-6" })
 			r.speed = 6
 			r.s:update(view(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			assert.are.equal(100, r.s:debug().step)
 		end)
 
-		it("rests first once the last missing input arrives", function()
+		it("starts a new run once the last missing input arrives, its first chase FIRST_MS later", function()
 			local r = rig()
 			start(r)
 			r.s:update(view(r, { direction = false }))
 			assert.is_nil(pending(r))
 			r.direction = "reverse"
 			r.s:update(view(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			assert.are.same({}, r.calls)
 		end)
 	end)
 
 	describe("every stop path (SL-D9, SL-D11, SL-D16)", function()
-		-- Each case mid-chase (after frame 2, every pixel held): `rest` says whether a fresh full rest follows.
+		-- Each case mid-chase (after frame 2, every pixel held): `run` says whether a new run follows, its first
+		-- chase FIRST_MS later (SL-D19). A rest change is not a stop: see "a rest change mid-chase".
 		local cases = {
-			{ "a speed change", function(r) r.speed = 4; r.s:update(view(r)) end, rest = 10000 },
+			{ "a speed change", function(r) r.speed = 4; r.s:update(view(r)) end, run = true },
 			{ "Breeze", function(r) r.s:update(view(r, { fan_mode = false, speed = 0 })) end },
 			{ "fan mode unknown", function(r) r.s:update(view(r, { fan_mode = "?" })) end },
 			{ "offline", function(r) r.s:update(view(r, { online = false })) end },
 			{ "an unknown direction", function(r) r.s:update(view(r, { direction = false })) end },
-			{ "a reversed fan", function(r) r.direction = "reverse"; r.s:update(view(r)) end, rest = 10000 },
+			{ "a reversed fan", function(r) r.direction = "reverse"; r.s:update(view(r)) end, run = true },
 			{ "speed 6 under 2-5", function(r) r.speed = 6; r.s:update(view(r)) end },
 			{ "Keypad's own", function(r) r.s:configure({ per_speed = false }) end },
 			{ "Speed LED Animation Off", function(r) r.s:configure({ speeds = "off" }) end },
-			{ "Speeds 1 to 6", function(r) r.s:configure({ speeds = "1-6" }) end, rest = 10000 },
-			{ "a rest change", function(r) r.s:configure({ rest = 20 }) end, rest = 20000 },
-			{ "a bottom change", function(r) r.s:configure({ bottom = 6 }) end, rest = 10000 },
-			{ "a button unbound", function(r) r.s:set_pixels({ 302, 303, 304 }) end, rest = 10000 },
-			{ "a button bound", function(r) r.s:set_pixels({ 301, 302, 303, 304, 305 }) end, rest = 10000 },
+			{ "Speeds 1 to 6", function(r) r.s:configure({ speeds = "1-6" }) end, run = true },
+			{ "a bottom change", function(r) r.s:configure({ bottom = 6 }) end, run = true },
+			{ "a button unbound", function(r) r.s:set_pixels({ 302, 303, 304 }) end, run = true },
+			{ "a button bound", function(r) r.s:set_pixels({ 301, 302, 303, 304, 305 }) end, run = true },
 			{ "one button left", function(r) r.s:set_pixels({ 303 }) end },
-			{ "a repaint", function(r) assert.is_true(r.s:repaint(304)) end, rest = 10000 },
-			{ "a repaint by name", function(r) assert.is_true(r.s:repaint("302")) end, rest = 10000 },
+			{ "a repaint", function(r) assert.is_true(r.s:repaint(304)) end, run = true },
+			{ "a repaint by name", function(r) assert.is_true(r.s:repaint("302")) end, run = true },
 			{ "stop", function(r) r.s:stop() end },
 		}
 		for _, case in ipairs(cases) do
@@ -960,31 +981,58 @@ describe("fan.speedleds", function()
 					assert.are.equal(r.rest[link] == true, r.kp[link].lit)
 				end
 				local t = pending(r)
-				if case.rest then
-					assert.are.equal(case.rest, t.ms)
+				if case.run then
+					assert.are.equal(FIRST_MS, t.ms)
 					assert.are.equal(r.clock, t.at)
 					assert.are.equal("resting", r.s:debug().state)
+					assert.is_true(r.s:debug().first)
 				else
 					assert.is_nil(t)
 					assert.are.equal("off", r.s:debug().state)
+					assert.is_false(r.s:debug().first)
 				end
 			end)
 		end
 
-		it("sends nothing for a change while resting or waiting, and rests again in full", function()
+		it("sends nothing for a change while resting or waiting, and starts a new run", function()
 			local r = rig()
 			start(r)
+			local first = pending(r)
 			r.s:configure({ rest = 15 })
 			assert.are.same({}, r.calls)
-			assert.are.equal(15000, pending(r).ms)
+			assert.are.equal(first, pending(r)) -- the first chase does not wait for the rest
 			r.blocked[305] = true
 			tick(r)
 			assert.are.equal("waiting", r.s:debug().state)
 			r.speed = 5
 			r.s:update(view(r))
 			assert.are.same({}, r.calls)
-			assert.are.equal(15000, pending(r).ms)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			assert.are.equal("resting", r.s:debug().state)
+		end)
+
+		it("keeps a chase playing through a rest change mid-chase, the new rest after it (SL-D19)", function()
+			local r = rig()
+			start(r)
+			local calls = tick(r)
+			for _, call in ipairs(tick(r)) do
+				calls[#calls + 1] = call
+			end
+			local step = pending(r)
+			r.clock = r.clock + 100
+			r.s:configure({ rest = 20 })
+			assert.are.same({}, r.calls)
+			assert.is_false(step.cancelled)
+			assert.are.equal(step, pending(r))
+			assert.are.equal("chasing", r.s:debug().state)
+			assert.are.equal(20, r.s:debug().rest)
+			for _, call in ipairs(finish(r)) do
+				calls[#calls + 1] = call
+			end
+			assert.are.same(HOUSE_CHASE, calls)
+			local t = pending(r)
+			assert.are.equal(20000, t.ms)
+			assert.are.equal(r.clock, t.at)
 		end)
 
 		it("settles a held link that just left the list too", function()
@@ -1157,7 +1205,7 @@ describe("fan.speedleds", function()
 				{ calls[#calls - 2], calls[#calls - 1], calls[#calls] })
 			assert.is_true(r.log.has("warn", "link 304 could not be painted"))
 			assert.is_false(held_any(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(REST_MS, pending(r).ms)
 		end)
 
 		it("finishes a chase whose every light fails, settling every pixel at the end", function()
@@ -1169,7 +1217,7 @@ describe("fan.speedleds", function()
 				calls[#calls - 1], calls[#calls] })
 			assert.is_true(r.log.has("warn", "could not be lit"))
 			assert.is_false(held_any(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(REST_MS, pending(r).ms)
 		end)
 
 		it("settles a pixel whose last-frame light fails", function()
@@ -1213,7 +1261,7 @@ describe("fan.speedleds", function()
 			start(r)
 			r.fail_colour = true
 			assert.are.same({}, tick(r))
-			assert.are.equal(10000, pending(r).ms)
+			assert.are.equal(REST_MS, pending(r).ms)
 			assert.is_true(r.log.has("warn", "the colour of speed 3 could not be read"))
 		end)
 
@@ -1224,8 +1272,14 @@ describe("fan.speedleds", function()
 			assert.is_nil(pending(r))
 			assert.is_true(r.log.has("warn", "the timer could not be armed"))
 			r.fail_timer = false
-			r.s:configure({ rest = 12 })
-			assert.are.equal(12000, pending(r).ms)
+			r.clock = r.clock + 1000
+			r.s:configure({ rest = 12 }) -- a rest change arms the first chase where the run put it
+			assert.are.equal(FIRST_MS - 1000, pending(r).ms)
+			r.clock = r.clock + 500
+			r.speed = 4
+			r.s:update(view(r)) -- a real change: a new run
+			assert.are.equal(FIRST_MS, pending(r).ms)
+			assert.are.equal(r.clock, pending(r).at)
 		end)
 
 		it("settles every held pixel when a step cannot be timed", function()
@@ -1239,6 +1293,13 @@ describe("fan.speedleds", function()
 			assert.are.same(settles(HOUSE), { r.calls[4], r.calls[5], r.calls[6], r.calls[7] })
 			assert.is_false(held_any(r))
 			assert.is_true(r.log.has("warn", "the chase stopped: no timer"))
+			assert.is_nil(pending(r))
+			assert.are.equal("resting", r.s:debug().state)
+			-- A rest change arms the rest from where the chase stopped.
+			r.fail_timer = false
+			r.clock = r.clock + 1000
+			r.s:configure({ rest = 7 })
+			assert.are.equal(6000, pending(r).ms)
 		end)
 
 		it("survives a clock and a cancel that raise", function()
@@ -1247,13 +1308,13 @@ describe("fan.speedleds", function()
 			local old = pending(r)
 			r.fail_clock = true
 			r.fail_cancel = true
-			r.s:configure({ rest = 8 })
+			r.s:configure({ speeds = "1-6" }) -- a real change at speed 3: a new run, the same chase
 			r.fail_cancel = false
 			assert.is_true(r.log.has("warn", "the timer could not be cancelled"))
 			old.cb() -- the timer that could not be cancelled fires anyway: ignored
 			assert.are.same({}, r.calls)
 			old.cancelled = true
-			assert.are.equal(8000, pending(r).ms)
+			assert.are.equal(FIRST_MS, pending(r).ms)
 			local calls = run_chase(r)
 			assert.are.same(HOUSE_CHASE, calls)
 		end)
@@ -1271,16 +1332,308 @@ describe("fan.speedleds", function()
 		end)
 	end)
 
+	describe("a new run's first chase (SL-D19, #177)", function()
+		-- The first frame of the chase that falls due next: its calls, and the clock it played at.
+		local function next_chase(r)
+			local calls = tick(r)
+			assert.are.equal("chasing", r.s:debug().state)
+			return calls, r.clock
+		end
+
+		it("comes 2,500 ms after a speed change, the second a rest after the first ends", function()
+			local r = rig()
+			start(r)
+			run_chase(r) -- the start's run, so the change below comes mid-rest
+			local seen = r.clock + 1000
+			r.clock = seen
+			r.speed, r.rest = 4, { [304] = true }
+			r.s:update(view(r))
+			assert.are.same({}, r.calls)
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(seen, t.at)
+			assert.is_true(r.s:debug().first)
+			local _, at = next_chase(r)
+			assert.are.equal(seen + FIRST_MS, at)
+			assert.is_false(r.s:debug().first)
+			finish(r)
+			local ended = r.clock
+			assert.are.equal(at + 4 * 200, ended) -- four steps of 200 ms at speed 4
+			t = pending(r)
+			assert.are.equal(REST_MS, t.ms)
+			assert.are.equal(ended, t.at)
+			_, at = next_chase(r)
+			assert.are.equal(ended + REST_MS, at)
+			finish(r)
+			assert.are.equal(REST_MS, pending(r).ms) -- and one every rest while the speed stays
+		end)
+
+		it("restarts with 2,500 ms on a speed change mid-rest", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			local resting = pending(r)
+			r.clock = r.clock + 3000
+			r.speed = 5
+			r.s:update(view(r))
+			assert.are.same({}, r.calls)
+			assert.is_true(resting.cancelled)
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+			local _, at = next_chase(r)
+			assert.are.equal(t.at + FIRST_MS, at)
+		end)
+
+		it("restarts with 2,500 ms on a speed change mid-chase, after settling every held pixel", function()
+			local r = rig()
+			start(r)
+			tick(r)
+			tick(r)
+			r.clock = r.clock + 100
+			r.calls = {}
+			r.speed = 5
+			r.s:update(view(r))
+			assert.are.same(settles(HOUSE), r.calls)
+			assert.is_false(held_any(r))
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+			assert.is_true(r.s:debug().first)
+		end)
+
+		-- Every source of a new run: `before` (if any) leaves the chase impossible, `after` is the change the engine
+		-- sees. Each starts mid-rest after a chase, so a run that merely went on would wait a whole rest.
+		local SOURCES = {
+			{ "the fan starting at a speed from off",
+				function(r) r.s:update(view(r, { fan_mode = false, speed = 0 })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "Breeze ending at a speed",
+				function(r) r.s:update(view(r, { fan_mode = false, speed = 3 })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "the chase turned on",
+				function(r) r.s:configure({ speeds = "off" }) end,
+				function(r) r.s:configure({ speeds = "2-5" }) end },
+			{ "Speed LED Colors set to Per speed",
+				function(r) r.s:configure({ per_speed = false }) end,
+				function(r) r.s:configure({ per_speed = true }) end },
+			{ "the chase's speeds widened", nil, function(r) r.s:configure({ speeds = "1-6" }) end },
+			{ "the fan back online",
+				function(r) r.s:update(view(r, { online = false })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "the direction known again",
+				function(r) r.s:update(view(r, { direction = false })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "a direction change", nil, function(r) r.direction = "reverse"; r.s:update(view(r)) end },
+			{ "a speed from the app or the API, seen at a poll", nil,
+				function(r) r.speed, r.rest = 2, { [302] = true }; r.s:update(view(r)) end },
+			{ "a changed pixel list", nil, function(r) r.s:set_pixels({ 302, 303, 304 }) end },
+			{ "a button bound", function(r) r.s:set_pixels({ 303 }) end, function(r) r.s:set_pixels(HOUSE) end },
+		}
+		for _, case in ipairs(SOURCES) do
+			it("starts with 2,500 ms on " .. case[1], function()
+				local r = rig()
+				start(r)
+				run_chase(r)
+				r.clock = r.clock + 3000
+				if case[2] then
+					case[2](r)
+					assert.is_nil(pending(r))
+					assert.are.equal("off", r.s:debug().state)
+					r.clock = r.clock + 1000
+				end
+				r.calls = {}
+				case[3](r)
+				assert.are.same({}, r.calls) -- resting: nothing held, nothing to settle
+				local t = pending(r)
+				assert.are.equal(FIRST_MS, t.ms)
+				assert.are.equal(r.clock, t.at)
+				local d = r.s:debug()
+				assert.are.equal("resting", d.state)
+				assert.is_true(d.first)
+				local calls, at = next_chase(r)
+				assert.are.equal(t.at + FIRST_MS, at)
+				assert.is_true(#calls > 0)
+			end)
+		end
+
+		it("is not pushed back by an identical update at 2,400 ms", function()
+			local r = rig()
+			start(r)
+			local t = pending(r)
+			local count = #r.timers
+			r.clock = t.at + 2400
+			r.s:update(view(r, { level = 40, light_on = true })) -- a light-level change upstream
+			r.s:update(view(r)) -- a poll that changes nothing
+			r.s:configure({ speeds = "2-5", per_speed = true, bottom = 1, rest = 5 })
+			r.s:set_pixels({ 305, 304, 303, 302 })
+			assert.are.same({}, r.calls)
+			assert.are.equal(count, #r.timers)
+			assert.is_false(t.cancelled)
+			assert.are.equal(t, pending(r))
+			assert.is_true(r.s:debug().first)
+			local calls, at = next_chase(r)
+			assert.are.same({ HOUSE_CHASE[1], HOUSE_CHASE[2], HOUSE_CHASE[3] }, calls)
+			assert.are.equal(t.at + FIRST_MS, at)
+		end)
+
+		it("retries every 200 ms when Breeze's leave wipe still holds a pixel at 2,500 ms", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			r.s:update(view(r, { fan_mode = false, speed = 0 })) -- Breeze
+			for _, link in ipairs(HOUSE) do
+				r.blocked[link] = true -- the gusts, then the leave wipe
+			end
+			r.clock = r.clock + 20000
+			local seen = r.clock
+			r.s:update(view(r)) -- Breeze ends at speed 3
+			assert.are.equal(FIRST_MS, pending(r).ms)
+			assert.are.same({}, tick(r))
+			assert.are.equal(seen + FIRST_MS, r.clock)
+			assert.are.equal("waiting", r.s:debug().state)
+			assert.is_true(r.s:debug().first)
+			assert.is_false(held_any(r))
+			assert.are.equal(200, pending(r).ms)
+			assert.are.same({}, tick(r))
+			assert.are.equal(seen + FIRST_MS + 200, r.clock)
+			assert.are.equal(200, pending(r).ms)
+			r.blocked = {} -- the wipe lets go
+			local calls, at = next_chase(r)
+			assert.are.same({ HOUSE_CHASE[1], HOUSE_CHASE[2], HOUSE_CHASE[3] }, calls)
+			assert.are.equal(seen + FIRST_MS + 400, at)
+			finish(r)
+			local t = pending(r)
+			assert.are.equal(REST_MS, t.ms) -- then a rest after the chase's end
+			assert.are.equal(r.clock, t.at)
+		end)
+
+		it("comes at 2,500 ms when Breeze's leave wipe lets go before then", function()
+			local r = rig()
+			start(r)
+			r.s:update(view(r, { fan_mode = false, speed = 0 }))
+			r.blocked[302] = true
+			r.clock = r.clock + 8000
+			local seen = r.clock
+			r.s:update(view(r))
+			r.clock = seen + 1000
+			r.blocked = {}
+			local _, at = next_chase(r)
+			assert.are.equal(seen + FIRST_MS, at)
+		end)
+
+		it("keeps the first chase at 2,500 ms through a rest change in the first delay, the new rest after it",
+			function()
+				local r = rig()
+				start(r)
+				local t = pending(r)
+				r.clock = t.at + 1000
+				r.s:configure({ rest = 20 })
+				assert.are.same({}, r.calls)
+				assert.is_false(t.cancelled)
+				assert.are.equal(t, pending(r))
+				assert.are.equal(20, r.s:debug().rest)
+				assert.is_true(r.s:debug().first)
+				local _, at = next_chase(r)
+				assert.are.equal(t.at + FIRST_MS, at)
+				finish(r)
+				local rest = pending(r)
+				assert.are.equal(20000, rest.ms)
+				assert.are.equal(r.clock, rest.at)
+			end)
+
+		it("moves the next chase to a rest after the last chase's end on a rest change while resting, never"
+			.. " earlier than now", function()
+				local r = rig()
+				start(r, { rest = 10 })
+				run_chase(r)
+				local ended = r.clock
+				local old = pending(r)
+				assert.are.equal(10000, old.ms)
+				-- Longer, 3 s into the rest: due 20 s after the end.
+				r.clock = ended + 3000
+				r.s:configure({ rest = 20 })
+				assert.are.same({}, r.calls)
+				assert.is_true(old.cancelled)
+				local t = pending(r)
+				assert.are.equal(17000, t.ms)
+				assert.are.equal(ended + 3000, t.at)
+				assert.is_false(r.s:debug().first)
+				-- Shorter, 8 s into the rest: due 6 s after the end, already past, so at once.
+				r.clock = ended + 8000
+				r.s:configure({ rest = 6 })
+				t = pending(r)
+				assert.are.equal(1, t.ms)
+				assert.are.equal(ended + 8000, t.at)
+				local calls, at = next_chase(r)
+				assert.are.same({ HOUSE_CHASE[1], HOUSE_CHASE[2], HOUSE_CHASE[3] }, calls)
+				assert.is_true(at >= ended + 8000)
+				finish(r)
+				assert.are.equal(6000, pending(r).ms)
+			end)
+
+		it("keeps the retry while waiting on a rest change; the new rest comes after the chase", function()
+			local r = rig()
+			start(r)
+			r.blocked[304] = true
+			tick(r)
+			local retry = pending(r)
+			r.s:configure({ rest = 9 })
+			assert.are.equal(retry, pending(r))
+			assert.is_false(retry.cancelled)
+			r.blocked = {}
+			next_chase(r)
+			finish(r)
+			assert.are.equal(9000, pending(r).ms)
+		end)
+
+		it("arms nothing on a rest change while off; the run that follows starts with 2,500 ms", function()
+			local r = rig()
+			start(r)
+			r.s:configure({ speeds = "off" })
+			r.s:configure({ rest = 30 })
+			assert.is_nil(pending(r))
+			r.s:configure({ speeds = "2-5" })
+			assert.are.equal(FIRST_MS, pending(r).ms)
+			next_chase(r)
+			finish(r)
+			assert.are.equal(30000, pending(r).ms)
+		end)
+
+		it("counts a chase skipped for want of a colour as one that ended: the next a rest later", function()
+			local r = rig()
+			start(r)
+			r.colours[3] = nil
+			assert.are.same({}, tick(r))
+			assert.is_false(r.s:debug().first)
+			local t = pending(r)
+			assert.are.equal(REST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+		end)
+
+		it("starts a new run after a repaint mid-chase (SL-D16)", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			tick(r)
+			assert.is_true(r.s:repaint(303))
+			assert.are.equal(FIRST_MS, pending(r).ms)
+			assert.is_true(r.s:debug().first)
+		end)
+	end)
+
 	describe("debug", function()
-		it("reports the state, speed, step, rest and held links", function()
+		it("reports the state, the first-chase phase, speed, step, rest and held links", function()
 			local r = rig()
 			assert.are.equal("off", r.s:debug().state)
+			assert.is_false(r.s:debug().first)
 			start(r)
 			local d = r.s:debug()
 			assert.are.equal("resting", d.state)
+			assert.is_true(d.first) -- a new run: the first chase FIRST_MS after its start (SL-D19)
 			assert.are.equal(3, d.speed)
 			assert.are.equal(300, d.step)
-			assert.are.equal(10, d.rest)
+			assert.are.equal(5, d.rest)
 			assert.are.same({}, d.held)
 			assert.is_true(d.pending)
 			assert.is_true(d.active)
@@ -1288,13 +1641,19 @@ describe("fan.speedleds", function()
 			r.blocked[303] = true
 			tick(r)
 			assert.are.equal("waiting", r.s:debug().state)
+			assert.is_true(r.s:debug().first) -- still the first chase of the run
 			r.blocked = {}
 			tick(r)
 			d = r.s:debug()
 			assert.are.equal("chasing", d.state)
+			assert.is_false(d.first)
 			assert.are.same(HOUSE, d.held)
 			assert.are.equal(3, d.budget.sent)
 			assert.are.equal(30, d.budget.limit)
+			finish(r)
+			d = r.s:debug()
+			assert.are.equal("resting", d.state)
+			assert.is_false(d.first) -- the rest between chases
 		end)
 	end)
 end)
