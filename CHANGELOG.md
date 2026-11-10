@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.7 "Stillsuit", build 188 (2026-11-10)
+
 ### Changed
 
 - The speed LED chase starts sooner and repeats more often: its first chase now comes 2.5 s after a speed is selected, from any source (a keypad, a Navigator, programming, the Modern Forms app, remote or wall control, the last three once the driver's next poll sees them), and then one every `Speed LED Rest (s)`, whose default is now 5 s (it was 10; an installed fan keeps the value it has) (#177).
