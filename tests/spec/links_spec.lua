@@ -2349,6 +2349,18 @@ describe("fan.links", function()
 				assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
 			end)
 
+			it("#185 an unbind whose reread finds nothing bound (nil, twice) drops the keypad", function()
+				local r = rig({ names = { [456] = "Example Keypad" }, project = { [303] = { [456] = "x" } } })
+				r.lk:late_init()
+				r.lk:binding_changed(303, false, 456, 3)
+				r.project[303] = nil -- Director answers nil for a link with nothing bound
+				r.advance(links.REREAD_MS)
+				assert.same({ 303 }, r.lk:pixels_list(), "one nil is unknown")
+				r.advance(links.REREAD_MS)
+				assert.same({}, r.lk:pixels_list(), "a second nil is nothing bound")
+				assert.same({ "0 of 13 links bound" }, r.listed[#r.listed])
+			end)
+
 			it("an unbound link, a link that answered nil twice and a link that lost its last button are none", function()
 				local r = rig({ names = { [456] = "Example Keypad" }, project = { [302] = {} } })
 				r.lk:late_init()

@@ -43,6 +43,7 @@ local breeze_mod = require("fan.breeze")
 local breezeleds_mod = require("fan.breezeleds")
 local speedleds_mod = require("fan.speedleds")
 local ledhub_mod = require("fan.ledhub")
+local ledrows_mod = require("fan.ledrows")
 local fanmode = require("fan.mode")
 local sun_mod = require("fan.sun")
 
@@ -189,8 +190,10 @@ end
 
 -- The modules ------------------------------------------------------------------
 
-local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds, sleds, ledhub
+local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds, sleds, ledhub, lrows
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
+local keypad_raw = {} -- the same list as links.lua gave it, before the LED settings note (#178)
+local update_rows -- the keypad LED rows follow the bindings and the fan (#178); defined with the links
 -- Found Fans as last written (auto-discovery-design 3): the rows, the entry
 -- behind each item row, and the text the row was written with.
 local found_shown = { items = {}, entries = {}, key = nil }
@@ -292,6 +295,7 @@ function listener.shown(shown)
 	ledhub:update(leds_view(shown, phase), speed_view(shown, phase))
 	links:shown(shown)
 	light:shown()
+	update_rows()
 	refresh_status()
 end
 
@@ -325,6 +329,7 @@ function listener.phase(phase, detail, old)
 	elseif detail and detail.event == "online" then
 		C4:FireEventByID(EVENT_FAN_ONLINE)
 	end
+	update_rows()
 	refresh_status()
 	log.debug("phase %s -> %s", tostring(old), tostring(phase))
 end
@@ -398,8 +403,40 @@ fan = fanproxy_mod.new({
 
 -- Keypad Links (section 7.3): the property list, the first row the pick.
 local function write_keypad_links(items)
+	keypad_raw = items
+	-- The first row says whether the keypad LED rows are shown (#178, KL-D7).
+	local shown = lrows and lrows:shown()
+	if shown ~= nil and items[1] then
+		local copy = {}
+		for index, item in ipairs(items) do
+			copy[index] = item
+		end
+		copy[1] = items[1] .. texts.keypad_leds_note(shown)
+		items = copy
+	end
 	keypad_items = items
 	prop_list("Keypad Links", items, items[1])
+end
+
+-- The keypad LED rows (#178, keypad-leds-visibility-design): shown while a
+-- button is bound to a fan speed link (KL-D2); the Breeze-only rows also need
+-- a fan with Breeze, unknown until the fan has answered (KL-D3).
+local speed_bound = false
+function update_rows(list)
+	if list then
+		speed_bound = next(list) ~= nil
+	end
+	if not lrows then
+		return
+	end
+	-- What the fan last said about Breeze, restored info included and kept while
+	-- it is offline; nil only when it never said (KV27).
+	local info = model and model:info()
+	local has_breeze = nil
+	if type(info) == "table" and info.has_wind ~= nil then
+		has_breeze = info.has_wind == true
+	end
+	lrows:update({ speed_bound = speed_bound, has_breeze = has_breeze })
 end
 
 -- Breeze on the keypad LEDs (#137, breeze-leds-design): created before the
@@ -484,6 +521,26 @@ links = links_mod.new({
 	end,
 	pixels = function(list)
 		ledhub:set_pixels(list)
+		update_rows(list)
+	end,
+	log = log,
+})
+
+-- The keypad LED rows (#178, keypad-leds-visibility-design 2.1): shown or
+-- hidden by binding; display only (KL-D5).
+lrows = ledrows_mod.new({
+	set_hidden = function(name, hidden)
+		C4:SetPropertyAttribs(name, hidden and 1 or 0)
+	end,
+	timer = timer,
+	now = now_ms,
+	-- L44 or L45 only when a binding changed it, not for the hide late init arms
+	-- (KL-D7); Keypad Links' note follows either way.
+	changed = function(shown, cause)
+		if cause == "binding" then
+			result(shown and "keypad_leds_shown" or "keypad_leds_hidden")
+		end
+		write_keypad_links(keypad_raw)
 	end,
 	log = log,
 })
@@ -1251,6 +1308,10 @@ function OnDriverLateInit()
 	search:start()
 	-- The companions hear the state (breeze-design 3).
 	breeze:late_init()
+	-- The keypad LED rows, once the links have read their keypads (#178, KL-D6).
+	update_rows()
+	lrows:start()
+	write_keypad_links(keypad_raw)
 	-- Dev builds: the dev loop starts last, so a reload pushed through it sees
 	-- a fully initialised driver.
 	if devloop then
@@ -1329,6 +1390,7 @@ function OnDriverDestroyed()
 	breeze:stop()
 	cancel_night_timer()
 	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
+	lrows:stop()
 	links:stop()
 	light:stop()
 	model:stop()

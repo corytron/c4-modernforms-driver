@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.7               # 1.7 "Stillsuit": the speed chase's first chase 2.5 s after a speed is selected, 5 s rest (#177)
-build: 188
+release: v1.7               # 1.7 "Stillsuit": first chase 2.5 s after a speed (#177); LED rows only with a keypad (#178)
+build: 193
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off

@@ -795,8 +795,9 @@ function links:merge(link, set)
 end
 
 -- An unbind left a keypad whose other buttons on the link are not known: the
--- link is read again REREAD_MS later, and Director's table is believed then.
-function links:reread_later(link)
+-- link is read again REREAD_MS later, and Director's table is believed then;
+-- a nil answer is read once more, and a second nil means nothing is bound (#185).
+function links:reread_later(link, again)
 	local old = self.rereads[link]
 	if old and old.Cancel then
 		pcall(function() old:Cancel() end)
@@ -805,7 +806,13 @@ function links:reread_later(link)
 		self.rereads[link] = nil
 		local set = self:read_bound(link)
 		if not set then
-			return
+			-- One nil is "unknown" (ECC C15): read once more; a second nil is
+			-- nothing bound, as at the second look (#185).
+			if not again then
+				self:reread_later(link, true)
+				return
+			end
+			set = {}
 		end
 		self.buttons[link] = self:merge(link, set)
 		self.consumers[link] = set

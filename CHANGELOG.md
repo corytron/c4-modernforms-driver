@@ -11,6 +11,16 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.7 "Stillsuit", build 193 (2026-11-10)
+
+### Changed
+
+- The keypad LED settings (the Also Lit At rows, the per-speed colours, the Breeze LED rows and the speed chase rows, 20 rows in all) show in Composer only while a button is bound to one of the fan's speed links; without one they are hidden, keep their values and do nothing, and they come back as soon as a button is bound. The Breeze-only rows also hide on a fan without Breeze. `Keypad Links` says whether they are shown, a binding that shows or hides them writes a Last Action line, and the Documentation tab has a "Keypad LED settings" section for both cases, with how to turn each animation off (#178).
+
+### Fixed
+
+- Unbinding a keypad button from a fan link now takes the keypad off `Keypad Links` and out of the LED animations even when Director answers with nothing bound; before, the keypad could stay listed for good (#185).
+
 ## 1.7 "Stillsuit", build 188 (2026-11-10)
 
 ### Changed
