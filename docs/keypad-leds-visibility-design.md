@@ -23,10 +23,11 @@ to the driver, with clear instructions for both cases, easy to disable, and
 | KL-D4 | **Show at once, hide late.** A change that shows rows takes effect at once. A hide waits until "nothing bound" has held for `HIDE_MS` = 8,000 ms without a break (the links' own second look at start is 5 s and their re-read after an unbind 3 s, plus a grace), so a binding that is only being re-read never flickers the rows. | KV short answer 2. |
 | KL-D5 | **Display only.** Showing or hiding never writes a value, never sends an LED message and never starts or stops an animation; hidden values are kept, still applied, and saved with the project. Without a bound speed button both animations are already idle; they resume with the kept settings when one is bound again. | KV short answer 4. |
 | KL-D6 | **How the call is made:** `C4:SetPropertyAttribs(name, 1)` hides, `0` shows; never in `OnDriverInit`. Every managed row's state is sent at late init and after each change, **400 ms after** any row text update of the same moment and **again at 1,500 ms**, because Composer on the house dropped visibility changes sent in the same burst as text updates (the Hue drivers do the same). Rows that did not change are sent too in those two sends (idempotent). | SDK research 1; KF2, KF4. |
-| KL-D7 | **Instructions in Composer.** The `Keypad Links` summary ends in `; LED settings shown` or `; LED settings hidden: bind a keypad button to a Fan Speed link to see them`. A change of visibility caused by a binding (never the late-init replay) writes one Last Action line: L44 `Keypad LED settings shown: a keypad button is bound to a Fan Speed link` or L45 `Keypad LED settings hidden: no keypad button is bound to a Fan Speed link`. | KV short answer 6. |
-| KL-D8 | **Easy off:** `Speed LED Animation` = `Off` and `Breeze LED Animation` = `Off` each stop their animation at once with one Set and leave the keypad's stock behaviour (Follow Connection). No master row, no programming command, no "always show" switch. `Speed LED Colors` = `Keypad's own` is documented as the way back to the keypad's own colours, with its limit (the keypad keeps the last colours it was sent until it is reprogrammed or the button is rebound). | KV short answer 5; Q3, Q6 defaults. |
+| KL-D7 | **Instructions in Composer.** The `Keypad Links` summary ends in `; LED settings shown` or `; LED settings hidden: bind a button to a Fan Speed link`. A change of visibility caused by a binding (never the late-init replay) writes one Last Action line: L44 `Keypad LED settings shown: a button is on a Fan Speed link` or L45 `Keypad LED settings hidden: no button on a Fan Speed link`. | KV short answer 6. |
+| KL-D8 | **Easy off:** `Speed LED Animation` = `Off` and `Breeze LED Animation` = `Off` each stop their animation at once with one Set and leave the keypad's stock behaviour (Follow Connection). No master row, no programming command, no "always show" switch. `Speed LED Colors` = `Keypad's own` is documented as the way back to the keypad's own colours, with its limit (the keypad keeps the last colours it was sent until its own button colours are set again in Composer; no API gives them back, KV40). | KV short answer 5; Q3, Q6 defaults. |
 | KL-D9 | **On the house nothing changes:** its keypad is bound to Fan Speed 2 to 5, so every row stays shown. | KV short answer 8. |
 | KL-D10 | No `<capabilities>` change; no new property rows. | No controller reboot. |
+| KL-D11 | **The unbind must be believed** (#185): the links' reread after an unbind treats Director's `nil` as unknown once and as nothing bound the second time, as the second look at late init does, so a hide follows an unbind about 6 s plus `HIDE_MS` later. | Found while building this; without it the rows never hid after an unbind. |
 
 ## 2. Interfaces
 
@@ -43,7 +44,7 @@ local r = ledrows.new({
 	set_hidden = function(name, hidden) end, -- C4:SetPropertyAttribs(name, hidden and 1 or 0)
 	timer = function(ms, callback) return handle end, -- one-shot; handle:Cancel()
 	now = function() return ms end,
-	changed = function(shown) end, -- a binding changed the visibility (not called for the first apply)
+	changed = function(shown, cause) end, -- the applied visibility changed; cause "binding" or "start" (the hide late init armed)
 	log = { debug = f, info = f, warn = f },
 })
 r:start()                     -- late init: the first apply (both sends), no `changed`
