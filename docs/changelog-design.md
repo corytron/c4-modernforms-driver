@@ -101,9 +101,67 @@ tool takes every codename from it. It started empty, `{}`; since
   can be released before the owner has approved the name of 1.0.
 - Before the first build of a new X.Y, its first prerelease included, the
   coordinator proposes its codename and waits for the owner's approval;
-  a pull request then adds it. Renaming an X.Y that has
-  published builds also means correcting those releases' titles and notes
-  and their Discussions announcements.
+  a pull request then adds it, with its meaning (below). Renaming an X.Y
+  that has published builds also means rewriting its meaning and correcting
+  those releases' titles and notes and their Discussions announcements.
+
+### Codename meanings: `.github/codename-meanings.json`
+
+Every release's and prerelease's notes open with what its codename means
+(owner, 2026-11-10, #192; the contract is
+`docs/codename-meanings-design.md`): what the name is in the story it comes
+from and, where it fits, how that ties to what the version changed. Only the
+meaning is published; how the names are chosen is not (above).
+One file, `.github/codename-meanings.json`, holds the meaning of each X.Y,
+and every build and prerelease of that X.Y opens its notes with it
+(section 4). Its form (the text here only shows the form):
+
+```json
+{
+  "1.0": "**Name** is what the name is in its story, and how that fits what 1.0 changed.",
+  "1.1": "**Another Name** is ..."
+}
+```
+
+- One JSON object with the keys of `.github/codenames.json`: each a version
+  X.Y without leading zeros, once, that the codenames file names. Every X.Y
+  the codenames file names has a meaning; a prerelease takes its X.Y's.
+- Each meaning is one paragraph of plain Markdown, 1 to 3 sentences, that
+  starts with the codename in bold. The tool checks that it is a string,
+  not empty, on one line (no line break of any kind), at most 450
+  characters (characters, not bytes) and that it contains the codename
+  exactly as `.github/codenames.json` writes it. What it says about the
+  story must be right, and the tie must be true of that version's entries
+  in `CHANGELOG.md`; a meaning says nothing about how its name was chosen
+  or which one comes next.
+- `check` reports what breaks these rules, each as
+  `.github/codename-meanings.json: message`:
+  - `1.8 has no meaning: every X.Y of .github/codenames.json has the meaning
+    of its codename here, written with the name before its first build
+    (docs/changelog-design.md)`
+  - `"1.8": the meaning is empty`, `"1.8": a meaning is one paragraph of
+    text, not 42` (or `null`, `an array`, ...)
+  - `"1.8": the meaning has a line break: it is one paragraph, on one line`
+  - `"1.8": the meaning is 451 characters long, over 450`
+  - `"1.8": the meaning does not contain its codename "Name" as
+    .github/codenames.json writes it`
+  - `"v1.8": a key is a version X.Y, such as "1.0", without leading zeros,
+    as in .github/codenames.json`, `"1.8" is a key twice: each X.Y has one
+    meaning`, and `"2.0": .github/codenames.json does not name 2.0: a
+    meaning explains the codename that file gives its X.Y`
+
+  A file that is not one JSON object, or cannot be read, is refused with
+  `error:` and nothing else is checked.
+- `notes` refuses a meanings file that fails `check`, so no notes are
+  written for a version without a meaning, and the Release workflow refuses
+  an X.Y whose codename has no meaning in its first step, before anything is
+  built. `html` and `stamp` do not read the file: the Documentation tabs
+  and `CHANGELOG.md` carry no meanings.
+- The meaning is written in the same pull request as its codename, before
+  the first build of the X.Y. Changing it later changes the notes of the
+  next run of the Release workflow for that version (a moved tag); the
+  notes of releases already published are edited on GitHub by hand, the
+  meaning paragraph only.
 
 ## 2. The tool: `tools/changelog.py`
 
@@ -111,10 +169,11 @@ Python 3.12, standard library only.
 
 ```
 changelog.py check  [--file CHANGELOG.md] [--codenames .github/codenames.json]
+                    [--meanings .github/codename-meanings.json]
 changelog.py html   [--file F] [--codenames C]
                     [--release VERSION --build N --date YYYY-MM-DD]
                     [--dev-build N] [--codename NAME]
-changelog.py notes  [--file F] [--codenames C]
+changelog.py notes  [--file F] [--codenames C] [--meanings M]
                     --version VERSION --build N --date YYYY-MM-DD
                     [--codename NAME] [--template .github/release-notes.md]
 changelog.py stamp  [--file F] [--codenames C]
@@ -122,12 +181,14 @@ changelog.py stamp  [--file F] [--codenames C]
                     [--codename NAME]
 ```
 
-`--codenames` names another codenames file than `.github/codenames.json`
-(the tests use their own).
+`--codenames` names another codenames file than `.github/codenames.json`,
+and `--meanings` (`check` and `notes` only) another meanings file than
+`.github/codename-meanings.json` (the tests use their own).
 
-- `check`: validates section 1, the codenames file included; prints
+- `check`: validates section 1, the codenames and meanings files included; prints
   `CHANGELOG.md: ok (N releases)`, or every problem (in `CHANGELOG.md` with
-  its line number) and the number of each file's problems, and exits 1.
+  its line number, in the other two files without) and the number of each
+  file's problems, and exits 1.
 - `html`: prints an HTML fragment (no `<html>` or `<body>`) for a
   Documentation tab: `<h2 id="changelog">Changelog</h2>`, one sentence of
   introduction, then per entry an `<h3>` with the heading text and per
@@ -147,16 +208,18 @@ changelog.py stamp  [--file F] [--codenames C]
   - An empty `Unreleased` is never rendered.
 - `notes`: prints the Markdown that the Release workflow publishes as the
   release's notes, from `.github/release-notes.md` (section 4) with its
-  placeholders filled. It refuses (exit 1) when `Unreleased` has no bullets:
-  a release must say what it changes.
+  placeholders filled, the meaning of the version's codename first. It
+  refuses (exit 1) when `Unreleased` has no bullets (a release must say what
+  it changes), a meanings file that fails `check`, and a template that does
+  not open with `{meaning}` (section 4).
 - `stamp`: rewrites the file: the `Unreleased` heading becomes the released
   heading for `--version`, `--build` and `--date` (codename from
   `.github/codenames.json`), and a new empty `## Unreleased` is inserted
   above it. Refuses when `Unreleased` is empty or when the build already
   has an entry. Writes the file only after the result passes `check`.
 - `html`, `notes` and `stamp` refuse a changelog or codenames file that
-  fails `check`, and a build or date that would not make the new entry the
-  newest.
+  fails `check`, `notes` a meanings file too, and a build or date that would
+  not make the new entry the newest.
 
 Prereleases ([`prerelease-design.md`](prerelease-design.md)): `--version`
 and `html --release` also take `X.Y-beta.N`, which is never an entry of
@@ -210,14 +273,20 @@ going back, verify, licence), with placeholders:
 
 | Template | Placeholders |
 | --- | --- |
-| release | `{version}` (1.0), `{codename}`, `{build}`, `{date}`, `{this_build}` (the `Unreleased` entry's sections as Markdown), `{history}` (every released entry of the same version, newest first, each under a `###` heading; for a new version "None: build N is the first build of X.Y.") |
-| prerelease | `{version}` (1.0-beta.1), `{release}` (1.0), `{beta}` (1), `{codename}`, `{build}`, `{date}`, `{this_build}`, and while `CHANGELOG.md` lists a release `{stable}` (the newest release's heading) and `{stable_version}` (its version) |
+| release | `{version}` (1.0), `{codename}`, `{meaning}` (the meaning of the codename, section 1), `{build}`, `{date}`, `{this_build}` (the `Unreleased` entry's sections as Markdown), `{history}` (every released entry of the same version, newest first, each under a `###` heading; for a new version "None: build N is the first build of X.Y.") |
+| prerelease | `{version}` (1.0-beta.1), `{release}` (1.0), `{beta}` (1), `{codename}`, `{meaning}`, `{build}`, `{date}`, `{this_build}`, and while `CHANGELOG.md` lists a release `{stable}` (the newest release's heading) and `{stable_version}` (its version) |
 
 - The first line is the heading the Release workflow reads the title from:
   `## {version} "{codename}" (build {build})` for a release,
   `## {release} beta {beta} "{codename}" (build {build})` for a prerelease.
+- The first paragraph after it is `{meaning}`, alone on its line after a
+  blank line, so the notes open with the meaning of the codename, before
+  `Released {date}.` or "A prerelease for testing". `notes` refuses a
+  template without `{meaning}`, and one whose first line after the heading
+  that is not blank is anything else (once the blocks below are resolved).
 - `{this_build}` is required; an unknown placeholder is refused; a value is
-  never filled in again, so a bullet that shows `{build}` in code keeps it.
+  never filled in again, so a bullet that shows `{build}` in code, or a
+  meaning that does, keeps it.
 - Neither template names or counts the packages: a release carries one
   `.c4z` per `src/<name>/driver.xml`, so they say "every `.c4z` file of the
   release".
@@ -254,17 +323,18 @@ going back, verify, licence), with placeholders:
   (`python3 -I tools/changelog.py check --file CHANGELOG.md`), and CI's
   tooling job runs it on every pull request.
 - The codename of a new X.Y is proposed and approved before its first build
-  (section 1); [`release-checklist.md`](release-checklist.md) has the steps
-  of a release.
+  (section 1), and its meaning is written with it in the same pull request;
+  [`release-checklist.md`](release-checklist.md) has the steps of a release.
 
 ## 6. How it is checked
 
 - [`tools/tests/test_changelog.py`](../tools/tests/test_changelog.py) runs
-  every rule and command on small synthetic changelogs, codenames files and
-  templates, never on the repository's `CHANGELOG.md`; a few tests read the
-  repository's codenames file and notes templates, to prove that they pass
-  the rules, fill every placeholder and give the Release workflow its title
-  line.
+  every rule and command on small synthetic changelogs, codenames files,
+  meanings files and templates, never on the repository's `CHANGELOG.md`; a
+  few tests read the repository's codenames and meanings files and notes
+  templates, to prove that they pass the rules, fill every placeholder, open
+  with the meaning and give the Release workflow its title line. No test
+  depends on what a meaning of the repository says.
 - The `changelog` check of `tools/check.sh` runs `check` on the
   repository's file, and `tools/build.sh` runs it again before it renders.
 - `tools/check_links.py` treats a manual's `<!-- CHANGELOG -->` line as the

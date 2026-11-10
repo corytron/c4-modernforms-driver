@@ -2,9 +2,11 @@
 """Check CHANGELOG.md and render it for the Documentation tabs, the release notes and a release.
 
   changelog.py check  [--file CHANGELOG.md] [--codenames .github/codenames.json]
+                      [--meanings .github/codename-meanings.json]
   changelog.py html   [--file F] [--codenames C] [--release VERSION --build N --date YYYY-MM-DD]
                       [--dev-build N] [--codename NAME]
-  changelog.py notes  [--file F] [--codenames C] --version VERSION --build N --date YYYY-MM-DD
+  changelog.py notes  [--file F] [--codenames C] [--meanings M]
+                      --version VERSION --build N --date YYYY-MM-DD
                       [--codename NAME] [--template .github/release-notes.md]
   changelog.py stamp  [--file F] [--codenames C] --version VERSION --build N --date YYYY-MM-DD
                       [--codename NAME]
@@ -19,19 +21,21 @@ notes fills .github/prerelease-notes.md; stamp refuses it. A prerelease of a ver
 already is refused: it comes before its release. A prerelease may come before the project's first
 release: its notes then have no {stable} to name (section 4).
 
-check   validates section 1, the codenames file included, and prints "CHANGELOG.md: ok (N
-        releases)", or every problem on stderr (FILE:LINE: message for the changelog, FILE: message
-        for the codenames file) and the number of each file's problems.
+check   validates section 1, the codenames and meanings files included, and prints "CHANGELOG.md:
+        ok (N releases)", or every problem on stderr (FILE:LINE: message for the changelog, FILE:
+        message for the codenames and meanings files) and the number of each file's problems.
 html    prints the fragment tools/build.sh puts in place of the <!-- CHANGELOG --> line of each
         driver's documentation.html: plain h2, h3, p, b, ul, li and code, no attribute but the h2's
         id, no script, no link, no external resource, ASCII only. A non-empty Unreleased entry
         shows as the release (or prerelease) with --release, as "Unreleased (development build N)"
         with --dev-build, else as "Unreleased"; an empty one never shows.
-notes   prints the release's notes: the template with {version}, {codename}, {build}, {date},
-        {this_build} (the Unreleased entry's categories and bullets) and {history} (the earlier
-        builds of the version) filled in. Refuses an empty Unreleased entry. For a prerelease the
-        template is .github/prerelease-notes.md, with {version} (1.0-beta.1), {release} (1.0),
-        {beta} (1), {codename}, {build}, {date}, {this_build}, and, when CHANGELOG.md lists a
+notes   prints the release's notes: the template with {version}, {codename}, {meaning} (what the
+        codename means, the notes' first paragraph), {build}, {date}, {this_build} (the Unreleased
+        entry's categories and bullets) and {history} (the earlier builds of the version) filled in.
+        Refuses an empty Unreleased entry, a version without a meaning and a template whose first
+        paragraph after the heading line is not {meaning} alone. For a prerelease the template is
+        .github/prerelease-notes.md, with {version} (1.0-beta.1), {release} (1.0), {beta} (1),
+        {codename}, {meaning}, {build}, {date}, {this_build}, and, when CHANGELOG.md lists a
         release, {stable} (the heading of the newest one, the release the prerelease follows) and
         {stable_version} (its version); no {history}. A template's lines between
         "<!-- if stable -->" and "<!-- end if -->" are kept only when CHANGELOG.md lists a release,
@@ -48,6 +52,13 @@ gives its X.Y, and every build of X.Y takes that name, its prereleases X.Y-beta.
 notes and stamp refuse a version the file does not name, and --codename only confirms: it must be
 the file's name. html, notes and stamp refuse a changelog or codenames file that fails check, and
 a release whose build or date would not make it the newest entry.
+
+Meanings (docs/changelog-design.md, section 1): .github/codename-meanings.json gives each X.Y of the
+codenames file the meaning of its codename, the first paragraph of every release's and
+prerelease's notes: a JSON object of the form {"1.0": "**Name** is ..."}, its keys those of the
+codenames file, each value one paragraph of text on one line, at most 450 characters, that contains
+the codename as the codenames file writes it. check reports an X.Y without one and every meaning
+that breaks these rules; notes refuses a meanings file that fails check.
 
 Standard library only. Exit codes: 0 done, 1 refused or invalid, 2 usage.
 """
@@ -67,6 +78,7 @@ CHANGELOG_FILE = os.path.join(ROOT, "CHANGELOG.md")
 TEMPLATE_FILE = os.path.join(ROOT, ".github", "release-notes.md")
 PRERELEASE_TEMPLATE_FILE = os.path.join(ROOT, ".github", "prerelease-notes.md")
 CODENAMES_FILE = os.path.join(ROOT, ".github", "codenames.json")
+MEANINGS_FILE = os.path.join(ROOT, ".github", "codename-meanings.json")
 
 TITLE = "# Changelog"
 UNRELEASED = "## Unreleased"
@@ -75,7 +87,7 @@ CATEGORIES = ("Added", "Changed", "Fixed", "Security", "Known limits")
 RELEASE_RE = re.compile(r'^## (\d+)\.(\d+) "([^"]+)", build (\d+) \((\d{4}-\d{2}-\d{2})\)$', re.ASCII)
 RELEASE_SHAPE = '## 1.0 "Name", build 42 (2026-11-02)'
 DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-PLACEHOLDERS = ("version", "codename", "build", "date", "this_build", "history")
+PLACEHOLDERS = ("version", "codename", "meaning", "build", "date", "this_build", "history")
 # A prerelease's notes have no {history}: prereleases are not entries of CHANGELOG.md. {stable} and
 # {stable_version} exist only while CHANGELOG.md lists a release.
 PRERELEASE_PLACEHOLDERS = (
@@ -83,6 +95,7 @@ PRERELEASE_PLACEHOLDERS = (
     "release",
     "beta",
     "codename",
+    "meaning",
     "build",
     "date",
     "this_build",
@@ -104,6 +117,10 @@ VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)(?:-beta\.([1-9][0-9]*))?")
 CODENAMES_KEY_RE = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 CODENAME_RE = re.compile(r"[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*")
 CODENAME_SHAPE = 'letters, digits, single spaces and hyphens, such as "Name", "Two Words" or "Hyphen-Name"'
+# .github/codename-meanings.json (docs/changelog-design.md, section 1): the longest meaning, in characters.
+MEANING_MAX = 450
+# The notes template's first paragraph after the heading line (section 4).
+MEANING_LINE = "{meaning}"
 
 # The sentence under the Documentation tab's "Changelog" heading.
 INTRO = (
@@ -334,6 +351,108 @@ def other_codename(codenames, version, codename):
         display_path(codenames.path),
         codename,
     )
+
+
+# ---------------------------------------------------------------------------
+# The meanings file (section 1)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class Meanings:
+    """The meanings file at path. texts maps each version (major, minor) a well-formed key names to
+    the value there, a meaning that passes the rules unless problems says otherwise; problems are
+    messages: those of the file's keys in file order, then each X.Y of the codenames file that has
+    no meaning."""
+
+    path: str
+    texts: dict
+    problems: list
+
+
+def meaning_problems(value, codename, source):
+    """Why value is not a meaning of codename, the value that the codenames file (shown as source)
+    gives its X.Y, as messages."""
+    if not isinstance(value, str):
+        return ["a meaning is one paragraph of text, not %s" % json_text(value)]
+    if not value.strip():
+        return ["the meaning is empty"]
+    found = []
+    if value.splitlines() != [value]:
+        found.append("the meaning has a line break: it is one paragraph, on one line")
+    if len(value) > MEANING_MAX:
+        found.append("the meaning is %d characters long, over %d" % (len(value), MEANING_MAX))
+    if isinstance(codename, str) and codename not in value:
+        found.append("the meaning does not contain its codename %s as %s writes it" % (json.dumps(codename), source))
+    return found
+
+
+def missing_meaning(codenames, version, path=None):
+    """Why version (major, minor), which the codenames file names, has no meaning: a problem of the
+    meanings file, or with its path a refusal."""
+    where = "" if path is None else " in %s" % display_path(path)
+    return (
+        "%d.%d has no meaning%s: every X.Y of %s has the meaning of its codename %s, written with the name "
+        "before its first build (docs/changelog-design.md)"
+        % (
+            *version,
+            where,
+            display_path(codenames.path),
+            "here" if path is None else "there",
+        )
+    )
+
+
+def parse_meanings(text, codenames, path=MEANINGS_FILE):
+    """text, the meanings file at path, as Meanings with every problem of its rules (section 1),
+    against codenames (Codenames). Refuses text that is not one JSON object."""
+    try:
+        data = json.loads(text, object_pairs_hook=JsonObject)
+    except ValueError as err:  # json.JSONDecodeError among them
+        raise ChangelogError("%s is not JSON: %s" % (display_path(path), err)) from err
+    if not isinstance(data, JsonObject):
+        raise ChangelogError(
+            '%s holds one JSON object that gives the meaning of each version\'s codename, such as {"1.0": "**Name** '
+            'is ..."}, not %s' % (display_path(path), json_text(data))
+        )
+    source = display_path(codenames.path)
+    texts, problems = {}, []
+    for key, value in data:
+        match = CODENAMES_KEY_RE.fullmatch(key)
+        if not match:
+            problems.append(
+                '%s: a key is a version X.Y, such as "1.0", without leading zeros, as in %s' % (json.dumps(key), source)
+            )
+            continue
+        version = (int(match.group(1)), int(match.group(2)))
+        if version in texts:
+            problems.append("%s is a key twice: each X.Y has one meaning" % json.dumps(key))
+            continue
+        texts[version] = value
+        if version not in codenames.names:
+            problems.append(
+                "%s: %s does not name %d.%d: a meaning explains the codename that file gives its X.Y"
+                % (json.dumps(key), source, *version)
+            )
+            continue
+        for message in meaning_problems(value, codenames.names[version], source):
+            problems.append("%s: %s" % (json.dumps(key), message))
+    for version in codenames.names:
+        if version not in texts:
+            problems.append(missing_meaning(codenames, version))
+    return Meanings(path, texts, problems)
+
+
+def read_meanings(path, codenames):
+    """The meanings file at path as Meanings; refuses one that cannot be read or is not a JSON object."""
+    return parse_meanings(read_text(path), codenames, path)
+
+
+def meaning_of(meanings, codenames, version):
+    """The meaning of the codename of version (major, minor); refuses a version without one."""
+    if version not in meanings.texts:
+        raise ChangelogError(missing_meaning(codenames, version, meanings.path))
+    return meanings.texts[version]
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +938,22 @@ def fill(template, values, name):
     return PLACEHOLDER_RE.sub(lambda match: values[match.group(1)], template).rstrip("\n") + "\n"
 
 
+def meaning_first(template, name):
+    """Refuses a template whose first paragraph after its heading line (its first line) is not
+    {meaning} alone on its line (section 4): the notes open with what the codename means."""
+    first = next((line.strip() for line in template.split("\n")[1:] if line.strip()), None)
+    if first == MEANING_LINE:
+        return
+    if MEANING_LINE not in template:
+        raise ChangelogError(
+            "%s has no %s: the notes would not open with what the codename means" % (name, MEANING_LINE)
+        )
+    raise ChangelogError(
+        "%s: %s is not the first paragraph after the heading line: it stands alone on the first line after the "
+        "heading that is not blank, so that the notes open with what the codename means" % (name, MEANING_LINE)
+    )
+
+
 def entry_codename(changelog, codenames, version, build, date, codename):
     """The codename of a new build of version (major, minor): the one the codenames file gives it.
     Refuses a build that has an entry already, a build or date older than the newest entry's, a
@@ -890,22 +1025,25 @@ def report(problems, path):
         print("%s:%d: %s" % (display_path(path), number, message), file=sys.stderr)
 
 
-def report_all(changelog, codenames, path):
-    """Print every problem of the changelog at path and of the codenames file; return (shown path,
-    number of problems) of each that has some, the changelog first."""
+def report_all(changelog, path, *others):
+    """Print every problem of the changelog at path and of each other file (Codenames, Meanings: a
+    path and its problems), in that order; return (shown path, number of problems) of each that has
+    some, the changelog first."""
     report(changelog.problems, path)
-    for message in codenames.problems:
-        print("%s: %s" % (display_path(codenames.path), message), file=sys.stderr)
-    files = ((path, changelog.problems), (codenames.path, codenames.problems))
+    for other in others:
+        for message in other.problems:
+            print("%s: %s" % (display_path(other.path), message), file=sys.stderr)
+    files = [(path, changelog.problems)] + [(other.path, other.problems) for other in others]
     return [(display_path(name), len(problems)) for name, problems in files if problems]
 
 
-def checked(changelog, codenames, path):
-    """changelog, refused with every problem printed unless it and the codenames file pass check."""
-    failed = report_all(changelog, codenames, path)
+def checked(changelog, path, *others):
+    """changelog, refused with every problem printed unless it and each other file pass check."""
+    failed = report_all(changelog, path, *others)
     if failed:
-        names = " and ".join(name for name, _count in failed)
-        raise ChangelogError("%s %s check: nothing done" % (names, "fails" if len(failed) == 1 else "fail"))
+        names = [name for name, _count in failed]
+        listed = names[0] if len(names) == 1 else "%s and %s" % (", ".join(names[:-1]), names[-1])
+        raise ChangelogError("%s %s check: nothing done" % (listed, "fails" if len(failed) == 1 else "fail"))
     return changelog
 
 
@@ -932,8 +1070,9 @@ def plural(count, noun):
 def cmd_check(args):
     text = read_text(args.file)
     codenames = read_codenames(args.codenames)
+    meanings = read_meanings(args.meanings, codenames)
     changelog = parse(text, codenames)
-    failed = report_all(changelog, codenames, args.file)
+    failed = report_all(changelog, args.file, codenames, meanings)
     for name, count in failed:
         print("%s: %s" % (name, plural(count, "problem")), file=sys.stderr)
     if failed:
@@ -942,15 +1081,18 @@ def cmd_check(args):
     return EXIT_OK
 
 
-def load(args):
-    """(text, Changelog, Codenames) of args.file and args.codenames; refused unless both pass check."""
+def load(args, with_meanings=False):
+    """(text, Changelog, Codenames, Meanings) of args.file, args.codenames and, with_meanings,
+    args.meanings (else None); refused unless each passes check."""
     text = read_text(args.file)
     codenames = read_codenames(args.codenames)
-    return text, checked(parse(text, codenames), codenames, args.file), codenames
+    meanings = read_meanings(args.meanings, codenames) if with_meanings else None
+    others = [codenames] if meanings is None else [codenames, meanings]
+    return text, checked(parse(text, codenames), args.file, *others), codenames, meanings
 
 
 def cmd_html(args):
-    _text, changelog, codenames = load(args)
+    _text, changelog, codenames, _meanings = load(args)
     if args.release is not None:
         heading = None
         if changelog.unreleased.bullet_count() and args.release.beta is None:
@@ -967,7 +1109,7 @@ def cmd_html(args):
 
 
 def cmd_notes(args):
-    _text, changelog, codenames = load(args)
+    _text, changelog, codenames, meanings = load(args, with_meanings=True)
     unreleased = changelog.unreleased
     version = args.version
     if not unreleased.bullet_count():
@@ -982,6 +1124,7 @@ def cmd_notes(args):
         values = {
             "version": "%d.%d" % version.release,
             "codename": codename,
+            "meaning": meaning_of(meanings, codenames, version.release),
             "build": str(args.build),
             "date": args.date,
             "this_build": markdown_sections(unreleased),
@@ -995,6 +1138,7 @@ def cmd_notes(args):
             "release": "%d.%d" % version.release,
             "beta": str(version.beta),
             "codename": codename,
+            "meaning": meaning_of(meanings, codenames, version.release),
             "build": str(args.build),
             "date": args.date,
             "this_build": markdown_sections(unreleased),
@@ -1018,6 +1162,7 @@ def cmd_notes(args):
                     BLOCK_NO_STABLE,
                 )
             )
+    meaning_first(text, name)
     emit(fill(text, values, name))
     return EXIT_OK
 
@@ -1028,7 +1173,7 @@ def cmd_stamp(args):
             "%s is a prerelease: CHANGELOG.md lists releases only, and the %d.%d entry will carry these changes "
             "(docs/prerelease-design.md); nothing stamped" % (args.version, *args.version.release)
         )
-    text, changelog, codenames = load(args)
+    text, changelog, codenames, _meanings = load(args)
     unreleased = changelog.unreleased
     if not unreleased.bullet_count():
         raise ChangelogError("'## Unreleased' (line %d) has no bullets: nothing to stamp" % unreleased.line)
@@ -1091,6 +1236,15 @@ def parse_args(argv):
         help="the codename of each version X.Y (default .github/codenames.json)",
     )
 
+    meanings = argparse.ArgumentParser(add_help=False)
+    meanings.add_argument(
+        "--meanings",
+        default=MEANINGS_FILE,
+        metavar="PATH",
+        help="the meaning of each version's codename, the notes' first paragraph (default "
+        ".github/codename-meanings.json)",
+    )
+
     release = argparse.ArgumentParser(add_help=False)
     release.add_argument(
         "--version",
@@ -1119,7 +1273,11 @@ def parse_args(argv):
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.required = True
 
-    p = sub.add_parser("check", parents=[common], help="validate the file; every problem with its line number")
+    p = sub.add_parser(
+        "check",
+        parents=[common, meanings],
+        help="validate the file, the codenames and the meanings; every problem with its line number",
+    )
     p.set_defaults(func=cmd_check)
 
     html = sub.add_parser(
@@ -1153,7 +1311,7 @@ def parse_args(argv):
 
     p = sub.add_parser(
         "notes",
-        parents=[common, release],
+        parents=[common, meanings, release],
         help="print the release's notes from the template; refuses an empty Unreleased entry",
     )
     p.add_argument(

@@ -203,7 +203,18 @@ object such as `{"1.0": "<name>"}`), which
 [`tools/changelog.py`](../tools/changelog.py) and the Release workflow read.
 The file starts empty, `{}`: the Release workflow refuses every version whose
 X.Y it does not name, in its first step, so nothing is released before the
-owner has approved the 1.0 name (approved 2026-10-27, #6: 1.0 is "Arrakis"). The driver files carry the build number,
+owner has approved the 1.0 name (approved 2026-10-27, #6: 1.0 is "Arrakis").
+Every release's and prerelease's notes open with the meaning of its
+codename (owner, 2026-11-10, #192): what the name is in its story and, where
+it fits, how that ties to what the version changed, one paragraph of at most
+450 characters that contains the name, in `.github/codename-meanings.json`
+(an object such as `{"1.0": "**<name>** is ..."}`;
+[`changelog-design.md`](changelog-design.md#codename-meanings-githubcodename-meaningsjson)).
+**Before the first build of a new X.Y, its first prerelease included, the
+meaning is written with the codename, in the same pull request**: `tools/check.sh`
+(the `changelog` check) fails while an X.Y of `.github/codenames.json` has no
+meaning, and the Release workflow refuses such an X.Y in its first step. The
+meaning says what the name means and nothing about how it was chosen. The driver files carry the build number,
 the commit count, as `Driver Version` (Control4 needs an integer there); it is
 named in the release's `manifest.json`, in the release notes (step 4 below)
 and in `deploy/house.yaml` (`build:`); the README names no build and links to
@@ -218,7 +229,8 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
 1. Merge the code into `main`. Nothing is edited for the release itself.
 2. Start the Release workflow: on the repository's Actions page, **Release ▸
    Run workflow**, enter the version (`1.0`, `1.1`, ...). The workflow first
-   refuses a version whose X.Y has no codename, then builds `main`'s head
+   refuses a version whose X.Y has no codename or whose codename has no
+   meaning, then builds `main`'s head
    and, once the packages are built and attested, tags it `v<version>`
    itself, force-moving an existing tag, in the same run (a run that fails
    earlier leaves the tag where it was). Pushing the tag by hand (`git tag -f
@@ -241,14 +253,16 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
    dispatching, make sure its `## Unreleased` entry lists what this build
    changes (a run with an empty entry fails), and for the first build of a
    new X.Y that the owner has approved its codename and it is in
-   `.github/codenames.json`. Before the first release, read the "What you
+   `.github/codenames.json`, with its meaning in
+   `.github/codename-meanings.json`. Before the first release, read the "What you
    get" and "Requirements" of
    [`.github/release-notes.md`](../.github/release-notes.md) against the
    driver and the v1 contract (the scaffold wrote them before either
    existed) and add the OS and Composer versions section 2 passed on. Check
    the release page: the assets (six with the two packages since #111, five
    with one before), the title
-   `<version> "<codename>"`, the notes' first heading with this build. After
+   `<version> "<codename>"`, the notes' first heading with this build and,
+   right below it, the meaning of the codename as their first paragraph. After
    the release, the desired-state PR also runs `python3 tools/changelog.py
    stamp --version X.Y --build N --date YYYY-MM-DD`, so `CHANGELOG.md` names
    the build that was published, and each driver's Documentation tab ends
@@ -359,8 +373,9 @@ cut" above), from `main` only. What differs:
    version (Release ▸ Run workflow ▸ `1.1-beta.1`): it tags `main`'s head
    `v1.1-beta.1`. The tag never moves, so a version whose tag exists fails
    before anything is built; take the next `N`. A prerelease carries its
-   X.Y's codename from `.github/codenames.json`; a new X.Y needs its name
-   there first, or the workflow refuses it. A prerelease may come before the
+   X.Y's codename from `.github/codenames.json`, and its notes open with the
+   meaning from `.github/codename-meanings.json`; a new X.Y needs both there
+   first, or the workflow refuses it. A prerelease may come before the
    first release, as `1.0-beta.N` (1.0's name approved first): its notes then
    follow no release, and they send a tester back to the stock WAC driver
    rather than to release files
@@ -376,8 +391,9 @@ cut" above), from `main` only. What differs:
    1 "<codename>" (build N)`, the Pre-release mark, and the assets: every
    package, `SHA256SUMS.txt`, `manifest.json` and the two provenance files.
    The notes come from
-   [`.github/prerelease-notes.md`](../.github/prerelease-notes.md): what it
-   is, the release it follows (or that there is none yet), the changes, how
+   [`.github/prerelease-notes.md`](../.github/prerelease-notes.md): the
+   meaning of the codename, what it is, the release it follows (or that there
+   is none yet), the changes, how
    to install, how to go back, where to report, how to verify, the license.
 4. **Feedback.** The tester gets the release page's link. Reports come
    through the "Beta feedback" issue form

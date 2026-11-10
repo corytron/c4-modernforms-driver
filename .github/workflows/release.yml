@@ -55,7 +55,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version: 1.0 releases the head of main as v1.0, moving the tag if it exists; 1.1-beta.1 publishes it as the prerelease v1.1-beta.1, a new tag every time. Its X.Y needs a codename in .github/codenames.json'
+        description: 'Version: 1.0 releases the head of main as v1.0, moving the tag if it exists; 1.1-beta.1 publishes it as the prerelease v1.1-beta.1, a new tag every time. Its X.Y needs a codename in .github/codenames.json and its meaning in .github/codename-meanings.json'
         required: true
         type: string
 
@@ -85,8 +85,11 @@ jobs:
       # the publish job needs this job. Besides the tag's form and its
       # commit it checks the codename: a version whose X.Y
       # .github/codenames.json does not name is never built (CLAUDE.md;
-      # docs/release-checklist.md, Naming). tools/changelog.py checks the
-      # name's form and its use in CHANGELOG.md later, in the build.
+      # docs/release-checklist.md, Naming), nor one whose codename has no
+      # meaning in .github/codename-meanings.json, the first paragraph of
+      # the notes (docs/changelog-design.md). tools/changelog.py checks the
+      # name's form, its use in CHANGELOG.md and the meaning's rules later,
+      # in the build.
       - name: Work out the tag and check that it is built from main
         id: tag
         env:
@@ -147,24 +150,35 @@ jobs:
             prerelease=true
           fi
           # The codename of the tag's X.Y, from this commit's
-          # .github/codenames.json; python3 -I imports nothing from the checkout.
+          # .github/codenames.json, and its meaning, from
+          # .github/codename-meanings.json; python3 -I imports nothing from the
+          # checkout. The meaning itself is not printed.
           python3 -I - "$tag" <<'PY'
           import json, re, sys
           tag = sys.argv[1]
           release = re.fullmatch(r"v([0-9]+\.[0-9]+)(?:-beta\.[1-9][0-9]*)?", tag).group(1)
-          try:
-              with open(".github/codenames.json", encoding="utf-8") as f:
-                  names = json.load(f)
-          except (OSError, ValueError) as error:
-              print(f"::error::.github/codenames.json cannot be read: {error}")
-              sys.exit(1)
+          def read(path):
+              try:
+                  with open(path, encoding="utf-8") as f:
+                      return json.load(f)
+              except (OSError, ValueError) as error:
+                  print(f"::error::{path} cannot be read: {error}")
+                  sys.exit(1)
+          names = read(".github/codenames.json")
           name = names.get(release) if isinstance(names, dict) else None
           if not isinstance(name, str) or not name.strip():
               print(
                   f"::error::{release} has no codename in .github/codenames.json: every X.Y gets its own there, approved by the owner, before its first build (docs/release-checklist.md, Naming)"
               )
               sys.exit(1)
-          print(f"{tag}: {release} is \"{name}\"")
+          meanings = read(".github/codename-meanings.json")
+          meaning = meanings.get(release) if isinstance(meanings, dict) else None
+          if not isinstance(meaning, str) or not meaning.strip():
+              print(
+                  f"::error::{release} \"{name}\" has no meaning in .github/codename-meanings.json: the meaning of every X.Y's codename is written there with the name, before its first build, and opens the notes (docs/release-checklist.md, Naming)"
+              )
+              sys.exit(1)
+          print(f"{tag}: {release} is \"{name}\", with its meaning")
           PY
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"

@@ -68,6 +68,9 @@ specification, and `status.md` says what of them is live.
   the keypad LED rows only while a button is bound to a fan speed link
   (#178): which rows, when they show and hide, the instructions in
   Composer, the module, the tests and the checks
+- [`codename-meanings-design.md`](codename-meanings-design.md): every
+  release's notes open with what its codename means in the Dune films and
+  how it ties to the release (#192): the file, the text rules, the checks.
 - [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
   "Breeze is on" means (the fan runs with Breeze), the programming
   commands, variable, events and condition, the Fan Breeze link (311), the

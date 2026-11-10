@@ -1,5 +1,7 @@
 ## {release} beta {beta} "{codename}" (build {build})
 
+{meaning}
+
 **A prerelease for testing**, not a release: version {version}, built {date}, with what is coming in {release}, published so that it can be tried before it is released.
 <!-- if stable -->
 GitHub marks it Pre-release and never Latest, so the project's download links keep serving the stable release.
