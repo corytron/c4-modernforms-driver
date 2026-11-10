@@ -11,6 +11,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Fixed
+
+- During Breeze on the keypad LEDs, loading the next colour into a dark speed button now sends only the button's on and off colours, as the design says, instead of also its current colour (no difference was seen on the house; #164).
+
 ## 1.5 "Shadout Mapes", build 165 (2026-11-09)
 
 ### Added

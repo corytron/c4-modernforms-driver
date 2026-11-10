@@ -1011,6 +1011,26 @@ describe("Modern Forms Fan driver", function()
 				end
 			end)
 
+			it("loads a dark button's next colour without CURRENT_COLOR, so the load never lights it (#164)", function()
+				local env, c4 = leds_driver()
+				c4.calls = {}
+				env.ReceivedFromProxy(311, "DO_PUSH", {})
+				hold_state(c4, { fanOn = true, fanSpeed = 3, wind = true, windSpeed = 2, fanDirection = "forward" }, 6000)
+				local lit, preloads = { [303] = true }, 0
+				for _, args in ipairs(c4.calls_to("SendToProxy")) do
+					local link, command, params = args[1], args[2], args[3]
+					if link >= 302 and link <= 305 then
+						if command == "MATCH_LED_STATE" then
+							lit[link] = params.STATE == true
+						elseif command == "BUTTON_COLORS" and not lit[link] then
+							preloads = preloads + 1
+							assert.is_nil(params.CURRENT_COLOR, "a colour loaded into dark " .. link)
+						end
+					end
+				end
+				assert.is_true(preloads > 0, "the gusts preload dark buttons")
+			end)
+
 			it("darkens every speed button first, then runs a gust's white front up from the bottom while the fan "
 				.. "blows up (BL-D19, BL-D21, BL-D30)", function()
 					local env, c4 = leds_driver({ fanOn = true, fanSpeed = 3, wind = false, fanDirection = "reverse" })

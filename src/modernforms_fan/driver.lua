@@ -388,8 +388,8 @@ end
 -- Breeze on the keypad LEDs (#137, breeze-leds-design): created before the
 -- links, which reach it through closures, as it reaches them.
 bleds = breezeleds_mod.new({
-	paint = function(link, colour, with_state)
-		links:paint(link, colour, with_state)
+	paint = function(link, colour, with_state, preload)
+		links:paint(link, colour, with_state, preload)
 	end,
 	settle = function(link)
 		links:settle(link)
