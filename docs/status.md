@@ -4,7 +4,18 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.6 "Crysknife" is installed on the house: build 182, released and
+**1.7 "Stillsuit" is installed on the house: build 193, released and
+installed in place on 2026-11-10 (#177, #178, #185; deploy issues #181 and
+#187; the announcement and install rounds in Discussion #184).** The speed
+chase's first chase now comes 2.5 s after a speed is selected from any
+source, then one every rest, whose default is now 5 s (#177). The 20 keypad
+LED rows show only while a button is bound to a fan speed link (#178): on a
+scratch fan device with nothing bound they hid by themselves about 15 s
+after the add, and the house fan, with its keypad on Fan Speed 2 to 5, kept
+every row. An unbound keypad now leaves `Keypad Links` (#185). Nobody has
+watched the 2.5 s first chase on the keypad yet.
+
+Before it, **1.6 "Crysknife"** ran on the house: build 182, released and
 installed in place on 2026-11-10 (#159 and #172, deploy issues #169 and
 #175, the announcement in Discussion #168, the install rounds in Discussion
 #170).** It adds a chase
@@ -107,7 +118,14 @@ passed, the follow to a new address included (#58).
 
 ## What runs on the house
 
-- **v1.6, build 182** (since 2026-11-10), the fan and its Breeze fan:
+- **v1.7, build 193** (since 2026-11-10), the fan and its Breeze fan:
+  deployment 7675073354, success; deploy issue #187 closed (build 188 before
+  it the same day, deploy issue #181). Installed in place: "Update
+  Succeeded" only, no "Restart Director?". Driver Version 193 and Debug
+  Mode Off on both; `Speed LED Animation` Speeds 2 to 5, `Speed LED Rest
+  (s)` 5, `Speed LED Colors` Per speed; `Keypad Links` "7 of 13 links
+  bound; LED settings shown"; every row present. No error or warning.
+- **v1.6, build 182** (2026-11-10 until 1.7), the fan and its Breeze fan:
   deployment 7674344885, success; deploy issue #175 closed. Installed in
   place: "Update Succeeded" only, no "Restart Director?". Driver Version
   182 and Debug Mode Off on both; `Speed LED Animation` Speeds 2 to 5,
@@ -221,7 +239,8 @@ passed, the follow to a new address included (#58).
 ## Open
 
 Every open item is an issue (`gh issue list --state open`). On 2026-11-09:
-nothing is open. #159 (the speed chase on the keypad LEDs, PR #165, the
+#183 (every core of the VM in checks, tests and builds) is open. #177,
+#178 and #185 shipped as 1.7. #159 (the speed chase on the keypad LEDs, PR #165, the
 research in Discussions #161 to #163, the agents' hand-backs in #166) and
 #164 shipped as 1.6; its keypad checks wait for the owner. #141 (simulated light fades) shipped as 1.5 and its hardware
 checks wait for the controller reboot and the owner at the keypad (see the
