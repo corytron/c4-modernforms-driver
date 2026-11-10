@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.6               # 1.6 "Crysknife": the speed chase on the keypad LEDs (#159)
-build: 176
+release: v1.6               # 1.6 "Crysknife": the speed chase on the keypad LEDs (#159), no edge double blink (#172)
+build: 182
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off
