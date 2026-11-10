@@ -64,6 +64,10 @@ specification, and `status.md` says what of them is live.
   bound speed buttons in the airflow direction, at a pace set by the speed,
   with a constant rest in which the selected speed's LED is lit; the
   properties, the second engine and its arbiter, the tests and the checks
+- [`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md):
+  the keypad LED rows only while a button is bound to a fan speed link
+  (#178): which rows, when they show and hide, the instructions in
+  Composer, the module, the tests and the checks
 - [`breeze-design.md`](breeze-design.md): Breeze in Control4 (#111): what
   "Breeze is on" means (the fan runs with Breeze), the programming
   commands, variable, events and condition, the Fan Breeze link (311), the
@@ -170,6 +174,12 @@ Read-only research written before a feature's contract, in the same style.
 - [`speed-leds-engine-options.md`](speed-leds-engine-options.md): where the
   chase engine lives beside the Breeze one (#159), the hand-over between the
   two, the frames and the proposed interface.
+- [`edge-cases-keypad-leds-visibility.md`](edge-cases-keypad-leds-visibility.md):
+  the lifecycle cases of showing the keypad LED rows only with a keypad
+  (#178), and what is automatic, offered or forbidden without a click.
+- [`keypad-leds-visibility-sdk-research.md`](keypad-leds-visibility-sdk-research.md):
+  hiding a driver's own rows on OS 3.x and 4.x, knowing a keypad is bound,
+  and why a colour keypad cannot be told from other consumers (#178).
 - [`light-fades-sdk-research.md`](light-fades-sdk-research.md): simulated
   fades for the fan's light (#141), from Control4's side: every way a light
   is asked to change level and which carry a rate, click rates and their

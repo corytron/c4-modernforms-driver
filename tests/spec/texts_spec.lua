@@ -101,9 +101,9 @@ describe("fan.texts", function()
 
 		it("lists the 18 result keys of section 9.6 left after L8 to L10, the 8 of fan-name-design 2.3, the 2 of"
 			.. " address-follow-design 2.4, L32 of auto-discovery-design 5, the 8 of breeze-design 5, L41 of"
-			.. " BF-D10, L42 of breeze-leds-design BL-D3 and L43 of speed-leds-design SL-D9, each with a text"
-			.. " of its own", function()
-			assert.equal(40, #texts.RESULT_KEYS)
+			.. " BF-D10, L42 of breeze-leds-design BL-D3 and L43 of speed-leds-design SL-D9, L44 and L45 of"
+			.. " keypad-leds-visibility-design KL-D7, each with a text of its own", function()
+			assert.equal(42, #texts.RESULT_KEYS)
 			assert.same({ "learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 				"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending", "away_off", "away_already",
 				"learning_off", "learning_already", "not_answering", "not_taken", "not_picked" },
@@ -112,7 +112,8 @@ describe("fan.texts", function()
 				"name_no_pin", "name_busy", "followed", "follow_refused", "picked_wait" }, { unpack(texts.RESULT_KEYS, 19, 29) })
 			assert.same({ "breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added",
 				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed",
-				"breeze_old_switch", "breeze_leds_need_per_speed", "speed_leds_need_per_speed" }, { unpack(texts.RESULT_KEYS, 30) })
+				"breeze_old_switch", "breeze_leds_need_per_speed", "speed_leds_need_per_speed", "keypad_leds_shown",
+				"keypad_leds_hidden" }, { unpack(texts.RESULT_KEYS, 30) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				local text = texts.result(key, { client_id = ID1, address = ADDR, which = "away", at = T,
@@ -942,6 +943,8 @@ describe("fan.texts", function()
 				{ "L41", "breeze_old_switch", AVIATOR, "Delete the old Breeze switch first: Aviator 5 Breeze", 52 },
 				{ "L42", "breeze_leds_need_per_speed", {}, "Breeze LEDs need Speed LED Colors set to Per speed", 50 },
 				{ "L43", "speed_leds_need_per_speed", {}, "LED chase needs Speed LED Colors set to Per speed", 49 },
+				{ "L44", "keypad_leds_shown", {}, "Keypad LED settings shown: a button is on a Fan Speed link", 58 },
+				{ "L45", "keypad_leds_hidden", {}, "Keypad LED settings hidden: no button on a Fan Speed link", 57 },
 			}
 			for _, case in ipairs(cases) do
 				it(case[1] .. " " .. case[2] .. " says '" .. case[4] .. "' (" .. case[5] .. " characters)", function()

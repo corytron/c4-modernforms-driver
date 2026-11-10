@@ -1531,6 +1531,93 @@ describe("Modern Forms Fan driver", function()
 		end)
 	end)
 
+	describe("the keypad LED rows only with a keypad (keypad-leds-visibility-design, #178)", function()
+		local ROWS = require("fan.ledrows").ROWS
+		local SHOWN = "Keypad LED settings shown: a button is on a Fan Speed link"
+		local HIDDEN = "Keypad LED settings hidden: no button on a Fan Speed link"
+		local STATE = { fanOn = true, fanSpeed = 3, wind = false, fanDirection = "forward" }
+
+		local function rows_driver()
+			local env, c4 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN })
+			env.OnDriverInit("DIT_STARTUP")
+			assert.same({}, c4.property_attribs, "nothing is hidden or shown in OnDriverInit (KL-D6)")
+			env.OnDriverLateInit("DIT_STARTUP")
+			answer(c4, mf.INFO)
+			answer(c4, mf.state(STATE))
+			return env, c4
+		end
+
+		-- Time passes while the fan answers every read with STATE.
+		local function run(c4, ms)
+			for _ = 1, ms / 100 do
+				for _, transfer in ipairs(c4.open_transfers()) do
+					transfer:respond(200, mf.state(STATE))
+				end
+				c4.advance(100)
+			end
+		end
+
+		local function all_rows(c4, attrib)
+			for _, name in ipairs(ROWS) do
+				if c4.property_attribs[name] ~= attrib then
+					return false, name
+				end
+			end
+			return true
+		end
+
+		local function values(env)
+			local out = {}
+			for _, name in ipairs(ROWS) do
+				out[name] = env.Properties[name]
+			end
+			return out
+		end
+
+		it("hides the 20 rows of a fan with no keypad 8 s after late init, with no Last Action, values kept"
+			.. " (KL-D1, KL-D4, KL-D5)", function()
+				local env, c4 = rows_driver()
+				local before = values(env)
+				run(c4, 2000)
+				assert.is_true(all_rows(c4, 0), "shown at first: fail open")
+				run(c4, 9000)
+				local ok, name = all_rows(c4, 1)
+				assert.is_true(ok, "hidden: " .. tostring(name))
+				assert.are_not.equal(HIDDEN, env.Properties["Last Action"])
+				assert.same(before, values(env))
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings hidden: bind a button to a Fan Speed link",
+					1, true))
+				assert.is_nil(env.Properties["Keypad Links"]:find(",", 1, true))
+			end)
+
+		it("shows them at once when a button is bound to Fan Speed 3 (L44) and hides them 8 s after it is"
+			.. " unbound (L45) (KL-D2, KL-D4, KL-D7)", function()
+				local env, c4 = rows_driver()
+				run(c4, 11000)
+				fake.link_keypad(env, 303, 456, 12)
+				run(c4, 2000)
+				assert.is_true(all_rows(c4, 0), "shown once bound")
+				assert.equal(SHOWN, env.Properties["Last Action"])
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true))
+				fake.unlink_keypad(env, 303, 456, 12)
+				run(c4, 5000)
+				assert.is_true(all_rows(c4, 0), "still shown 5 s after the unbind")
+				-- The links believe the unbind after two empty rereads (6 s, #185), then 8 s (KL-D4).
+				run(c4, 10000)
+				assert.is_true(all_rows(c4, 1), "hidden once nothing was bound for 8 s")
+				assert.equal(HIDDEN, env.Properties["Last Action"])
+			end)
+
+		it("keeps them hidden for a keypad on Off only: it takes no colours (KL-D2)", function()
+			local env, c4 = rows_driver()
+			run(c4, 11000)
+			fake.link_keypad(env, 300, 456, 11)
+			run(c4, 10000)
+			assert.is_true(all_rows(c4, 1))
+			assert.are_not.equal(SHOWN, env.Properties["Last Action"])
+		end)
+	end)
+
 	describe("naming the items after the fan (fan-name-design, #37)", function()
 		-- The two proxy items as the fake project holds them, given the names
 		-- Composer gives a new device (the proxies' name attributes).

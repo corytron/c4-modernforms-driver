@@ -72,6 +72,8 @@ texts.RESULT_KEYS = {
 	"breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed", "breeze_old_switch",
 	"breeze_leds_need_per_speed",
 	"speed_leds_need_per_speed",
+	"keypad_leds_shown",
+	"keypad_leds_hidden",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -1098,6 +1100,16 @@ function RESULTS.breeze_leds_need_per_speed()
 	return "Breeze LEDs need Speed LED Colors set to Per speed"
 end
 
+-- L44 and L45 (keypad-leds-visibility-design KL-D7): a binding showed or hid the
+-- keypad LED rows.
+function RESULTS.keypad_leds_shown()
+	return "Keypad LED settings shown: a button is on a Fan Speed link"
+end
+
+function RESULTS.keypad_leds_hidden()
+	return "Keypad LED settings hidden: no button on a Fan Speed link"
+end
+
 -- L43 (speed-leds-design SL-D9): the chase is on but the colours are the keypad's own.
 function RESULTS.speed_leds_need_per_speed()
 	return "LED chase needs Speed LED Colors set to Per speed"
@@ -1155,6 +1167,15 @@ end
 -- array), in the order to show; several keypads on one link are several rows
 -- and one bound link. A keypad the driver cannot name shows as "device 456".
 -- `total` defaults to texts.LINK_COUNT.
+-- The note after Keypad Links' first row (keypad-leds-visibility-design KL-D7);
+-- no comma, since the row is one item of a list.
+function texts.keypad_leds_note(shown)
+	if shown then
+		return "; LED settings shown"
+	end
+	return "; LED settings hidden: bind a button to a Fan Speed link"
+end
+
 function texts.keypad_links(rows, total)
 	local items, seen, bound = {}, {}, 0
 	for _, row in ipairs(type(rows) == "table" and rows or {}) do
