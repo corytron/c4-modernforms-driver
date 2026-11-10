@@ -12,8 +12,9 @@ source, then one every rest, whose default is now 5 s (#177). The 20 keypad
 LED rows show only while a button is bound to a fan speed link (#178): on a
 scratch fan device with nothing bound they hid by themselves about 15 s
 after the add, and the house fan, with its keypad on Fan Speed 2 to 5, kept
-every row. An unbound keypad now leaves `Keypad Links` (#185). Nobody has
-watched the 2.5 s first chase on the keypad yet.
+every row. An unbound keypad now leaves `Keypad Links` (#185). The owner
+watched the 2.5 s first chase on the keypad: it comes 2.5 s after a speed is
+selected.
 
 Before it, **1.6 "Crysknife"** ran on the house: build 182, released and
 installed in place on 2026-11-10 (#159 and #172, deploy issues #169 and
