@@ -149,11 +149,11 @@ PSScriptAnalyzer for the `powershell` check.
 
 | Check | What it runs | What it covers |
 | --- | --- | --- |
-| `lua-lint` | `luacheck src tests tools` | the driver and the specs |
-| `lua-test` | `busted tests` | the specs, against the fake DriverWorks runtime |
+| `lua-lint` | `luacheck src tests tools` (in parallel: `luacheck -j N` through `tools/luacheck_jobs.lua`) | the driver and the specs |
+| `lua-test` | `busted tests` (in parallel: `tools/busted_parallel.py tests`) | the specs, against the fake DriverWorks runtime |
 | `shell` | `shellcheck -S style tools/*.sh` | the shell scripts |
-| `python-lint` | `ruff check tools`, `ruff format --check tools` | the Python tooling |
-| `python-test` | `python3 -B -m unittest discover -s tools/tests` | the tooling's unit tests |
+| `python-lint` | `ruff check --no-cache tools`, `ruff format --check --no-cache tools` | the Python tooling |
+| `python-test` | `python3 -B -m unittest discover -s tools/tests` (in parallel: `tools/unittest_parallel.py`) | the tooling's unit tests |
 | `xml` | an `xml.etree` parse | every `src/*/driver.xml` is well-formed |
 | `powershell` | `Invoke-ScriptAnalyzer -Path tools/composer -Recurse -Severity Error` in `pwsh` | `tools/composer/`; skipped without `pwsh` |
 | `workflows` | `actionlint`, `zizmor --min-severity medium .github/workflows` | `.github/workflows/` |
@@ -161,6 +161,12 @@ PSScriptAnalyzer for the `powershell` check.
 | `house` | `python3 tools/deploy.py validate` | `deploy/house.yaml`, the house's desired state |
 | `changelog` | `python3 tools/changelog.py check` | `CHANGELOG.md`'s format |
 | `links` | `python3 tools/check_links.py` | every link in every Markdown file and Documentation tab resolves |
+
+The checks run at the same time, and the slow ones are parallel inside, so
+the whole run takes seconds; the report is printed in the table's order and
+reads as a serial run would. `JOBS=N` sets how many processes they use
+(default: every core), `JOBS=1` runs everything one after the other with the
+plain commands.
 
 `tools/check.sh --only <name>...` runs a selection, `--help` lists the
 names. A check whose tool is not installed is reported as `skip` and does

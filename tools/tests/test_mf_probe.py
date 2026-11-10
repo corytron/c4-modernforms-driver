@@ -194,8 +194,7 @@ class FakeFan:
                 try:
                     fan.answer(self)
                 finally:
-                    with fan.lock:
-                        fan.in_flight -= 1
+                    fan.landed(self)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
@@ -215,11 +214,21 @@ class FakeFan:
         self.server.shutdown()
         self.server.server_close()
 
+    def landed(self, handler):
+        """The request stops counting as in flight before the last of its answer is sent: the client
+        sends its next request only once it has read it, and on a busy machine this thread may not
+        run again until after that next request has arrived (#183)."""
+        if not getattr(handler, "landed", False):
+            handler.landed = True
+            with self.lock:
+                self.in_flight -= 1
+
     def send(self, handler, status, payload, content_type="application/json"):
         handler.send_response(status)
         handler.send_header("Content-Type", content_type)
         handler.send_header("Content-Length", str(len(payload)))
         handler.end_headers()
+        self.landed(handler)
         handler.wfile.write(payload)
 
     def answer(self, handler):
@@ -263,6 +272,7 @@ class FakeFan:
             handler.send_header("Content-Length", str(len(payload)))
             handler.end_headers()
             time.sleep(DRIBBLE_S)
+            self.landed(handler)
             with contextlib.suppress(OSError):
                 handler.wfile.write(payload)
             return
