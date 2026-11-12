@@ -559,10 +559,10 @@ class BodyTest(ProbeCase):
         self.assertEqual(self.fan.bodies, [])
 
     def test_every_check_sends_only_allowed_bodies(self):
-        for name in ("K11", "K12", "K13", "K15"):
+        for name, extra in (("K11", ()), ("K12", ()), ("K13", ()), ("K15", ()), ("K16", ("--level", "7"))):
             with self.subTest(check=name):
                 self.new_fan()
-                self.assertEqual(self.run_check(name), 0, self.err)
+                self.assertEqual(self.run_check(name, *extra), 0, self.err)
                 for text in self.fan.bodies:
                     self.assertTrue(mf_probe.allowed_shape(json.loads(text)), text)
                     for forbidden in mf_probe.FORBIDDEN_KEYS:
@@ -903,6 +903,66 @@ class SequenceTest(ProbeCase):
         self.assertEqual(report["findings"]["after_on"], {"on": True, "level": 30})
         self.assertEqual(report["findings"]["after_off"], {"on": False, "level": 30})
         self.assertTrue(report["verdict"].startswith("K12 passed"), report["verdict"])
+
+    def assert_k16(self, expected, *extra, **state):
+        self.new_fan(**state)
+        self.assertEqual(self.run_check("K16", *extra), 0, self.err)
+        self.assertEqual(self.fan.bodies, expected)
+        self.fan_back_as_found()
+        report = self.report()
+        self.assertTrue(report["restore"]["restored"], report["restore"])
+        self.assertEqual(load_gh_discussion().check_text(self.out, "2026-11-12 — K16"), [])
+        return report
+
+    def test_k16_with_the_light_off(self):
+        report = self.assert_k16(
+            [INFO_Q, STATE_Q, level(5), LIGHT_ON, STATE_Q] + [STATE_Q, LIGHT_OFF, level(100), STATE_Q],
+            "--level",
+            "5",
+        )
+        self.assertIn(mf_probe.K16_HOLD_S, self.clock.sleeps)
+        self.assertEqual(report["findings"]["read"], {"on": True, "level": 5})
+        self.assertEqual(report["findings"]["level_sent"], 5)
+        self.assertTrue(report["verdict"].startswith("K16: the light was held at 5 %"), report["verdict"])
+        self.assertIn("is it lit?", self.err)
+
+    def test_k16_with_the_light_on_and_a_hold(self):
+        report = self.assert_k16(
+            [INFO_Q, STATE_Q, level(12), STATE_Q] + [STATE_Q, level(30), STATE_Q],
+            "--level",
+            "12",
+            "--hold",
+            "45",
+            lightOn=True,
+            lightBrightness=30,
+        )
+        self.assertIn(45.0, self.clock.sleeps)
+        self.assertEqual(report["findings"]["held_s"], 45.0)
+
+    def test_k16_at_the_level_it_has_sends_nothing_but_reads(self):
+        self.assert_k16(
+            [INFO_Q, STATE_Q, STATE_Q] + [STATE_Q, STATE_Q], "--level", "30", lightOn=True, lightBrightness=30
+        )
+
+    def test_k16_on_a_fan_whose_level_switches_the_light_on(self):
+        self.fan.level_turns_light_on = True
+        self.assertEqual(self.run_check("K16", "--level", "5"), 0, self.err)
+        self.assertEqual(self.fan.bodies[:5], [INFO_Q, STATE_Q, level(5), STATE_Q, STATE_Q])
+
+    def test_k16_arguments(self):
+        for extra in (
+            (),
+            ("--level", "0"),
+            ("--level", "101"),
+            ("--level", "5", "--hold", "51"),
+            ("--level", "5", "--hold", "0.5"),
+        ):
+            with self.subTest(extra=extra), self.quiet(), self.assertRaises(SystemExit) as caught:
+                self.run_check("K16", *extra)
+            self.assertEqual(caught.exception.code, 2)
+        with self.quiet(), self.assertRaises(SystemExit):
+            self.run_check("K12", "--level", "5")
+        self.assertEqual(self.fan.bodies, [])
 
     def test_k12_with_a_read_that_fails(self):
         self.fan.plan = {4: "500"}  # the read after the level sent while off

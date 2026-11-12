@@ -196,6 +196,14 @@ Read-only research written before a feature's contract, in the same style.
   simulated light fades (#141): the decisions LF-D1 to LF-D24, the rule for
   every tap, hold and command, the interfaces of each module, who owns
   which file, and the checks on the house.
+- [`min-on-sdk-research.md`](min-on-sdk-research.md): a Min On for the
+  fan's light (#195), from Control4's side: light_v2's deprecated Range
+  Levels against a driver property, what Control4 expects a Min On to do,
+  and the mapping between Control4's levels and the fan's.
+- [`edge-cases-min-on.md`](edge-cases-min-on.md): the same Min On from
+  both sides (#195): levels set from the fan's app or remote, changing the
+  value, turn-ons, fades, presets, the device's life cycle, rounding, and
+  what is automatic, offered or forbidden.
 
 ## Start here
 

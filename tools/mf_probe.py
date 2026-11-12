@@ -3,6 +3,7 @@
 
   mf_probe.py read --fan ADDR [--static] [--count N] [--interval S] [--raw-dir DIR]
   mf_probe.py check K11|K12|K13|K15 --fan ADDR --expect-id LAST4 --yes-owner-told [--raw-dir DIR]
+  mf_probe.py check K16 --level N [--hold S] --fan ADDR --expect-id LAST4 --yes-owner-told
   mf_probe.py fixture --from RAWFILE --out tests/fixtures/NAME.json [--force]
 
 read     POST /mf {"queryDynamicShadowData":1}, or {"queryStaticShadowData":1} with --static, --count
@@ -17,6 +18,8 @@ check    The VM's write checks of docs/v1-design.md section 11, run only with --
            K13  bursts: 10 speed commands, then 20 level commands, back to back, one in flight; each
                 burst ends on the value the fan had; latency, errors and the final state
            K15  the light stepped 1 -> 100 in 12 requests over 3 s, held 1 s, then 100 -> 1 the same way
+           K16  the light held at --level N (1 to 100) for --hold S seconds (default 30, at most 50), then a
+                read: does it glow at N? The owner's eyes find the first level that lights (#195, Min On)
          Each check reads the state first and puts back what it found (fan on or off, speed,
          direction, light on or off, level), also after an error or Ctrl-C, and reads again to
          verify. If the fan stops answering (two failed requests in a row), nothing more is sent and
@@ -101,6 +104,8 @@ K15_STEPS = tuple(1 + 9 * step for step in range(12))  # 1, 10, 19, ..., 100
 K15_STEP_S = 0.25  # 12 requests over 3 s, start to start
 K15_HOLD_S = 1.0
 K11_SPIN_UP_S = 3.0  # a fan K11 starts runs this long before the direction write ("with the fan running")
+K16_HOLD_S = 30.0  # how long K16 holds its level by default, for the owner to look
+K16_HOLD_MAX_S = 50.0  # the whole check stays within a minute
 RESTORE_MAX_STEPS = 12
 RESTORE_SAME_BODY = 2  # a body the fan does not take is sent at most twice
 
@@ -791,10 +796,11 @@ def deferred_interrupts():
 class Session:
     """One check on one fan: the identity pinned, the state found, the steps, the restore."""
 
-    def __init__(self, fan, sleep, clock):
+    def __init__(self, fan, sleep, clock, params=None):
         self.fan = fan
         self.sleep = sleep
         self.clock = clock
+        self.params = params or {}
         self.light_kit = None
         self.findings = {}
         self.verdict = None
@@ -1069,12 +1075,46 @@ def check_k15(session, before):
     )
 
 
+def check_k16(session, before):
+    """One light level held for the owner's eyes: does the light glow at N %? (#195, Min On)"""
+    level, hold = session.params["level"], session.params["hold"]
+    if not before.light_on:
+        session.write({"lightBrightness": level}, "level %d while off" % level)
+        current = session.fan.state
+        if current is None or not current.light_on:
+            session.write({"lightOn": True}, "light on at %d" % level)
+    elif before.level != level:
+        session.write({"lightBrightness": level}, "level %d" % level)
+    say("the light is at %d %% for %g s: is it lit?" % (level, hold))
+    session.sleep(hold)
+    answer = session.read("read: at %d?" % level)
+    state = fan_state(answer.data) if answer.ok else None
+    session.findings = {
+        "level_sent": level,
+        "held_s": hold,
+        "read": {"on": state.light_on, "level": state.level} if state else answer.kind,
+        "ask_the_owner": "is the light visibly lit at %d %%?" % level,
+    }
+    if state is None:
+        session.verdict = "K16 incomplete: the read after the hold failed (see findings); run it again"
+    elif state.light_on and state.level == level:
+        session.verdict = "K16: the light was held at %d %% for %g s; the owner's eyes decide whether it glows" % (
+            level,
+            hold,
+        )
+    else:
+        session.verdict = (
+            "K16: the fan did not keep the light on at %d %% (see findings): something else changed it" % (level)
+        )
+
+
 # name: (function, needs a light kit)
 CHECKS = {
     "K11": (check_k11, False),
     "K12": (check_k12, True),
     "K13": (check_k13, False),
     "K15": (check_k15, True),
+    "K16": (check_k16, True),
 }
 
 
@@ -1179,9 +1219,9 @@ def run_read(fan, query, count, interval, sleep, clock):
     return code
 
 
-def run_check(name, fan, expect_id, sleep, clock):
+def run_check(name, fan, expect_id, sleep, clock, params=None):
     run, needs_light = CHECKS[name]
-    session = Session(fan, sleep, clock)
+    session = Session(fan, sleep, clock, params)
     report = new_report("check", check=name)
     code = EXIT_OK
     before = None
@@ -1307,8 +1347,8 @@ def parse_fan(text, allow_loopback=False):
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         prog="mf_probe.py",
-        description="Read a Modern Forms fan, run the write checks K11, K12, K13 and K15 of docs/v1-design.md "
-        "section 11 on it, or turn a raw answer into a fixture.",
+        description="Read a Modern Forms fan, run the write checks K11, K12, K13, K15 and K16 on it "
+        "(docs/v1-design.md section 11, docs/fan-probe.md), or turn a raw answer into a fixture.",
         epilog=__doc__.split("\n\n", 1)[1],
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1324,9 +1364,11 @@ def parse_args(argv):
     p.add_argument("--static", action="store_true", help="queryStaticShadowData instead of queryDynamicShadowData")
     p.add_argument("--count", type=int, default=1, help="reads, 1 to %d (default 1)" % READ_MAX_COUNT)
     p.add_argument("--interval", type=float, help="seconds from one read's start to the next (default 3, min 0.5)")
-    p = sub.add_parser("check", help="a write check: K11, K12, K13 or K15")
-    p.add_argument("check", choices=sorted(CHECKS), help="the check of docs/v1-design.md section 11")
+    p = sub.add_parser("check", help="a write check: K11, K12, K13, K15 or K16")
+    p.add_argument("check", choices=sorted(CHECKS), help="the check (docs/fan-probe.md)")
     fan_options(p)
+    p.add_argument("--level", type=int, metavar="N", help="K16 only: the light level to hold, 1 to 100")
+    p.add_argument("--hold", type=float, metavar="S", help="K16 only: seconds to hold it (default 30, at most 50)")
     p.add_argument("--expect-id", metavar="LAST4", help="the last four hex digits of the fan's client id")
     p.add_argument("--yes-owner-told", action="store_true", help="the owner was told what the fan will do")
     p = sub.add_parser("fixture", help="a raw answer as a fixture with the placeholders")
@@ -1345,6 +1387,16 @@ def parse_args(argv):
             parser.error("--interval must be %g to %g s" % (READ_MIN_INTERVAL_S, READ_MAX_SPAN_S))
         if (args.count - 1) * args.interval > READ_MAX_SPAN_S:
             parser.error("--count and --interval span more than %g s: never hammer the fan" % READ_MAX_SPAN_S)
+    if args.command == "check":
+        if args.check == "K16":
+            if args.level is None or not 1 <= args.level <= 100:
+                parser.error("K16 wants --level N, 1 to 100")
+            if args.hold is None:
+                args.hold = K16_HOLD_S
+            elif not 1 <= args.hold <= K16_HOLD_MAX_S:
+                parser.error("--hold must be 1 to %g s" % K16_HOLD_MAX_S)
+        elif args.level is not None or args.hold is not None:
+            parser.error("--level and --hold go with K16 only")
     return args
 
 
@@ -1368,7 +1420,8 @@ def main(argv=None, sleep=time.sleep, clock=time.monotonic):
             if args.command == "read":
                 query = INFO_QUERY if args.static else STATE_QUERY
                 return run_read(fan, query, args.count, args.interval, sleep, clock)
-            return run_check(args.check, fan, args.expect_id, sleep, clock)
+            params = {"level": args.level, "hold": args.hold} if args.check == "K16" else None
+            return run_check(args.check, fan, args.expect_id, sleep, clock, params)
     except Refused as err:
         say("mf_probe: refused: %s" % err)
         return EXIT_REFUSED
