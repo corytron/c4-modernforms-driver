@@ -4,7 +4,16 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.8 "Carryall" is installed on the house: build 207, released and
+**1.9 "Sandwalk" is installed on the house: build 220, released and
+installed in place on 2026-11-13 (#207, the contract
+[`ambient-pause-design.md`](ambient-pause-design.md), the probe in
+Discussion #208).** The keypad dimmer bound to the fan's speed links pushes
+its ambient light reading to the fan's new Ambient Light Level (Follower)
+input; while it reads below `Pause LED Animations Below` (10), the speed
+chase and the Breeze animation pause and send nothing, and they start a
+new run after 10 s of light. No controller reboot.
+
+Before it, **1.8 "Carryall"** ran on the house: build 207, released and
 installed in place on 2026-11-13 (#195, deploy issue #203, the contract
 [`min-on-design.md`](min-on-design.md), the rounds in Discussions #197, #199 and
 #204).** The fan's `Light Min On (%)` is set to 10. It adds `Light Min On (%)` for a light kit that stays dark at its
@@ -37,8 +46,8 @@ is dark, the chase and the gusts included, and they come back together
 along the same curve as the room brightens. Each still reads its own
 ambient sensor ("Independent"); Composer can make one follow another's
 through the connections Ambient Light Level (Source) and (Follower), which
-is not done. The chase keeps sending its messages while dark; a driver
-pause at night is offered, not built.
+is not done. Since 1.9 the animations also stop sending while the keypad is dark
+(#207, above).
 
 Before it:
 
