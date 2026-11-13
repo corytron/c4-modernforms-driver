@@ -208,6 +208,15 @@ Read-only research written before a feature's contract, in the same style.
   fan's light (#195): the property `Light Min On (%)`, the mapping between
   Control4's levels and the fan's, what a change of the value does, the
   Control4 guidelines it follows, and who owns which file.
+- [`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md):
+  the keypad's ambient LED dimming against the speed chase and the Breeze
+  animation (#198), from Control4's side: Ambient Light Profiles, what a
+  driver can read of them (nothing documented), and why the keypad's own
+  Status LED minimum decides whether the animations show at night.
+- [`edge-cases-led-dimming.md`](edge-cases-led-dimming.md): the same from
+  both sides (#198): 81 cases of the dark state starting and ending during a
+  chase or a gust, neighbouring sensors, presses, restarts and message cost,
+  each automatic, offered or forbidden.
 
 ## Start here
 

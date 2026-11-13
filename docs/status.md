@@ -4,9 +4,10 @@ The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
 
-**1.8 "Carryall" is released: build 207, 2026-11-13 (#195, the contract
-[`min-on-design.md`](min-on-design.md), the rounds in Discussions #197 and
-#199).** It adds `Light Min On (%)` for a light kit that stays dark at its
+**1.8 "Carryall" is installed on the house: build 207, released and
+installed in place on 2026-11-13 (#195, deploy issue #203, the contract
+[`min-on-design.md`](min-on-design.md), the rounds in Discussions #197, #199 and
+#204).** The fan's `Light Min On (%)` is set to 10. It adds `Light Min On (%)` for a light kit that stays dark at its
 lowest levels: Control4's 1 % becomes that fan level, as Min On trims a
 Control4 dimmer, so fades, holds, taps and the slider light from their
 first step. The owner said to ship it without hardware rounds; the house's
@@ -15,9 +16,24 @@ first glow was not measured. No controller reboot is needed. On
 3 s (they snapped back to 0.250 / 0.750 on 2026-11-09), so the controller
 has been rebooted since and 1.5's tap fades and second-tap stop are live;
 it also set the Min On of the keypad dimmer beside the fan, whose lamp was
-slow to start, from 1 to 10 (Discussion #199). Before it:
+slow to start, from 1 to 10 (Discussion #199).
 
-**1.7 "Stillsuit" is installed on the house: build 193, released and
+**The keypads' ambient LED dimming (#198, 2026-11-12).** The speed chase
+and the Breeze gusts are scaled by the keypad's own Ambient Light Profile,
+like its other LEDs; the keypad dimmer bound to the fan's speed links had
+a Status LED minimum of 13, so a lit LED, the chase included, stayed dimly
+lit in a dark room. The Windows session set that minimum to 0 (Discussion
+#204): below the Dark Room threshold every LED on that keypad goes dark,
+the chase and the gusts included, and they come back along its curve as
+the room brightens. No driver change (the research:
+[`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md),
+[`edge-cases-led-dimming.md`](edge-cases-led-dimming.md), Discussion #200).
+The chase keeps sending its messages while unseen; a driver pause at night
+is offered, not built.
+
+Before it:
+
+**1.7 "Stillsuit"** ran on the house: build 193, released and
 installed in place on 2026-11-10 (#177, #178, #185; deploy issues #181 and
 #187; the announcement and install rounds in Discussion #184).** The speed
 chase's first chase now comes 2.5 s after a speed is selected from any
