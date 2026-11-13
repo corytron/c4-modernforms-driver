@@ -16,24 +16,29 @@
 # the file does not name fails in its first step, before anything is built.
 # The file starts empty ({}), so nothing can be released before the owner has
 # approved the 1.0 name.
-# Two jobs, so that no third-party code runs where the write token or the
+# Three jobs, so that no third-party code runs where the write token or the
 # signing identity is (the Hue project's security review of 2026-10-25,
-# finding 11; docs/cicd-gitops-design.md, section 5.4):
-# - build (contents: read, no id-token, no GH_TOKEN): lint and test with the
-#   pinned luarocks tools, build one package per src/<driver>/driver.xml with
-#   the pinned packager, check build/manifest.json against the packages, this
-#   commit and the tag, write SHA256SUMS.txt and the notes, and hand the
-#   packages, SHA256SUMS.txt, the manifest and the notes over as a workflow
-#   artifact;
-# - publish (contents: write, id-token: write, attestations: write; nothing
-#   but actions/* pinned by SHA, git, gh and short python3 steps of its own):
-#   check out this run's commit without credentials, download and re-check
-#   those files against it, refuse to change a prerelease that was published
-#   from another commit, sign a build-provenance attestation for the packages
-#   (Sigstore, stored on GitHub), push the tag (dispatch only), and attach the
-#   packages, the checksums, the manifest, the attestation bundle and its
-#   in-toto envelope to the GitHub release of the tag. GH_TOKEN is set only on
-#   the steps that call gh or push the tag.
+# finding 11; docs/cicd-gitops-design.md, section 5.4), nor where the packages
+# are built:
+# - test (contents: read): lint and test with the pinned luarocks tools, which
+#   install as root and compile C, on a runner of their own that builds and
+#   hands over nothing;
+# - build (contents: read, no id-token, no GH_TOKEN): with nothing installed
+#   but lxml from the runner's apt and the pinned packager, build one package
+#   per src/<driver>/driver.xml, check build/manifest.json against the
+#   packages, this commit and the tag, write SHA256SUMS.txt and the notes, and
+#   hand the packages, SHA256SUMS.txt, the manifest and the notes over as a
+#   workflow artifact;
+# - publish (needs both; contents: write, id-token: write, attestations:
+#   write; nothing but actions/* pinned by SHA, git, gh and short python3
+#   steps of its own): check out this run's commit without credentials,
+#   download and re-check those files against it, compare every file in every
+#   package with that commit's tree, refuse to change a prerelease that was
+#   published from another commit, sign a build-provenance attestation for the
+#   packages (Sigstore, stored on GitHub), push the tag (dispatch only), and
+#   attach the packages, the checksums, the manifest, the attestation bundle
+#   and its in-toto envelope to the GitHub release of the tag. GH_TOKEN is set
+#   only on the steps that call gh or push the tag.
 # The packages are named in one place, the src/<driver>/ directories that hold a
 # driver.xml (docs/prerelease-design.md, section 2; today two, modernforms_fan
 # and modernforms_breeze_fan): build/manifest.json lists them, every check below
@@ -67,8 +72,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the repository; this job can change nothing on GitHub
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The same pinned rocks as ci.yml (the reasons, and how to move a pin,
+      # are written there): every rock at an exact version, its dependencies
+      # included, with --deps-mode=none so that luarocks fetches nothing this
+      # list does not name. They run as root here, on a runner that builds no
+      # package and hands nothing to the publish job but its verdict.
+      - name: Install Lua 5.1, luarocks and the pinned rocks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 liblua5.1-0-dev luarocks
+          rock() { sudo luarocks --lua-version=5.1 install --deps-mode=none "$1" "$2"; }
+          rock argparse 0.7.2-1
+          rock luafilesystem 1.9.0-1
+          rock luacheck 1.2.0-1
+          rock dkjson 2.11-1
+          rock lua_cliargs 3.0.2-1
+          rock luasystem 0.7.1-1
+          rock say 1.4.1-3
+          rock luassert 1.9.0-1
+          rock lua-term 0.8-1
+          rock penlight 1.15.0-1
+          rock mediator_lua 1.1.2-0
+          rock busted 2.3.0-1
+
+      - name: Lint and test (luacheck, busted)
+        run: tools/check.sh --strict --only lua-lint lua-test
+
   build:
-    name: Lint, test and build the packages
+    name: Build the packages
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -81,7 +124,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Runs before any third-party code: a refusal here ends the run, and
+      # Runs before anything is installed: a refusal here ends the build, and
       # the publish job needs this job. Besides the tag's form and its
       # commit it checks the codename: a version whose X.Y
       # .github/codenames.json does not name is never built (CLAUDE.md;
@@ -184,30 +227,13 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "Building $tag from $GITHUB_SHA"
 
-      # The same pinned rocks as ci.yml (the reasons, and how to move a pin,
-      # are written there): every rock at an exact version, its dependencies
-      # included, with --deps-mode=none so that luarocks fetches nothing this
-      # list does not name. dp3/driverpackager.py imports lxml.
-      - name: Install Lua 5.1, luarocks, the pinned rocks and lxml
+      # dp3/driverpackager.py imports lxml, from the runner's own apt; the
+      # build installs nothing else (the lint and test tools are the test
+      # job's).
+      - name: Install lxml, the packager's one dependency
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.1 liblua5.1-0-dev luarocks python3-lxml
-          rock() { sudo luarocks --lua-version=5.1 install --deps-mode=none "$1" "$2"; }
-          rock argparse 0.7.2-1
-          rock luafilesystem 1.9.0-1
-          rock luacheck 1.2.0-1
-          rock dkjson 2.11-1
-          rock lua_cliargs 3.0.2-1
-          rock luasystem 0.7.1-1
-          rock say 1.4.1-3
-          rock luassert 1.9.0-1
-          rock lua-term 0.8-1
-          rock penlight 1.15.0-1
-          rock mediator_lua 1.1.2-0
-          rock busted 2.3.0-1
-
-      - name: Lint and test (luacheck, busted)
-        run: tools/check.sh --strict --only lua-lint lua-test
+          sudo apt-get install -y python3-lxml
 
       # The packager runs in Build, so it is pinned to a reviewed commit: the
       # same commit as in ci.yml, where how to move it is written.
@@ -343,7 +369,7 @@ jobs:
 
   publish:
     name: Attest the packages and publish the release
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -472,6 +498,125 @@ jobs:
           PY
           cd build
           sha256sum --check --strict SHA256SUMS.txt
+
+      # The packages against the source, file by file, with the runner's own
+      # python3 and git (docs/cicd-gitops-design.md, section 5.4): every file
+      # of every package must be the file of this run's commit it was built
+      # from (src/<driver>/ at the top, src/common/ as common/, LICENSE and
+      # NOTICE), and every such file must be there, but
+      # for what a release leaves out (devloop*, devkey*, devcmds*) and what
+      # the build changes on purpose: driver.xml without its DEV-ONLY blocks
+      # and with dp3's <version> (the build number) and <modified>, compared
+      # as XML; the manual with the changelog where its <!-- CHANGELOG -->
+      # line was, which may hold no script; common/build_version.lua, the
+      # build number. No package may hold a link, a name twice, a DEV-ONLY
+      # marker in a .lua or .xml file, or anything that opens the Lua command
+      # window (AllowExecute(true) in its spellings, or
+      # gIsDevelopmentVersionOfDriver); the call that locks it,
+      # pcall(C4.AllowExecute, C4, false), passes. So whatever ran in the
+      # build job, nothing reaches the release that this commit does not hold.
+      - name: Compare every packaged file with this run's commit
+        env:
+          PACKAGES: ${{ steps.check.outputs.packages }}
+        run: |
+          python3 -I - "$GITHUB_SHA" "$PACKAGES" <<'PY'
+          import json, os, re, stat, subprocess, sys, zipfile
+          import xml.etree.ElementTree as ET
+          commit, names = sys.argv[1], sys.argv[2].split()
+          with open("build/manifest.json", encoding="utf-8") as f:
+              build = json.load(f)["build"]
+          DEV_ONLY = re.compile(r"(?i)^(?:devloop|devkey|devcmds)")
+          OPENS_WINDOW = re.compile(rb"AllowExecute\s*\(\s*(?:C4\s*,\s*)?true|AllowExecute\s*,\s*C4\s*,\s*true|gIsDevelopmentVersionOfDriver")
+          ACTIVE = re.compile(rb"(?i)<\s*(?:script|iframe|object|embed)\b|javascript:")
+          def git(*args):
+              return subprocess.run(["git", *args], check=True, capture_output=True).stdout
+          tree = {}
+          for record in git("ls-tree", "-r", "-z", "--full-tree", commit).split(b"\0"):
+              if record:
+                  meta, path = record.split(b"\t", 1)
+                  mode, _kind, oid = meta.decode().split()
+                  tree[path.decode("utf-8")] = (mode, oid)
+          def blob(path):
+              return git("cat-file", "blob", tree[path][1])
+          def strip_dev_only(data):
+              kept, skip = [], False
+              for line in data.splitlines(keepends=True):
+                  if b"<!-- DEV-ONLY BEGIN" in line:
+                      skip = True
+                  if not skip:
+                      kept.append(line)
+                  if b"<!-- DEV-ONLY END -->" in line:
+                      skip = False
+              return b"".join(kept)
+          def canonical(data, stamp=None):
+              root = ET.fromstring(data)
+              for tag, value in (stamp or {}).items():
+                  element = root.find(tag)
+                  if element is not None:
+                      element.text = value
+              return ET.canonicalize(ET.tostring(root, encoding="unicode"))
+          problems = []
+          for name in names:
+              driver = name[: -len(".c4z")]
+              expected = {"LICENSE": "LICENSE", "NOTICE": "NOTICE"}
+              for path, (mode, _oid) in sorted(tree.items()):
+                  for prefix, mount in ((f"src/{driver}/", ""), ("src/common/", "common/")):
+                      if not path.startswith(prefix):
+                          continue
+                      inside = mount + path[len(prefix):]
+                      if mode == "120000":
+                          problems.append(f"{path} is a symbolic link in {commit[:12]}")
+                      elif not any(DEV_ONLY.match(part) for part in inside.split("/")):
+                          expected[inside] = path
+              expected["common/build_version.lua"] = None
+              with zipfile.ZipFile(os.path.join("build", name)) as z:
+                  infos = z.infolist()
+                  seen = [info.filename for info in infos]
+                  for twice in sorted({entry for entry in seen if seen.count(entry) > 1}):
+                      problems.append(f"{name}: {twice} is in it more than once")
+                  for info in infos:
+                      if stat.S_ISLNK(info.external_attr >> 16):
+                          problems.append(f"{name}: {info.filename} is a symbolic link")
+                      if any(DEV_ONLY.match(part) for part in info.filename.split("/")):
+                          problems.append(f"{name}: {info.filename} is a development-only file")
+                  for extra in sorted(set(seen) - set(expected)):
+                      problems.append(f"{name}: {extra} is not a file of {commit[:12]} that the package carries")
+                  for missing in sorted(set(expected) - set(seen)):
+                      problems.append(f"{name}: {missing} is missing")
+                  for entry in sorted(set(seen) & set(expected)):
+                      data, source = z.read(entry), expected[entry]
+                      if entry.endswith((".lua", ".xml")):
+                          if OPENS_WINDOW.search(data):
+                              problems.append(f"{name}: {entry} opens the Lua command window")
+                          if b"DEV-ONLY" in data:
+                              problems.append(f"{name}: {entry} carries a DEV-ONLY marker")
+                      if entry == "common/build_version.lua":
+                          if data != f'return "{build}"\n'.encode():
+                              problems.append(f"{name}: {entry} is not the build number {build}")
+                      elif entry == "driver.xml":
+                          try:
+                              stamp = {tag: ET.fromstring(data).findtext(tag) for tag in ("version", "modified")}
+                              same = canonical(strip_dev_only(blob(source)), stamp) == canonical(data)
+                          except ET.ParseError as error:
+                              problems.append(f"{name}: {entry} does not parse: {error}")
+                              continue
+                          if stamp["version"] != str(build):
+                              problems.append(f"{name}: {entry} has the version {stamp['version']!r}, not {build}")
+                          if not same:
+                              problems.append(f"{name}: {entry} differs from {source} beyond the DEV-ONLY blocks, <version> and <modified>")
+                      elif entry == "www/documentation.html":
+                          before, marker, after = blob(source).partition(b"<!-- CHANGELOG -->")
+                          fits = marker and len(data) >= len(before) + len(after) and data.startswith(before) and data.endswith(after)
+                          if not fits:
+                              problems.append(f"{name}: {entry} differs from {source} beyond its changelog")
+                          elif ACTIVE.search(data[len(before) : len(data) - len(after)]):
+                              problems.append(f"{name}: the changelog in {entry} holds a script")
+                      elif data != blob(source):
+                          problems.append(f"{name}: {entry} differs from {source}")
+              print(f"{name}: {len(seen)} files, each the file of {commit[:12]} it was built from")
+          if problems:
+              sys.exit("the packages are not what this commit builds:\n  " + "\n  ".join(problems))
+          PY
 
       # A prerelease never changes once published (docs/prerelease-design.md,
       # section 1). When its release exists, only a run of the commit it was

@@ -3,3 +3,6 @@ build/
 luacov.*.out
 .DS_Store
 __pycache__/
+# The dev key as tools/build.sh --dev bakes it into a dev package
+# (docs/dev-loop.md, "The dev key"): never committed, wherever a copy lands.
+**/devkey.lua

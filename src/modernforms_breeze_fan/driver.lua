@@ -115,6 +115,19 @@ local tapped = false       -- a tap went to the fan device since its last state 
 
 -- Parsing ---------------------------------------------------------------------
 
+-- A value for a log line (#214): at most 40 characters, a control character
+-- written as \<code> ("\10" for a newline), so a value another driver sends
+-- can neither flood the log nor start a line of its own.
+local function shown(value)
+	local text = tostring(value):sub(1, 41):gsub("%c", function(c)
+		return "\\" .. c:byte()
+	end)
+	if #text > 40 then
+		text = text:sub(1, 37) .. "..."
+	end
+	return text
+end
+
 -- A whole number in lo..hi from a parameter (they arrive as strings, hardware
 -- K5 and K8 on the main fan), else nil: 2.5, "x" and out-of-range values are
 -- nothing.
@@ -126,14 +139,38 @@ local function whole(value, lo, hi)
 	return n
 end
 
+-- #214: a FAN longer than this many bytes is no item name (the fan device
+-- sends its item's display name, BF-D9, which no Composer name comes near),
+-- so it is refused before anything reads it.
+local MAX_NAME_BYTES = 256
+
+-- Blanks trimmed, in linear time: the pattern form "^%s*(.-)%s*$" is
+-- quadratic on a long run of inner blanks (#49, #214).
+local function trim(text)
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
+end
+
 -- A name as the fan device sent it: no control characters, blanks trimmed;
--- nil when nothing is left.
+-- nil when nothing is left, and for one longer than MAX_NAME_BYTES (logged;
+-- the state itself still counts, shown for "the fan").
 local function clean_name(text)
 	text = device.text(text)
 	if not text then
 		return nil
 	end
-	text = text:gsub("%c", ""):match("^%s*(.-)%s*$")
+	if #text > MAX_NAME_BYTES then
+		log.warn("MF_BREEZE_STATE: FAN of %d bytes refused (over %d); the fan is not named", #text, MAX_NAME_BYTES)
+		return nil
+	end
+	text = trim((text:gsub("%c", "")))
 	return text ~= "" and text or nil
 end
 
@@ -144,7 +181,7 @@ end
 local function strength_of(value)
 	local n = whole(value, 1, STRENGTHS)
 	if n == nil and value ~= nil then
-		log.warn("MF_BREEZE_STATE: STRENGTH %s is not 1 to %d; taken as unknown", tostring(value), STRENGTHS)
+		log.warn("MF_BREEZE_STATE: STRENGTH %s is not 1 to %d; taken as unknown", shown(value), STRENGTHS)
 	end
 	return n
 end
@@ -418,7 +455,7 @@ end)
 on_proxy("SET_SPEED", function(params)
 	local n = whole(params.SPEED, 0, STRENGTHS)
 	if n == nil then
-		log.warn("SET_SPEED %s refused: 0 to %d", tostring(params.SPEED), STRENGTHS)
+		log.warn("SET_SPEED %s refused: 0 to %d", shown(params.SPEED), STRENGTHS)
 		return report(true)
 	end
 	if n == 0 then
@@ -447,7 +484,7 @@ end)
 -- declared preset back [FAN 42/_3-PRESETSPEED.md], as the fan driver answers a
 -- refused value, so it keeps what driver.xml says.
 on_proxy("DESIGNATE_PRESET", function(params)
-	log.info("DESIGNATE_PRESET %s ignored: the Breeze fan has no preset", tostring(params.PRESET))
+	log.info("DESIGNATE_PRESET %s ignored: the Breeze fan has no preset", shown(params.PRESET))
 	tell("PRESET_SPEED", { SPEED = PRESET })
 end)
 -- can_reverse False [FAN 41/_8-SETDIRECTION.md, _9-TOGGLEDIRECTION.md]: not
@@ -469,8 +506,8 @@ dispatch.commands["MF_BREEZE_STATE"] = dev.after_late_init("MF_BREEZE_STATE", fu
 	params = params or {}
 	local blows, available = device.to_bool(params.BLOWS), device.to_bool(params.AVAILABLE)
 	if blows == nil or available == nil then
-		return log.warn("MF_BREEZE_STATE ignored: BLOWS %s, AVAILABLE %s", tostring(params.BLOWS),
-			tostring(params.AVAILABLE))
+		return log.warn("MF_BREEZE_STATE ignored: BLOWS %s, AVAILABLE %s", shown(params.BLOWS),
+			shown(params.AVAILABLE))
 	end
 	if not ensure_bound() then
 		return log.debug("MF_BREEZE_STATE ignored: not bound to a Modern Forms Fan")
@@ -494,7 +531,15 @@ dispatch.install(_G)
 -- GetBoundProviderDevice, SendToDevice, SendToProxy and UpdateProperty are not
 -- for OnDriverInit [API 22_miscellaneous/_25.2-SafeUsageTable.md]: everything
 -- starts at late init.
+-- #214: a release build locks Composer's Lua command window, which an
+-- unencrypted driver otherwise leaves open [FUND 6_Understanding .c4z
+-- Drivers/_3-C4ALLOWEXECUTE.md; API 22_miscellaneous/_2-AllowExecute.md]. A
+-- dev build (it carries common/devkey.lua) keeps the window its packager
+-- opened.
 function OnDriverInit()
+	if not pcall(require, "common.devkey") then
+		pcall(C4.AllowExecute, C4, false)
+	end
 end
 
 -- [API 22_miscellaneous/_25.1-OnDriverLateInit.md]

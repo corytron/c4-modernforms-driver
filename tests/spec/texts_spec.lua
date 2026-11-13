@@ -83,7 +83,7 @@ describe("fan.texts", function()
 	describe("the interface of section 9.6 and fan-name-design 2.3", function()
 		it("offers every function the contract lists", function()
 			for _, name in ipairs({ "status", "result", "fan_id", "fan_model", "firmware", "last_seen", "change_by",
-				"automations", "keypad_links", "found_rows", "suffix", "mac", "clock", "rename_suffix" }) do
+				"automations", "keypad_links", "found_rows", "suffix", "mac", "clock", "rename_suffix", "clean" }) do
 				assert.is_function(texts[name], name)
 			end
 		end)
@@ -103,8 +103,8 @@ describe("fan.texts", function()
 		it("lists the 18 result keys of section 9.6 left after L8 to L10, the 8 of fan-name-design 2.3, the 2 of"
 			.. " address-follow-design 2.4, L32 of auto-discovery-design 5, the 8 of breeze-design 5, L41 of"
 			.. " BF-D10, L42 of breeze-leds-design BL-D3 and L43 of speed-leds-design SL-D9, L44 and L45 of"
-			.. " keypad-leds-visibility-design KL-D7, each with a text of its own", function()
-			assert.equal(42, #texts.RESULT_KEYS)
+			.. " keypad-leds-visibility-design KL-D7, and L46 of #214, each with a text of its own", function()
+			assert.equal(43, #texts.RESULT_KEYS)
 			assert.same({ "learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 				"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending", "away_off", "away_already",
 				"learning_off", "learning_already", "not_answering", "not_taken", "not_picked" },
@@ -114,7 +114,7 @@ describe("fan.texts", function()
 			assert.same({ "breeze_unavailable", "breeze_strength", "breeze_refused", "breeze_switch_added",
 				"breeze_switch_exists", "breeze_switch_no_breeze", "breeze_switch_no_fan", "breeze_switch_failed",
 				"breeze_old_switch", "breeze_leds_need_per_speed", "speed_leds_need_per_speed", "keypad_leds_shown",
-				"keypad_leds_hidden" }, { unpack(texts.RESULT_KEYS, 30) })
+				"keypad_leds_hidden", "breeze_fan_not_connected" }, { unpack(texts.RESULT_KEYS, 30) })
 			local seen = {}
 			for _, key in ipairs(texts.RESULT_KEYS) do
 				local text = texts.result(key, { client_id = ID1, address = ADDR, which = "away", at = T,
@@ -1225,6 +1225,31 @@ describe("fan.texts", function()
 					r("breeze_old_switch", { name = string.rep("a", 31) .. cyclone }))
 				assert.equal("Delete the old Breeze switch first: " .. string.rep("a", 33),
 					r("breeze_old_switch", { name = string.rep("a", 33) .. " Breeze" }))
+			end)
+
+			it("L46 breeze_fan_not_connected names the device added but not bound, and says what to do (#214)", function()
+				local text = r("breeze_fan_not_connected", AVIATOR)
+				assert.equal("Added Aviator 5 Breeze, not connected: use Connections, then retry", text)
+				assert.equal(66, #text)
+			end)
+
+			it("L46 cleans the name and cuts it to 20 characters, so the line stays at 70", function()
+				local long = r("breeze_fan_not_connected", { name = string.rep("N", 100) })
+				assert.equal("Added " .. string.rep("N", 20) .. ", not connected: use Connections, then retry", long)
+				assert.equal(70, #long)
+				assert.equal("Added Aviator 5, not connected: use Connections, then retry",
+					r("breeze_fan_not_connected", { name = "\tAviator\n 5\0 " }), "control characters dropped, trimmed")
+				assert.equal("Added Caf\195\169 ?, not connected: use Connections, then retry",
+					r("breeze_fan_not_connected", { name = "Caf\195\169 \255" }), "UTF-8 kept, a broken byte is ?")
+				assert.equal("Added " .. string.rep("a", 19) .. ", not connected: use Connections, then retry",
+					r("breeze_fan_not_connected", { name = string.rep("a", 19) .. "\226\130\172" }),
+					"never cut inside a character")
+				for _, none in ipairs({ "", "   ", "\n\t", false, true, {}, 0 / 0 }) do
+					assert.equal("Added ?, not connected: use Connections, then retry",
+						r("breeze_fan_not_connected", { name = none }), tostring(none))
+				end
+				assert.equal("Added ?, not connected: use Connections, then retry",
+					r("breeze_fan_not_connected", { pin = { name = "Aviator 5 Breeze" } }), "never from a pin")
 			end)
 
 			it("L36, L37 and L41 say ? for no name, and read it from the args only, never from a pin", function()
@@ -2534,6 +2559,212 @@ describe("fan.texts", function()
 		end)
 	end)
 
+	-- #214: text a fan sends, and the names a Last Action line holds, reach a row
+	-- only through texts.clean: no control character, valid UTF-8, a bounded length.
+	describe("fan-supplied text (#214, texts.clean)", function()
+		local ELLIPSIS = "\226\128\166"
+
+		-- The characters of a valid UTF-8 text (RFC 3629); raises on anything else.
+		local function chars(text)
+			local n, i = 0, 1
+			while i <= #text do
+				local b = text:byte(i)
+				local len = (b < 128 and 1) or (b >= 194 and b <= 223 and 2) or (b >= 224 and b <= 239 and 3)
+					or (b >= 240 and b <= 244 and 4) or nil
+				assert(len, "not UTF-8 at byte " .. i .. ": " .. text)
+				for j = i + 1, i + len - 1 do
+					local c = text:byte(j)
+					assert(c and c >= 128 and c <= 191, "a broken UTF-8 sequence at byte " .. i .. ": " .. text)
+				end
+				n, i = n + 1, i + len
+			end
+			return n
+		end
+
+		-- A text a row may carry: valid UTF-8, no control character, at most `max` characters.
+		local function safe(text, max, where)
+			assert.is_string(text, where)
+			assert.is_nil(text:find("%c"), where .. " has a control character")
+			assert.is_true(chars(text) <= max, where .. " is longer than " .. max .. ": " .. text)
+		end
+
+		-- A fan's answer at its worst (the lab answer of S1-4): control characters, NUL, an
+		-- escape sequence, XML metacharacters, a broken byte, and far too long.
+		local HOSTILE = string.rep("\r\n\0\1\27[1m<b>&amp;</b>\255", 400)
+
+		describe("clean", function()
+			it("turns every control character into a space: C0 with NUL, DEL, C1, the separators, bidi", function()
+				assert.equal("a b c d", texts.clean("a\0b\tc\nd"))
+				assert.equal("      x", texts.clean("\1\13\27\31\127\r" .. "x"))
+				assert.equal("a b c", texts.clean("a\194\128b\194\159c"), "U+0080 and U+009F")
+				assert.equal("a b c", texts.clean("a\226\128\168b\226\128\169c"), "U+2028 and U+2029")
+				assert.equal("a b c d", texts.clean("a\226\128\174b\226\128\170c\226\129\167d"), "U+202E, U+202A, U+2067")
+			end)
+
+			it("keeps printable ASCII as it is, < & > and quotes included", function()
+				local text = [[<b>&amp;</b> "quoted" 'single' ~!@#$%^*()_+-={}[]|\:;,./?]]
+				assert.equal(text, texts.clean(text))
+			end)
+
+			it("keeps valid UTF-8 of every length", function()
+				local text = "Caf\195\169 \226\130\172 \240\159\140\128 \244\143\191\191 \239\191\189"
+				assert.equal(text, texts.clean(text))
+				assert.equal(12, chars(texts.clean(text)))
+			end)
+
+			it("replaces each byte that is no valid UTF-8 with ?", function()
+				assert.equal("a?b", texts.clean("a\255b"), "a byte no character starts with")
+				assert.equal("a?b", texts.clean("a\128b"), "a continuation byte alone")
+				assert.equal("a?b", texts.clean("a\195b"), "a lead byte cut short")
+				assert.equal("??", texts.clean("\226\130"), "a three-byte character cut short")
+				assert.equal("??", texts.clean("\192\128"), "an overlong NUL")
+				assert.equal("???", texts.clean("\224\128\128"), "an overlong form")
+				assert.equal("???", texts.clean("\237\160\128"), "a surrogate")
+				assert.equal("????", texts.clean("\244\144\128\128"), "past U+10FFFF")
+				assert.equal("?", texts.clean("\245"), "a lead byte UTF-8 no longer has")
+				assert.equal("a?b?", texts.clean("a\239\191\190b\239\191\191"), "U+FFFE and U+FFFF, which XML 1.0 forbids")
+			end)
+
+			it("cuts past max characters, the last one kept being U+2026, never inside a character", function()
+				assert.equal(string.rep("x", 9) .. ELLIPSIS, texts.clean(string.rep("x", 100), 10))
+				assert.equal(10, chars(texts.clean(string.rep("x", 100), 10)))
+				assert.equal(string.rep("x", 10), texts.clean(string.rep("x", 10), 10), "exactly max: not cut")
+				assert.equal(string.rep("\195\169", 4) .. ELLIPSIS, texts.clean(string.rep("\195\169", 20), 5))
+				assert.equal("ab" .. ELLIPSIS, texts.clean("ab\240\159\140\128cd", 3))
+				assert.equal("a  " .. ELLIPSIS, texts.clean("a\0\0\0\0", 4))
+				assert.equal(ELLIPSIS, texts.clean("ab", 1))
+				assert.equal("", texts.clean("abc", 0))
+				assert.equal("", texts.clean("abc", -5))
+			end)
+
+			it("cuts at TEXT_MAX (64) when no max is given; ROW_CUT is 75", function()
+				assert.equal(64, texts.TEXT_MAX)
+				assert.equal(75, texts.ROW_CUT)
+				local text = texts.clean(string.rep("y", 200))
+				assert.equal(64, chars(text))
+				assert.equal(string.rep("y", 63) .. ELLIPSIS, text)
+				assert.equal(64, chars(texts.clean(string.rep("y", 200), 0 / 0)), "a max that is no number")
+				assert.equal(200, #texts.clean(string.rep("y", 200), math.huge), "no cut")
+			end)
+
+			it("gives a whole number's digits, and an empty text for anything else that is not a string", function()
+				assert.equal("12345", texts.clean(12345))
+				for _, odd in ipairs({ nil, false, true, 1.5, 0 / 0, math.huge, {}, print }) do
+					assert.equal("", texts.clean(odd), tostring(odd))
+				end
+			end)
+
+			it("leaves blanks for the caller to trim", function()
+				assert.equal("  x  ", texts.clean("  x  "))
+			end)
+
+			-- What is stored cleaned and read back cleans to the same text, so a stored value and a fresh
+			-- answer compare equal once both are cleaned with the same max.
+			it("is idempotent: a cleaned text cleans to itself", function()
+				for _, text in ipairs({ HOSTILE, string.rep("x", 100), "Caf\195\169\255\0", "MF_00005E005301", "" }) do
+					for _, max in ipairs({ 1, 10, 64, 75 }) do
+						local once = texts.clean(text, max)
+						assert.equal(once, texts.clean(once, max), max .. ": " .. once)
+					end
+				end
+			end)
+
+			it("turns the lab's answer into a row Composer and the store can carry", function()
+				local text = texts.clean(HOSTILE, texts.ROW_CUT)
+				safe(text, 75, "clean")
+				assert.equal(75, chars(text))
+				assert.truthy(text:find("<b>&amp;</b>", 1, true), "XML metacharacters stay: Director takes plain text")
+			end)
+
+			it("is linear: 1 MB of control characters and broken bytes takes well under 50 ms", function()
+				local big = string.rep("\0\255 \1", 256 * 1024)
+				local started = os.clock()
+				for _ = 1, 10 do
+					safe(texts.clean(big, texts.ROW_CUT), 75, "big")
+					safe(texts.clean(big), 64, "big default")
+				end
+				assert.is_true(os.clock() - started < 0.05, "took " .. (os.clock() - started) .. " s for 20 calls")
+			end)
+		end)
+
+		describe("each rendered fan text is cleaned and capped", function()
+			it("Fan ID: the client id at most 64 characters, the row at most 75", function()
+				local text = texts.fan_id({ client_id = HOSTILE, mac = MAC1 })
+				safe(text, 75, "Fan ID")
+				assert.truthy(text:find(ELLIPSIS, 1, true))
+				safe(texts.fan_id({ client_id = HOSTILE }), 64, "Fan ID without a MAC")
+				assert.equal("MF_00005E005301 (MAC 00:00:5e:00:53:01)",
+					texts.fan_id({ client_id = "MF_00005E005301\r\n", mac = MAC1 }), "a control character at the end is a blank")
+			end)
+
+			it("Fan Model: the fan type and the light kit at most 64 characters each, the row at most 75", function()
+				safe(texts.fan_model({ generation = "3" }, { fan_type = HOSTILE, light_type = HOSTILE, has_light = true }, true),
+					75, "Fan Model")
+				local text = texts.fan_model({ generation = "3" }, { fan_type = "1811\0-5-54", light_type = "F4\nIN" })
+				assert.equal("Gen 3, fan 1811 -5-54, light kit F4 IN", text)
+				-- 64 characters of the type (63 and the marker), then the row cut at 75.
+				local cut = texts.fan_model({ generation = "3" }, { fan_type = string.rep("t", 100) })
+				assert.equal("Gen 3, fan " .. string.rep("t", 63) .. ELLIPSIS, cut)
+				assert.equal(75, chars(cut))
+			end)
+
+			it("Fan Model: a name the table gives is cleaned too", function()
+				KNOWN["1811-5-54"] = "Aviator\0 5"
+				assert.equal("Gen 3, Aviator  5 (1811-5-54), no light kit",
+					texts.fan_model({ generation = "3" }, { fan_type = "1811-5-54" }))
+			end)
+
+			it("Firmware: each version at most 64 characters, the row at most 75", function()
+				safe(texts.firmware({ firmware = HOSTILE, mcu_firmware = HOSTILE, firmware_since = HOSTILE,
+					firmware_was = HOSTILE }), 75, "Firmware")
+				assert.equal("02.00.0052 (motor 03.00 0000) since 2026-10-27", texts.firmware({ firmware = "02.00.0052\0",
+					mcu_firmware = "03.00\0270000", firmware_since = "2026-10-27" }))
+				local text = texts.firmware({ firmware = string.rep("9", 100) })
+				assert.equal(string.rep("9", 63) .. ELLIPSIS, text)
+			end)
+
+			it("Last Action: client ids, addresses and item names at most 64 characters, every line at most 75", function()
+				local fields = { client_id = HOSTILE, was = HOSTILE, address = HOSTILE, generation = "3",
+					fan = HOSTILE, light = HOSTILE, fan_type = HOSTILE, instance = HOSTILE, name = HOSTILE,
+					strength = HOSTILE, why = HOSTILE, at = T, now = SOON, which = "away" }
+				for _, key in ipairs(texts.RESULT_KEYS) do
+					safe(texts.result(key, fields), 75, key)
+					safe(texts.result(key, { pin = { client_id = HOSTILE, address = HOSTILE } }), 75, key .. " from a pin")
+				end
+				assert.equal("Learned fan " .. string.rep("Z", 62) .. ELLIPSIS,
+					texts.result("learned", { client_id = string.rep("Z", 64) .. "!", address = ADDR, generation = "3" }),
+					"64 of the id, then the line cut at 75")
+				assert.equal("Learned fan " .. string.rep("Z", 20) .. " (Gen 3) at " .. ADDR,
+					texts.result("learned", { client_id = string.rep("Z", 20), address = ADDR, generation = "3" }))
+				assert.equal("Items named Sample 1 and Sample Light", texts.result("name_renamed",
+					{ fan = "Sample\n1", light = "Sample Light\0" }))
+				assert.equal("Same fan MF_00005E005301, now at 10.0.2.151", texts.result("moved",
+					{ client_id = "\1MF_00005E005301", address = ADDR .. "\n" }))
+			end)
+
+			it("Status: an address at most 64 characters, the row at most 75", function()
+				for _, phase in ipairs(texts.PHASES) do
+					safe(texts.status({ phase = phase, address = HOSTILE, since = T, now = LATER, st = state(), other = HOSTILE }),
+						75, phase)
+				end
+				assert.equal("Waiting for the fan at 10.0.2.151", texts.status({ phase = "waiting", address = " 10.0.2.151\r" }))
+			end)
+
+			it("Found Fans: every row at most 75 characters, with no control character and no comma", function()
+				KNOWN["1811-5-54"] = "Aviator 5"
+				local summary, items = texts.found_rows({ state = "listed", pinned = true, info = { fan_type = HOSTILE },
+					entries = { { instance = HOSTILE, address = HOSTILE, mac = "00005e005301", own = true },
+						{ instance = "MF_Fan_005302", address = HOSTILE .. ",x", mac = HOSTILE } } })
+				safe(summary, 75, "summary")
+				assert.equal(2, #items)
+				for i, item in ipairs(items) do
+					safe(item, 75, "item " .. i)
+					assert.is_nil(item:find(",", 1, true), "item " .. i .. " has a comma")
+				end
+			end)
+		end)
+	end)
+
 	describe("never raising", function()
 		local WEIRD = { false, true, 0, -1, 1e308, 0 / 0, math.huge, -math.huge, "", " ", "x", "10.0.2.151", {}, { "a" },
 			{ x = 1 }, print }
@@ -2558,7 +2789,7 @@ describe("fan.texts", function()
 		-- Every function that takes plain positional arguments, with every pair of odd values.
 		local positional = {
 			suffix = 1, mac = 1, clock = 2, fan_id = 1, fan_model = 3, firmware = 1, last_seen = 2, change_by = 3,
-			automations = 2, list_item = 1, os_is_old = 1, parse_fan_id = 1, result = 2, rename_suffix = 1,
+			automations = 2, list_item = 1, os_is_old = 1, parse_fan_id = 1, result = 2, rename_suffix = 1, clean = 2,
 		}
 		for name, arity in pairs(positional) do
 			it(name .. " takes any value in any place", function()

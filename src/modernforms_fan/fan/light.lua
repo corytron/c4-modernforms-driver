@@ -128,6 +128,12 @@ light.HOLD_RATE_MS = 5000
 -- dev.dim_after_on; a scene ramp has no press and waits on its own timer.
 light.DIM_AFTER_ON_MS = 600
 
+-- #214: the longest time a change may take and the longest delay the light asks a
+-- timer for, 24 h: driver.xml's click_rate_max (86 400 000 ms), the bound common/
+-- device.lua already holds the keypad's rates to. A command's TIME or RATE past it
+-- is taken as it; one that is not finite (nan, inf) is 0, a change at once.
+light.MAX_MS = 86400000
+
 -- #141 LF-D17: a fade's deadline is its planned end plus this. A CHANGING open
 -- with nothing pending in the model is a closing the model never delivered; after
 -- this long it is closed here (a safety net, not a rule: the model's idle() is the
@@ -298,8 +304,31 @@ local function cancel(t)
 	end
 end
 
+-- A value for a log line (#214): at most 40 characters, a control character
+-- written as \<code> ("\10" for a newline), so a value the proxy or another
+-- driver sends can neither flood the log nor start a line of its own.
+local function loggable(value)
+	local text = tostring(value):sub(1, 41):gsub("%c", function(c)
+		return "\\" .. c:byte()
+	end)
+	if #text > 40 then
+		text = text:sub(1, 37) .. "..."
+	end
+	return text
+end
+
+-- A time in ms as a fade and a timer may take it (#214): a whole number 0 to
+-- MAX_MS; nil for one that is not a finite number (nan, inf, -inf, no number).
+local function duration(n)
+	n = tonumber(n)
+	if n == nil or n ~= n or n == math.huge or n == -math.huge then
+		return nil
+	end
+	return math.max(0, math.min(light.MAX_MS, math.floor(n)))
+end
+
 -- A command's parameters on one debug line, sorted (the rate commands' H1 to H3:
--- what the proxy really sends is read off this).
+-- what the proxy really sends is read off this). Each key and value is loggable().
 local function params_text(params)
 	local keys = {}
 	for key in pairs(params) do
@@ -308,7 +337,7 @@ local function params_text(params)
 	table.sort(keys)
 	local parts = {}
 	for _, key in ipairs(keys) do
-		parts[#parts + 1] = key .. "=" .. tostring(params[key])
+		parts[#parts + 1] = loggable(key) .. "=" .. loggable(params[key])
 	end
 	return table.concat(parts, " ")
 end
@@ -484,13 +513,14 @@ function light:leds()
 end
 
 -- A setting's rate in ms (a speed for the whole range, or a duration), `default`
--- when it holds no number; below 0 is 0.
+-- when it holds no finite number; below 0 is 0, past MAX_MS is MAX_MS (#214;
+-- common/device.lua refuses both already, so this is the second line).
 function light:rate(name, default)
 	local n = tonumber(self.dev.setting(name))
-	if n == nil or n ~= n then
+	if n == nil or n ~= n or n == math.huge or n == -math.huge then
 		return default
 	end
-	return math.max(0, n)
+	return math.max(0, math.min(light.MAX_MS, n))
 end
 
 -- The Default Brightness Rate (LF-D4).
@@ -499,14 +529,24 @@ function light:default_rate()
 end
 
 -- The time of a command: its parameter `key` (RATE, TIME) in ms, the default rate
--- when it is missing or no number, 0 when negative (LF-D4, LF-D5).
-function light:command_rate(params, key)
+-- when it is missing or no number, 0 when negative (LF-D4, LF-D5). #214: nan, inf
+-- and -inf are 0, a change at once, and logged; past MAX_MS (24 h) is MAX_MS, and
+-- logged. `name` is the command, for the log.
+function light:command_rate(params, key, name)
 	local raw = key and pick(params, { key }) or nil
 	local n = tonumber(raw)
-	if raw == nil or n == nil or n ~= n then
+	if raw == nil or n == nil then
 		return self:default_rate()
 	end
-	return math.max(0, math.floor(n))
+	local ms = duration(n)
+	if ms == nil then
+		self.log.warn("%s %s %s is not a finite time; taken as 0, a change at once", tostring(name), key, loggable(raw))
+		return 0
+	end
+	if n > light.MAX_MS then
+		self.log.warn("%s %s %s ms is over 24 h; taken as %d ms", tostring(name), key, loggable(raw), light.MAX_MS)
+	end
+	return ms
 end
 
 -- A click or hold rate is for the whole range: the time of a change of `distance`
@@ -570,9 +610,13 @@ function light:open_changing(current, goal, rate, deadline_ms)
 	self:arm_watchdog(deadline_ms)
 end
 
+-- #214: the delay is held to 1 ms to MAX_MS (WATCHDOG_MS when it is no finite
+-- number). A fade's deadline may lie further out (MAX_MS plus WATCHDOG_MS): the
+-- watchdog then fires early and arms again for what is left (watchdog_fired).
 function light:arm_watchdog(ms)
 	cancel(self.watchdog)
-	self.watchdog = self.timer(ms or light.WATCHDOG_MS, function()
+	ms = duration(ms) or light.WATCHDOG_MS
+	self.watchdog = self.timer(math.max(1, ms), function()
 		self:contain("watchdog", light.watchdog_fired)
 	end)
 end
@@ -655,7 +699,7 @@ function light:fade(to, T, kind, what, h)
 	if self:no_kit(what) then
 		return false, "no light kit"
 	end
-	T = math.floor(tonumber(T) or 0)
+	T = duration(T) or 0 -- #214: whatever the caller hands over, 0 to MAX_MS
 	local shown = self:shown_state()
 	local from = self:c4_level(shown)
 	local M = self.M
@@ -714,9 +758,9 @@ function light:level_command(name, params, keys, rate_key)
 	end
 	local level, why = percent(raw)
 	if not level then
-		return self.log.warn("%s level %s refused: %s", name, tostring(raw), why)
+		return self.log.warn("%s level %s refused: %s", name, loggable(raw), why)
 	end
-	self:fade(level, self:command_rate(params, rate_key), "timed", name)
+	self:fade(level, self:command_rate(params, rate_key, name), "timed", name)
 end
 
 -- Toggle goes by where the light is heading (LF-D18), over the Default Brightness
@@ -1128,11 +1172,11 @@ light.HANDLERS = {
 	STOP_RAMP_SCENE = function(self) self:stop_command() end,
 	-- Advanced Lighting Scenes (reduced_als_support): a ramp as a hold makes it.
 	RAMP_SCENE_UP = function(self, params)
-		self.log.debug("light scene ramp up (scene %s)", tostring(params.SCENE_ID))
+		self.log.debug("light scene ramp up (scene %s)", loggable(params.SCENE_ID))
 		self:begin_ramp(nil, true, "RAMP_SCENE_UP")
 	end,
 	RAMP_SCENE_DOWN = function(self, params)
-		self.log.debug("light scene ramp down (scene %s)", tostring(params.SCENE_ID))
+		self.log.debug("light scene ramp down (scene %s)", loggable(params.SCENE_ID))
 		self:begin_ramp(nil, false, "RAMP_SCENE_DOWN")
 	end,
 	-- The proxy asks for everything it should know: the online word, and the

@@ -26,18 +26,20 @@ Subcommands (exit codes: 0 success or in sync, 1 error, 3 drift; a usage error e
       Schema and value checks of deploy/house.yaml (section 6). --online also downloads the
       release's manifest.json and fails when its build differs from the file's, or its packages
       from the file's drivers; with release: none there is nothing to download.
-  start [--tag TAG] [--supersede] [--note TEXT] [--no-attestation]
+  start [--tag TAG] [--supersede] [--note TEXT]
       Downloads manifest.json and SHA256SUMS.txt of the release, then every package the manifest
       names (deploy/house.yaml's drivers must be exactly those), into build/release/<tag>/ (a
       fresh directory); verifies every sha256 against both files, that manifest.build is
       deploy/house.yaml's build and manifest.commit the tag's commit, and that each package's
-      provenance attestation names it and was signed by the release workflow:
+      provenance attestation names it and was signed by the release workflow on a GitHub-hosted
+      runner, building that commit from main (gh 2.102.0 or newer):
       `gh attestation verify <file> --repo OWNER/NAME --signer-workflow
-      OWNER/NAME/.github/workflows/release.yml` (gh 2.102.0 or newer). --no-attestation accepts
-      a package that carries no attestation at all (a release the Release workflow did not cut);
-      an attestation that exists must verify. Refuses while a deployment of the environment is
-      still in progress unless --supersede marks it inactive, and while deploy/house.yaml names
-      no release (the desired state leads).
+      OWNER/NAME/.github/workflows/release.yml --source-ref refs/heads/main --source-digest
+      <commit> --deny-self-hosted-runners`. A release cut from a pushed tag is signed from
+      refs/tags/<tag> instead, by the workflow at the tag's commit: it is accepted with
+      --source-ref refs/tags/<tag> only when GitHub says that commit is on main. Refuses while a
+      deployment of the environment is still in progress unless --supersede marks it inactive, and
+      while deploy/house.yaml names no release (the desired state leads).
       Then creates the GitHub Deployment with status in_progress, writes deployment.json and
       BRIEF.md next to the packages, and prints the brief's path and the deployment's URL.
   done [--devices N] [--note TEXT] [--deployment ID] [--tag TAG]
@@ -110,6 +112,11 @@ RELEASE_DIR = os.path.join(ROOT, "build", "release")
 # lack the option.
 SIGNER_WORKFLOW = ".github/workflows/release.yml"
 GH_MIN_FOR_VERIFY = (2, 102, 0)
+# Where a release is built from (docs/cicd-gitops-design.md, section 5): main, by "Run workflow"
+# on main. A release cut from a pushed tag names the tag as its source ref instead, and passes
+# only when its commit is on main (verify_provenance).
+MAIN_REF = "refs/heads/main"
+TAG_REF_PREFIX = "refs/tags/"
 
 # Release tags v1.0 and prerelease tags v1.1-beta.1 (docs/prerelease-design.md): for
 # deploy/house.yaml's release, --tag and the deploy issue's title, always matched whole.
@@ -690,8 +697,7 @@ def require_gh_for_verify():
             "gh %s cannot check who signed the attestations: `gh attestation verify --signer-workflow` needs gh "
             "%s or newer (2.51.0 to 2.101.0 match only the start of the workflow path, GHSA-wjmr-j3rp-mh2g; older "
             "versions lack the option). Install a current gh (https://github.com/cli/cli/releases) and run start "
-            "again; --no-attestation does not skip an attestation that exists"
-            % (".".join(map(str, version)), ".".join(map(str, GH_MIN_FOR_VERIFY)))
+            "again" % (".".join(map(str, version)), ".".join(map(str, GH_MIN_FOR_VERIFY)))
         )
     return ".".join(map(str, version))
 
@@ -705,20 +711,38 @@ def _field(data, *keys):
     return data
 
 
-def verify_attestation(repo, name, path):
+def verify_attestation(repo, name, path, commit, source_ref):
     """`gh attestation verify` of one downloaded package: its attestations must verify through
-    Sigstore and name the release workflow of `repo` as their signer. Returns the signing
-    certificates' identities (the SANs, workflow@ref); raises DeployError when gh refuses, reports
-    nothing verified, or names another signer."""
+    Sigstore, name the release workflow of `repo` as their signer (--signer-workflow), come from a
+    GitHub-hosted runner (--deny-self-hosted-runners), and have been built from `commit`
+    (--source-digest) at `source_ref` (--source-ref). Returns the signing certificates' identities
+    (the SANs, workflow@ref); raises DeployError when gh refuses, reports nothing verified, or
+    reports a certificate that says otherwise."""
     workflow = signer_workflow(repo)
-    args = ["attestation", "verify", path, "--repo", repo, "--signer-workflow", workflow, "--format", "json"]
+    args = [
+        "attestation",
+        "verify",
+        path,
+        "--repo",
+        repo,
+        "--signer-workflow",
+        workflow,
+        "--source-ref",
+        source_ref,
+        "--source-digest",
+        commit,
+        "--deny-self-hosted-runners",
+        "--format",
+        "json",
+    ]
     try:
         out = run_gh(args)
     except GhError as err:
         lines = (err.stderr.strip() or err.stdout.strip() or "exit %d" % err.returncode).splitlines()
         detail = " / ".join(lines[-3:])
         raise DeployError(
-            "%s: gh attestation verify refused it (the signer must be %s): %s" % (name, workflow, detail)
+            "%s: gh attestation verify refused it (the signer must be %s, building %s from %s on a GitHub-hosted "
+            "runner): %s" % (name, workflow, commit, source_ref, detail)
         ) from err
     try:
         results = json.loads(out)
@@ -726,20 +750,63 @@ def verify_attestation(repo, name, path):
         raise DeployError("%s: gh attestation verify printed something that is not JSON (%s)" % (name, err)) from err
     if not isinstance(results, list) or not results:
         raise DeployError("%s: gh attestation verify reported no verified attestation" % name)
-    # gh has checked this already; checked again so that a gh that matches loosely cannot pass a
-    # lookalike workflow. GitHub compares owner and name without case; the path is a file name.
+    # gh has checked all this already; checked again so that a gh that matches loosely cannot pass
+    # a lookalike workflow, another ref or another commit. GitHub compares owner and name without
+    # case; the path and the ref are compared whole.
     host_repo = "https://github.com/%s/" % repo
+    signed_as = SIGNER_WORKFLOW + "@" + source_ref
     signers = set()
     for result in results:
-        san = _field(result, "verificationResult", "signature", "certificate", "subjectAlternativeName")
+        certificate = _field(result, "verificationResult", "signature", "certificate")
+        san = _field(certificate, "subjectAlternativeName")
         if not (
             isinstance(san, str)
             and san[: len(host_repo)].lower() == host_repo.lower()
-            and san[len(host_repo) :].startswith(SIGNER_WORKFLOW + "@")
+            and san[len(host_repo) :] == signed_as
         ):
-            raise DeployError("%s: a verified attestation names the signer %r, not %s@<ref>" % (name, san, workflow))
+            raise DeployError(
+                "%s: a verified attestation names the signer %r, not %s@%s" % (name, san, workflow, source_ref)
+            )
+        for field, wanted in (
+            ("sourceRepositoryRef", source_ref),
+            ("sourceRepositoryDigest", commit),
+            ("runnerEnvironment", "github-hosted"),
+        ):
+            found = _field(certificate, field)
+            if found != wanted:
+                raise DeployError(
+                    "%s: a verified attestation's certificate has %s %r, not %r" % (name, field, found, wanted)
+                )
         signers.add(san)
     return sorted(signers)
+
+
+def commit_on_main(repo, commit):
+    """Whether GitHub has `commit` in the history of main (compare commit...main: main is ahead of
+    it, or it is main's head)."""
+    data = api_optional("repos/%s/compare/%s...main?per_page=1" % (repo, commit), missing=(404, 422))
+    return isinstance(data, dict) and data.get("status") in ("ahead", "identical")
+
+
+def verify_provenance(repo, tag, commit, name, path, on_main):
+    """verify_attestation for a release built from main; failing that, for a release cut from the
+    pushed tag, whose workflow is the one at the tag's commit: accepted only when that commit is on
+    main. `on_main` caches commit_on_main for the packages of one start."""
+    try:
+        return verify_attestation(repo, name, path, commit, MAIN_REF)
+    except DeployError as from_main:
+        first = from_main
+    if commit not in on_main:
+        on_main[commit] = commit_on_main(repo, commit)
+    if not on_main[commit]:
+        raise DeployError(
+            "%s; and the tag's commit %s is not on main, so no release cut from the pushed tag %s can stand in"
+            % (first, commit, tag)
+        )
+    try:
+        return verify_attestation(repo, name, path, commit, TAG_REF_PREFIX + tag)
+    except DeployError as from_tag:
+        raise DeployError("%s; nor as a release cut from the pushed tag: %s" % (first, from_tag)) from from_tag
 
 
 # ---------------------------------------------------------------------------
@@ -1209,9 +1276,10 @@ def render_brief(repo, tag, build, commit, house, deployment, hashes, attestatio
             )
     if verified_with:
         add(
-            "- Verified on the VM with gh %s: `gh attestation verify <file> --repo %s --signer-workflow %s` for each "
-            "package; a package that fails it is refused before the deployment exists."
-            % (verified_with, repo, signer_workflow(repo))
+            "- Verified on the VM with gh %s: `gh attestation verify <file> --repo %s --signer-workflow %s "
+            "--source-ref %s --source-digest %s --deny-self-hosted-runners` for each package (a release cut from "
+            "the pushed tag: --source-ref %s%s, its commit on main); a package that fails it is refused before the "
+            "deployment exists." % (verified_with, repo, signer_workflow(repo), MAIN_REF, commit, TAG_REF_PREFIX, tag)
         )
     else:
         add("- No package carries an attestation, so nothing was verified (--no-attestation).")
@@ -1395,20 +1463,22 @@ def cmd_start(args):
     if unattested:
         if not args.no_attestation:
             raise DeployError(
-                "no provenance attestation for %s (GET repos/%s/attestations/sha256:<digest>); a release cut by the "
-                "release workflow carries one; --no-attestation installs without" % (", ".join(unattested), repo)
+                "no provenance attestation for %s (GET repos/%s/attestations/sha256:<digest>): every release the "
+                "Release workflow cuts carries one, so these packages did not come from it; find out how they got "
+                "into the release before anything is installed" % (", ".join(unattested), repo)
             )
         print(
             "warning: no provenance attestation for %s; continuing (--no-attestation)" % ", ".join(unattested),
             file=sys.stderr,
         )
-    # Who signed: an attestation that exists must verify, --no-attestation or not.
+    # Who signed, on what and from where: an attestation that exists must verify, whatever the options.
     verified_with = None
     attested = [name for name in packages if attestations[name] is not None]
     if attested:
         verified_with = require_gh_for_verify()
+        on_main = {}
         for name in attested:
-            signers = verify_attestation(repo, name, os.path.join(directory, name))
+            signers = verify_provenance(repo, tag, commit, name, os.path.join(directory, name), on_main)
             attestations[name]["signers"] = signers
             print("attestation %s: verified (gh %s), signed by %s" % (name, verified_with, ", ".join(signers)))
 
@@ -1623,8 +1693,9 @@ def parse_args(argv):
     p.add_argument(
         "--no-attestation",
         action="store_true",
-        help="accept packages that carry no provenance attestation at all (a release the Release workflow did not "
-        "cut); an attestation that exists must still verify",
+        help="EMERGENCY ONLY, never routine: accept packages that carry no provenance attestation at all. Every "
+        "release the Release workflow cuts carries one, so a package without one did not come from it: find out "
+        "why, with the owner, before using this. An attestation that exists must still verify",
     )
     p.set_defaults(func=cmd_start)
 

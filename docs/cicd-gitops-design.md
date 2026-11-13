@@ -7,6 +7,16 @@
 > `deploy/house.yaml` has named a release since the first install (today
 > `v1.9`, build 220); section 6's example and section 10 show the start
 > state.
+>
+> **Since 1.10 (#214, the security review):** the Release workflow has three
+> jobs (test, build, publish), and publish compares every packaged file with
+> the tagged commit before it attaches anything. `deploy.py start` verifies
+> each attestation with `--source-ref refs/heads/main --source-digest
+> <commit> --deny-self-hosted-runners` (a tag-pushed release with
+> `refs/tags/vX.Y`, only when its commit is on `main`) and reads the
+> certificate's ref, commit and runner back. `tools/build.sh` refuses
+> symlinks, reopens every package and compares it with its stage, and
+> serves dev and test packages only from `build/serve/<32 hex>/`.
 
 How a change reaches `main`, how a release is cut and how the house is
 brought to the release it should run. The scaffold contract

@@ -23,6 +23,21 @@
 > [`dev-loop.md`](dev-loop.md) hold the current ones, and
 > [`status.md`](status.md) says what runs on the house.
 
+> **Since 1.10 (#214, 2026-11-13).** The security review's hardening.
+> §3.1 and §3.2: every request names `Accept-Encoding: identity` beside
+> `Content-Type` (`wire.HEADERS`), since Director's own default asks for
+> compressed answers. §3.3 and §9.12: a body over 16 KB
+> (`wire.MAX_BODY_BYTES`, was 64 KB) or nested deeper than 8
+> (`wire.MAX_DEPTH`) is `json`, refused before it is decoded; the
+> transport also aborts an answer over 16 KB or with a `Content-Encoding`
+> other than identity before Director has gathered it, and a 3xx is never
+> followed (`C4:url` would follow it by itself): it is a failed request.
+> §9.1: Composer's actions reach `dispatch.actions` only as `LUA_ACTION`; a
+> bare command of the same name runs only a programming command of that
+> name, never an action, and every action and command waits for late
+> init. `ExecuteCommand` carries no sender, so this is no authentication.
+> See [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214).
+
 Status: contract, 2026-10-27 (#12). Written before any driver code, from
 the owner's decisions of 2026-10-27
 ([#6](https://github.com/corytron/c4-modernforms-driver/issues/6): every

@@ -263,8 +263,10 @@ holds every file of the release:
 
 ```sh
 sha256sum -c SHA256SUMS.txt
+commit=$(python3 -c 'import json; print(json.load(open("manifest.json"))["commit"])')
 for f in *.c4z; do gh attestation verify "$f" --repo corytron/c4-modernforms-driver \
-  --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml; done   # GitHub CLI 2.102.0 or newer
+  --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml \
+  --source-ref refs/heads/main --source-digest "$commit" --deny-self-hosted-runners; done   # GitHub CLI 2.102.0 or newer
 ```
 
 The second command confirms that each file was built and signed by this

@@ -41,10 +41,12 @@ To use the loop:
    packages carry the key ([The dev key](#the-dev-key)).
 3. Install the dev `.c4z` through the Windows session the way `CLAUDE.md`
    (Deploy) describes an install that bypasses
-   [`tools/deploy.py`](../tools/deploy.py): served from `build/release/`
-   with `python3 -I -m http.server 8091 --bind 0.0.0.0 --directory
-   build/release` for the duration of the download only, briefed with
-   their sha256, recorded afterwards with `python3 tools/deploy.py record
+   [`tools/deploy.py`](../tools/deploy.py): `tools/build.sh --dev` puts
+   each package alone under a random path, `build/serve/<32 hex>/`, and
+   prints it; serve that with `python3 -I -m http.server 8091 --bind <VM LAN
+   address> --directory build/serve` for the duration of the download only
+   (since #214; nothing under `build/release/` is served), briefed with the
+   URL path and their sha256, recorded afterwards with `python3 tools/deploy.py record
    --no-manifest ...`. Update in place, never delete and re-add. A dev
    package is as secret as the key it carries.
 4. Have the Windows session set `Dev Server` on **one** device, the one

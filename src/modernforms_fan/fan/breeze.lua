@@ -55,7 +55,8 @@
 --   breeze_switch_exists   { name }         L37: a companion is bound already
 --   breeze_switch_no_breeze {}              L38
 --   breeze_switch_no_fan   {}               L39
---   breeze_switch_failed   { name, step }   L40 (step "add": Composer refused the device; "bind": the binding)
+--   breeze_switch_failed   { name, step }   L40 (step "add": Composer refused the device)
+--   breeze_fan_not_connected { name }       #214: added but not bound; the next Add Breeze Fan binds it again
 --   breeze_old_switch      { name }         L41: the bound companion is a 1.2 switch (BF-D10)
 -- A command the model takes writes nothing (as every proxy command); nor does an off with nothing to end
 -- or a cycle step with nowhere to go (logged).
@@ -707,10 +708,15 @@ function Breeze:added(name, value, err)
 	end
 	local ok, bound = try(self.o.bind, id)
 	if not (ok and bound) then
+		-- #214: the device exists but is not bound. It is remembered, so the next
+		-- Add Breeze Fan binds it again instead of adding another, and the text
+		-- says it was added (until a reload; nothing is persisted).
+		self.unbound = { id = id, name = name }
 		self:say("always", "Breeze fan %q added as device %d but not bound: %s", name, id, tostring(bound))
-		self:report("breeze_switch_failed", { name = name, step = "bind" })
+		self:report("breeze_fan_not_connected", { name = name })
 		return
 	end
+	self.unbound = nil
 	self:say("always", "Breeze fan %q added as device %d and bound", name, id)
 	self:report("breeze_switch_added", { name = name })
 end
@@ -762,6 +768,21 @@ function Breeze:add_switch()
 	if self.adding then
 		self:say("always", "Breeze fan not added: the last one is still being added")
 		return false, "busy"
+	end
+	-- #214: a Breeze fan added before but not bound is bound again, never added twice.
+	if self.unbound then
+		local u = self.unbound
+		local okb, bound = try(self.o.bind, u.id)
+		if okb and bound then
+			self.unbound = nil
+			self:say("always", "Breeze fan %q (device %d) bound on a second try", u.name, u.id)
+			self:report("breeze_switch_added", { name = u.name })
+			return true
+		end
+		self:say("always", "Breeze fan %q (device %d) still not bound: %s; no other added", u.name, u.id,
+			tostring(bound))
+		self:report("breeze_fan_not_connected", { name = u.name })
+		return false, "not_connected"
 	end
 	self.adding = true
 	local gen, answered = self.gen, false

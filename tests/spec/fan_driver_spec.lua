@@ -266,6 +266,26 @@ describe("Modern Forms Fan driver", function()
 	end)
 
 	describe("startup", function()
+		it("locks Composer's Lua command window in a release build, not in a dev build (#214)", function()
+			-- A release package carries no common/devloop.lua: absent here as on the controller.
+			local saved = package.preload["common.devloop"]
+			package.preload["common.devloop"] = function()
+				error("module 'common.devloop' not found")
+			end
+			package.loaded["common.devloop"] = nil
+			local ok, err = pcall(function()
+				local env, c4 = fake.load_driver(DRIVER, {})
+				env.OnDriverInit("DIT_ADDING")
+				assert.same({ { false } }, c4.calls_to("AllowExecute"))
+			end)
+			package.preload["common.devloop"] = saved
+			package.loaded["common.devloop"] = nil
+			assert(ok, err)
+			local env, c4 = fake.load_driver(DRIVER, {})
+			env.OnDriverInit("DIT_ADDING")
+			assert.same({}, c4.calls_to("AllowExecute"), "a dev build keeps its window")
+		end)
+
 		it("adds the Online and Breeze variables at init and touches nothing else before late init", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
 			env.OnDriverInit("DIT_ADDING")
@@ -300,9 +320,24 @@ describe("Modern Forms Fan driver", function()
 			env.OnDriverLateInit("DIT_STARTUP")
 			local lines = capture_log()
 			env.ExecuteCommand("LUA_ACTION", { ACTION = "Some Action" })
-			assert.same({ "[DEBUG] Modern Forms Fan: ExecuteCommand Some_Action",
+			assert.same({ "[DEBUG] Modern Forms Fan: ExecuteCommand LUA_ACTION Some_Action",
 				"[DEBUG] Modern Forms Fan: no command handler for Some_Action" }, lines)
 		end)
+
+		it("runs an action only as Composer sends it, LUA_ACTION, and every command after late init (#214)",
+			function()
+				local env, c4 = fake.load_driver(DRIVER, { ["Fan Address"] = "10.0.2.151" })
+				env.ExecuteCommand("LUA_ACTION", { ACTION = "Reboot Fan" })
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { LEVEL = "3" })
+				assert.same({}, c4.transfers, "nothing runs before late init")
+				env.OnDriverLateInit("DIT_STARTUP")
+				local before = #c4.transfers
+				env.ExecuteCommand("Reboot Fan", {})
+				env.ExecuteCommand("Reboot_Fan", {})
+				for i = before + 1, #c4.transfers do
+					assert.is_nil(tostring(c4.transfers[i].data or ""):find("reboot", 1, true), "a bare command runs no action")
+				end
+			end)
 
 		it("shows the build's own stamp when Director answers the version lookup with nothing", function()
 			package.preload["common.build_version"] = function() return "196" end

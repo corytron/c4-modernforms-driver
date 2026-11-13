@@ -1184,4 +1184,128 @@ describe("fan.follow", function()
 			assert.same({}, lines)
 		end)
 	end)
+
+	describe("the subnet of a follow (#214, security-214 S1-7)", function()
+		-- candidates that hands back what the window heard, whatever its subnet, and keeps the anchor it was given.
+		local function permissive(r)
+			return function(heard, _mac12, _current, anchor)
+				r.anchors = r.anchors or {}
+				r.anchors[#r.anchors + 1] = anchor == nil and "nil" or anchor
+				local out = {}
+				for _, e in ipairs(heard) do
+					out[#out + 1] = e.address
+				end
+				return out
+			end
+		end
+
+		it("reads no address outside the subnet the pinned fan last answered in, whatever candidates answers", function()
+			local lines = capture_log()
+			log.set_debug(true)
+			local r
+			r = rig({ opts = { candidates = function(...) return r.o_candidates(...) end } })
+			r.o_candidates = permissive(r)
+			r.go("offline")
+			r.window({ entry(ip(10, 9, 9, 9)), entry(ip(10, 0, 3, 152)), entry(ip(169, 254, 169, 254)),
+				entry(ip(172, 16, 2, 152)), entry("10.0.2.152") })
+			assert.same({ "10.0.2.152" }, addresses(r.reads))
+			assert.is_true(contains(lines, "Follow: " .. ip(10, 9, 9, 9) .. " is outside the subnet of 10.0.2.151; not read"))
+		end)
+
+		it("hands candidates the address the pinned fan last answered at as the anchor, else Fan Address", function()
+			local r
+			r = rig({ opts = { candidates = function(...) return r.o_candidates(...) end } })
+			r.o_candidates = permissive(r)
+			r.go("offline")
+			r.window({})
+			assert.equal("10.0.2.151", r.anchors[1])
+			r.pin.address = nil
+			r.address = "10.0.2.151"
+			r.window({})
+			assert.equal("10.0.2.151", r.anchors[2], "no address in the pin: Fan Address")
+			r.pin.address = " 10.0.2.151 "
+			r.window({})
+			assert.equal("10.0.2.151", r.anchors[3], "trimmed")
+		end)
+
+		it("follows within the subnet of the pin's address when Fan Address names another", function()
+			local r
+			r = rig({ opts = { candidates = function(...) return r.o_candidates(...) end } })
+			r.o_candidates = permissive(r)
+			r.pin.address = ip(10, 0, 3, 151)
+			r.go("offline")
+			r.window({ entry("10.0.2.152"), entry(ip(10, 0, 3, 152)) })
+			assert.same({ ip(10, 0, 3, 152) }, addresses(r.reads))
+		end)
+
+		it("never restricts the address the owner types: once the fan answers there, follows stay in its subnet",
+			function()
+				local r
+				r = rig({ opts = { candidates = function(...) return r.o_candidates(...) end } })
+				r.o_candidates = permissive(r)
+				-- The owner types an address in another subnet; the model reads it (not the follower) and the fan
+				-- answers there, so the pin moves with it.
+				r.address = "192.168.2.20"
+				r.f:address_edited()
+				assert.equal("pending", r.f:state())
+				r.pin.address = "192.168.2.20"
+				r.f:contact()
+				r.go("offline")
+				r.window({ entry("10.0.2.152"), entry("192.168.2.21") })
+				assert.same({ "192.168.2.21" }, addresses(r.reads))
+			end)
+
+		it("reads nothing when neither the pin's address nor Fan Address is an address", function()
+			local r
+			r = rig({ opts = { candidates = function(...) return r.o_candidates(...) end } })
+			r.o_candidates = permissive(r)
+			r.pin.address = nil
+			r.address = "fan.local"
+			r.go("offline")
+			r.window({ entry("10.0.2.152") })
+			assert.same({}, r.reads)
+			assert.equal("nil", r.anchors[1])
+			assert.equal("armed:2", r.f:state(), "the ladder goes on")
+		end)
+
+		it("works with discovery.candidates as the driver wires it", function()
+			local discovery = require("fan.discovery")
+			local r = rig({ opts = { candidates = discovery.candidates } })
+			r.go("offline")
+			r.window({ entry(ip(10, 9, 9, 9)), entry("10.0.2.152") })
+			assert.same({ "10.0.2.152" }, addresses(r.reads))
+		end)
+	end)
+
+	describe("text off the network in the log (#214, security-214 S1-8)", function()
+		it("writes another fan's client id by its last four characters, printable", function()
+			local lines = capture_log()
+			log.set_debug(true)
+			local r = rig()
+			r.go("offline")
+			r.window({ entry("10.0.2.152") })
+			r.answer("not_same", { client_id = "MF_00005E0053\r\n\0\27" })
+			assert.is_true(contains(lines, "Follow: 10.0.2.152 answers as another fan (...????); not followed"))
+		end)
+
+		it("cuts what the model reports to 200 characters and writes no control character", function()
+			local lines = capture_log()
+			log.set_debug(true)
+			local r = rig()
+			r.go("offline")
+			r.window({ entry("10.0.2.152") })
+			r.answer("followed", { address = "10.0.2.152", was = "\n" .. string.rep("w", 5000) })
+			assert.equal(1, #r.followed)
+			local seen = false
+			for _, line in ipairs(lines) do
+				if line:find("Follow: followed", 1, true) then
+					seen = true
+					assert.is_true(#line < 400, tostring(#line))
+					assert.is_nil(line:find("\n", 1, true))
+					assert.is_truthy(line:find("(was ?" .. string.rep("w", 199) .. ")", 1, true))
+				end
+			end
+			assert.is_true(seen)
+		end)
+	end)
 end)

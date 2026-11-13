@@ -162,14 +162,22 @@ def attestation_for(digest, name=FAN, predicate="https://slsa.dev/provenance/v1"
     return {"attestations": [{"bundle": {"dsseEnvelope": envelope}, "repository_id": 1}]}
 
 
-def verified_result(repo=REPO, workflow=".github/workflows/release.yml", ref="refs/heads/main"):
+def verified_result(
+    repo=REPO, workflow=".github/workflows/release.yml", ref="refs/heads/main", commit=COMMIT, runner="github-hosted"
+):
     """One entry of what `gh attestation verify --format json` prints (the fields deploy.py reads)."""
     san = "https://github.com/%s/%s@%s" % (repo, workflow, ref)
+    certificate = {
+        "subjectAlternativeName": san,
+        "sourceRepositoryRef": ref,
+        "sourceRepositoryDigest": commit,
+        "runnerEnvironment": runner,
+    }
     return {
         "attestation": {"bundle": {"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json"}},
         "verificationResult": {
             "mediaType": "application/vnd.dev.sigstore.verificationresult+json;version=0.1",
-            "signature": {"certificate": {"subjectAlternativeName": san, "sourceRepositoryRef": ref}},
+            "signature": {"certificate": certificate},
         },
     }
 
@@ -199,6 +207,9 @@ class FakeGh:
         self.version = "2.103.2"  # what `gh --version` names
         self.verify_failures = {}  # digest -> gh's stderr when `gh attestation verify` refuses that package
         self.verify_output = {}  # digest -> what `gh attestation verify` prints instead of one good result
+        self.signed_ref = {}  # digest -> the source ref its attestation names (default refs/heads/main)
+        self.signed_commit = {}  # digest -> the commit its attestation names (default its release's)
+        self.on_main = {COMMIT, BETA_COMMIT}  # the commits in main's history (GET compare/<commit>...main)
 
     # -- plumbing ---------------------------------------------------------
 
@@ -360,6 +371,12 @@ class FakeGh:
                 # What GitHub answers for a well-formed sha it does not have.
                 raise deploy.GhError(args, 1, "", "gh: No commit found for SHA: %s (HTTP 422)" % tail[1])
             return json.dumps({"sha": tail[1]})
+        if tail[0] == "compare" and method == "GET":
+            commit, _, branch = tail[1].partition("...")
+            assert branch == "main", path
+            if commit not in self.commits:
+                raise deploy.GhError(args, 1, "", "gh: No commit found for SHA: %s (HTTP 404)" % commit)
+            return json.dumps({"status": "ahead" if commit in self.on_main else "diverged", "commits": []})
         if tail[0] == "attestations":
             digest = tail[1].split(":", 1)[1]
             if digest not in self.attestations:
@@ -370,11 +387,14 @@ class FakeGh:
     # -- gh attestation verify ----------------------------------------------
 
     def attestation_verify(self, args):
-        """gh attestation verify FILE --repo R --signer-workflow R/.github/workflows/release.yml --format json:
-        the file's digest decides the answer, as on GitHub."""
+        """gh attestation verify FILE --repo R --signer-workflow R/.github/workflows/release.yml
+        --source-ref REF --source-digest COMMIT --deny-self-hosted-runners --format json: the file's
+        digest decides the answer, as on GitHub. Its attestation names the commit of the release
+        that carries it and the ref in signed_ref (default main); gh refuses another of either."""
         assert args[1] == "verify", args
         assert args[args.index("--repo") + 1] == self.repo, args
         assert args[args.index("--signer-workflow") + 1] == self.repo + "/.github/workflows/release.yml", args
+        assert "--deny-self-hosted-runners" in args, args
         assert args[args.index("--format") + 1] == "json", args
         with open(args[2], "rb") as handle:
             digest = sha(handle.read())
@@ -382,9 +402,25 @@ class FakeGh:
             raise deploy.GhError(args, 1, "", self.verify_failures[digest])
         if digest not in self.attestations:
             raise deploy.GhError(args, 1, "", "✗ No attestations found for subject sha256:%s" % digest)
+        commit = self.signed_commit.get(digest) or self.commit_of(digest)
+        ref = self.signed_ref.get(digest, "refs/heads/main")
+        for option, signed, field in (
+            ("--source-digest", commit, "SourceRepositoryDigest"),
+            ("--source-ref", ref, "SourceRepositoryRef"),
+        ):
+            wanted = args[args.index(option) + 1]
+            if wanted != signed:
+                raise deploy.GhError(args, 1, "", "Error: expected %s to be %s, got %s" % (field, wanted, signed))
         if digest in self.verify_output:
             return self.verify_output[digest]
-        return json.dumps([verified_result(self.repo)]) + "\n"
+        return json.dumps([verified_result(self.repo, ref=ref, commit=commit)]) + "\n"
+
+    def commit_of(self, digest):
+        """The commit of the release whose assets hold a package with this digest."""
+        for tag, assets in self.assets.items():
+            if any(sha(data) == digest for data in assets.values()):
+                return self.tags.get(tag)
+        return None
 
     # -- gh release download ----------------------------------------------
 
@@ -1048,6 +1084,8 @@ class StartTest(DeployCase):
         code, out, err = self.run_main("start")
         self.assertEqual(code, 1)
         self.assertIn("no provenance attestation for %s" % LIGHT, err)
+        self.assertIn("did not come from it", err)
+        self.assertNotIn("--no-attestation", err, "the refusal never offers the way around it")
         self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
         code, out, err = self.run_main("start", "--no-attestation")
         self.assertEqual(code, 0, err)
@@ -1066,9 +1104,20 @@ class StartTest(DeployCase):
         names = sorted(TWO_PACKAGE_BYTES)
         calls = self.gh.calls_matching("attestation", "verify")
         self.assertEqual([args[2] for args, _ in calls], [self.release_file(name) for name in names])
-        policy = ["--repo", "octo/fan", "--signer-workflow", "octo/fan/.github/workflows/release.yml"]
+        policy = [
+            "--repo",
+            "octo/fan",
+            "--signer-workflow",
+            "octo/fan/.github/workflows/release.yml",
+            "--source-ref",
+            "refs/heads/main",
+            "--source-digest",
+            COMMIT,
+            "--deny-self-hosted-runners",
+        ]
         for args, _ in calls:
             self.assertEqual(args[3:], policy + ["--format", "json"])
+        self.assertEqual(self.gh.api_calls("GET", "compare"), [], "built from main: no need to ask")
         signer = "https://github.com/octo/fan/.github/workflows/release.yml@refs/heads/main"
         self.assertIn("attestation %s: verified (gh 2.103.2), signed by %s" % (LIGHT, signer), out)
         brief = self.read_brief()
@@ -1076,7 +1125,9 @@ class StartTest(DeployCase):
             self.assertIn("- %s: provenance verified, signed by %s" % (name, signer), brief)
         self.assertIn(
             "Verified on the VM with gh 2.103.2: `gh attestation verify <file> --repo octo/fan --signer-workflow "
-            "octo/fan/.github/workflows/release.yml` for each package",
+            "octo/fan/.github/workflows/release.yml --source-ref refs/heads/main --source-digest %s "
+            "--deny-self-hosted-runners` for each package (a release cut from the pushed tag: --source-ref "
+            "refs/tags/v1.0, its commit on main)" % COMMIT,
             brief,
         )
         # Two packages: both named, both fetched, both picked at once.
@@ -1163,18 +1214,78 @@ class StartTest(DeployCase):
                 self.assertEqual(code, 1)
                 self.assertIn("%s: a verified attestation names the signer" % FAN, err)
         self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
-        # A release cut from a pushed tag, and the owner's name in another case, are the same signer.
-        self.gh.verify_output[digest] = json.dumps(
-            [verified_result(ref="refs/tags/v1.0"), verified_result(repo="Octo/Fan")]
-        )
+        # The owner's name in another case is the same signer.
+        self.gh.verify_output[digest] = json.dumps([verified_result(), verified_result(repo="Octo/Fan")])
         code, out, err = self.run_main("start")
         self.assertEqual(code, 0, err)
         self.assertIn(
             "%s: provenance verified, signed by "
             "https://github.com/Octo/Fan/.github/workflows/release.yml@refs/heads/main, "
+            "https://github.com/octo/fan/.github/workflows/release.yml@refs/heads/main" % FAN,
+            self.read_brief(),
+        )
+
+    def test_start_checks_the_commit_ref_and_runner_gh_reports(self):
+        """gh checks the source and the runner; deploy.py reads them back from the certificate too."""
+        digest = sha(PACKAGE_BYTES[FAN])
+        for result, field in (
+            (verified_result(commit=OTHER_COMMIT), "sourceRepositoryDigest"),
+            (verified_result(runner="self-hosted"), "runnerEnvironment"),
+        ):
+            with self.subTest(field=field):
+                self.gh.verify_output[digest] = json.dumps([verified_result(), result])
+                code, out, err = self.run_main("start")
+                self.assertEqual(code, 1)
+                self.assertIn("%s: a verified attestation's certificate has %s" % (FAN, field), err)
+        result = verified_result()
+        result["verificationResult"]["signature"]["certificate"]["sourceRepositoryRef"] = "refs/heads/feature"
+        self.gh.verify_output[digest] = json.dumps([result])
+        code, out, err = self.run_main("start")
+        self.assertEqual(code, 1)
+        self.assertIn("certificate has sourceRepositoryRef 'refs/heads/feature'", err)
+        self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
+
+    def test_start_refuses_packages_built_from_another_branch(self):
+        """The release workflow run from a branch other than main, its packages put in the release."""
+        digest = sha(PACKAGE_BYTES[FAN])
+        self.gh.signed_ref[digest] = "refs/heads/x"
+        code, out, err = self.run_main("start")
+        self.assertEqual(code, 1)
+        self.assertIn("%s: gh attestation verify refused it" % FAN, err)
+        self.assertIn("expected SourceRepositoryRef to be refs/heads/main, got refs/heads/x", err)
+        self.assertIn("nor as a release cut from the pushed tag", err)
+        self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
+
+    def test_start_refuses_packages_built_from_another_commit(self):
+        """Packages attested by a run that built another commit than the one the tag and the manifest name."""
+        self.gh.signed_commit[sha(PACKAGE_BYTES[FAN])] = OTHER_COMMIT
+        code, out, err = self.run_main("start")
+        self.assertEqual(code, 1)
+        self.assertIn("expected SourceRepositoryDigest to be %s, got %s" % (COMMIT, OTHER_COMMIT), err)
+        self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
+
+    def test_a_release_cut_from_the_pushed_tag_passes_when_its_commit_is_on_main(self):
+        self.gh.signed_ref[sha(PACKAGE_BYTES[FAN])] = "refs/tags/v1.0"
+        code, out, err = self.run_main("start")
+        self.assertEqual(code, 0, err)
+        refs = [args[args.index("--source-ref") + 1] for args, _ in self.gh.calls_matching("attestation", "verify")]
+        self.assertEqual(refs, ["refs/heads/main", "refs/tags/v1.0"])
+        self.assertEqual(len(self.gh.api_calls("GET", "compare/%s...main" % COMMIT)), 1)
+        self.assertIn(
+            "%s: provenance verified, signed by "
             "https://github.com/octo/fan/.github/workflows/release.yml@refs/tags/v1.0" % FAN,
             self.read_brief(),
         )
+
+    def test_a_release_cut_from_a_pushed_tag_off_main_is_refused(self):
+        self.gh.signed_ref[sha(PACKAGE_BYTES[FAN])] = "refs/tags/v1.0"
+        self.gh.on_main = set()
+        code, out, err = self.run_main("start")
+        self.assertEqual(code, 1)
+        self.assertIn("the tag's commit %s is not on main" % COMMIT, err)
+        refs = [args[args.index("--source-ref") + 1] for args, _ in self.gh.calls_matching("attestation", "verify")]
+        self.assertEqual(refs, ["refs/heads/main"], "the tag is never tried")
+        self.assertEqual(self.gh.api_calls("POST", "deployments"), [])
 
     def test_start_fails_on_attestation_subject_mismatch(self):
         digest = sha(PACKAGE_BYTES[FAN])

@@ -447,7 +447,15 @@ function Model:set_timer(name, ms, fn)
 			return
 		end
 		self.timers[name] = nil
-		fn()
+		-- #214 (S2-8): a failing callback is logged, and a poll that fails is armed
+		-- again, so one bad answer never ends the polling.
+		local ran, err = pcall(fn)
+		if not ran then
+			self.log.error("the %s timer failed: %s", name, tostring(err))
+			if name == "poll" and not self.stopped and not self.timers.poll then
+				pcall(self.arm_poll, self, self.poll_s * 1000, "steady")
+			end
+		end
 	end)
 	if not ok then
 		self.log.error("could not arm the %s timer: %s", name, tostring(handle))

@@ -11,6 +11,16 @@
 > that animation pauses while the keypad is dark
 > ([`ambient-pause-design.md`](ambient-pause-design.md), #207).
 
+> **Since 1.10 (#214, 2026-11-13).** BF-D10's Add Breeze Fan: when
+> Composer adds the Breeze fan but binding it to 400 fails, Last Action is
+> the new L46 `Added Aviator 5 Breeze, not connected: use Connections, then
+> retry` (L40 stays for an add that failed), and the device is remembered
+> in memory: the next click binds that same device again (L36 on success,
+> L46 again on failure) instead of adding a second one. Nothing is
+> persisted, so after a restart the owner connects it in Connections
+> first. See
+> [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214).
+
 The contract for issue [#111](https://github.com/corytron/c4-modernforms-driver/issues/111):
 the owner asked (2026-11-07) that the fan's Breeze be switched from Control4,
 and that it show on the Navigators (the Control4 app, touchscreens), which

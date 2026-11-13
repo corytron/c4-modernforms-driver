@@ -1397,6 +1397,161 @@ describe("fan.light", function()
 		end)
 	end)
 
+	-- #214 (S2-3): a command's TIME or RATE is held to 0 to 24 h, the click_rate_max driver.xml declares; one
+	-- that is not finite is 0, a change at once, and logged. No timer and no CHANGING ever carries more.
+	describe("times out of bounds (#214)", function()
+		local MAX = 86400000
+
+		-- Every timer armed now waits a finite 1 to MAX ms.
+		local function timers_bounded(e, where)
+			for _, delay in ipairs(e.clock.armed()) do
+				assert.is_true(delay == delay and delay >= 1 and delay <= MAX, where .. ": a timer of " .. tostring(delay))
+			end
+		end
+
+		-- Every RATE the proxy heard is finite, 0 to MAX.
+		local function rates_bounded(e, where)
+			for _, note in ipairs(e.dev.sent) do
+				local rate = note[2].RATE
+				if rate ~= nil then
+					assert.is_true(rate == rate and rate >= 0 and rate <= MAX, where .. ": RATE " .. tostring(rate))
+				end
+			end
+		end
+
+		-- The light at 40 %, then one command.
+		local function after(command, params)
+			local e = new_env()
+			e.start(true, 40)
+			e.send(command, params)
+			return e
+		end
+
+		it("is driver.xml's click_rate_max", function()
+			assert.equal(MAX, light.MAX_MS)
+			local file = assert(io.open("src/modernforms_fan/driver.xml"))
+			local xml = file:read("*a")
+			file:close()
+			assert.equal(tostring(MAX), xml:match("<click_rate_max>(%d+)</click_rate_max>"))
+		end)
+
+		it("takes TIME and RATE of inf, -inf and nan as 0: one request, a CHANGING of rate 0, a warning", function()
+			for _, case in ipairs({ { "RAMP_TO_LEVEL", "TIME", "inf" }, { "RAMP_TO_LEVEL", "TIME", "-inf" },
+				{ "RAMP_TO_LEVEL", "TIME", "nan" }, { "RAMP_TO_LEVEL", "TIME", 0 / 0 }, { "RAMP_TO_LEVEL", "TIME", math.huge },
+				{ "SET_BRIGHTNESS_TARGET", "RATE", "inf" }, { "SET_BRIGHTNESS_TARGET", "RATE", "nan" },
+				{ "SET_BRIGHTNESS_TARGET", "RATE", -math.huge } }) do
+				local where = case[1] .. " " .. case[2] .. " " .. tostring(case[3])
+				local params = { LEVEL = "80", LIGHT_BRIGHTNESS_TARGET = "80" }
+				params[case[2]] = case[3]
+				local e = after(case[1], params)
+				assert.is_false(e.lt:debug().fading, where)
+				assert.same({ changing(40, 80, 0) }, e.dev.sent, where)
+				assert.same({ 80 }, levels(e), where)
+				local warned = e.log.of("warn")
+				assert.equal(1, #warned, where)
+				assert.truthy(warned[1]:find(case[1] .. " " .. case[2] .. " ", 1, true), warned[1])
+				assert.truthy(warned[1]:find("is not a finite time; taken as 0, a change at once", 1, true), warned[1])
+				timers_bounded(e, where)
+				rates_bounded(e, where)
+				assert.same({}, e.log.of("error"), where)
+			end
+		end)
+
+		it("takes -1 as 0, as before: one request, no warning", function()
+			local e = after("RAMP_TO_LEVEL", { LEVEL = "80", TIME = "-1" })
+			assert.is_false(e.lt:debug().fading)
+			assert.same({ changing(40, 80, 0) }, e.dev.sent)
+			assert.same({}, e.log.of("warn"))
+		end)
+
+		it("takes 1e300 and 25 h as 24 h: a fade of MAX_MS, its CHANGING and every timer within it, a warning", function()
+			for _, case in ipairs({ { "RAMP_TO_LEVEL", "TIME", "1e300" }, { "RAMP_TO_LEVEL", "TIME", "90000000" },
+				{ "SET_BRIGHTNESS_TARGET", "RATE", "1e300" }, { "SET_BRIGHTNESS_TARGET", "RATE", 1e300 } }) do
+				local where = case[1] .. " " .. case[2] .. " " .. tostring(case[3])
+				local params = { LEVEL = "80", LIGHT_BRIGHTNESS_TARGET = "80" }
+				params[case[2]] = case[3]
+				local e = after(case[1], params)
+				local d = e.lt:debug()
+				assert.is_true(d.fading, where)
+				assert.equal(MAX, d.fade_ms, where)
+				assert.same({ changing(40, 80, MAX) }, e.dev.sent, where)
+				timers_bounded(e, where)
+				local armed = e.clock.armed()
+				assert.equal(MAX, armed[#armed], where .. ": the watchdog waits 24 h, not 24 h and 10 s")
+				local warned = e.log.of("warn")
+				assert.equal(1, #warned, where)
+				assert.truthy(warned[1]:find("is over 24 h; taken as 86400000 ms", 1, true), warned[1])
+				-- The fade runs, and a new command replaces it as any other.
+				e.clock.advance(1000)
+				timers_bounded(e, where)
+				e.send("SET_LEVEL", { LEVEL = "20" })
+				assert.is_false(e.lt:debug().fading, where)
+				rates_bounded(e, where)
+			end
+		end)
+
+		it("takes exactly 24 h as it is, with no warning", function()
+			local e = after("RAMP_TO_LEVEL", { LEVEL = "80", TIME = tostring(MAX) })
+			assert.equal(MAX, e.lt:debug().fade_ms)
+			assert.same({}, e.log.of("warn"))
+		end)
+
+		it("holds the rates it reads from the settings to 0 to 24 h; one that is not finite is the default", function()
+			local e = new_env({ settings = { brightness_rate = 1e300 } })
+			e.start(true, 40)
+			e.send("ON")
+			assert.equal(MAX, e.lt:debug().fade_ms)
+			timers_bounded(e, "brightness_rate 1e300")
+			e = new_env({ settings = { brightness_rate = math.huge } })
+			e.start(true, 40)
+			e.send("ON")
+			assert.is_false(e.lt:debug().fading, "inf: the 750 ms default, one request")
+			e = new_env({ settings = { hold_up = "inf" } })
+			e.start(true, 40)
+			e.keypad.press(0)
+			e.clock.advance(400)
+			assert.equal(3000, e.lt:debug().fade_ms, "inf: the 5000 ms default over 60 levels")
+			timers_bounded(e, "hold_up inf")
+		end)
+
+		it("arms the watchdog for 1 ms to 24 h whatever it is handed", function()
+			local e = new_env()
+			e.start(true, 40)
+			for _, case in ipairs({ { 1e300, MAX }, { math.huge, light.WATCHDOG_MS }, { 0 / 0, light.WATCHDOG_MS },
+				{ -5, 1 }, { 0, 1 }, { 2500.7, 2500 } }) do
+				e.lt:arm_watchdog(case[1])
+				local armed = e.clock.armed()
+				assert.equal(case[2], armed[#armed], tostring(case[1]))
+			end
+			e.lt:stop()
+		end)
+
+		-- #214 (S2-6, S2-7): odd values raise nothing, and reach the log short and on one line.
+		it("logs what it refuses short, on one line, and raises on nothing", function()
+			local e = new_env()
+			e.start(true, 40)
+			local forged = "7\n[ERROR] forged" .. string.rep("x", 10000)
+			e.send("SET_LEVEL", { LEVEL = forged })
+			e.send("RAMP_TO_LEVEL", { LEVEL = "80", TIME = forged })
+			e.send("RAMP_TO_LEVEL", { LEVEL = 0 / 0, TIME = 0 / 0 })
+			e.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "70", RATE = "nan" })
+			e.send("RAMP_SCENE_UP", { SCENE_ID = forged })
+			e.send("STOP_SCENE_RAMP", { SCENE_ID = 0 / 0 })
+			e.dev.on_click(0 / 0)
+			e.dev.on_click(math.huge)
+			assert.same({}, e.log.of("error"))
+			local seen = 0
+			for _, line in ipairs(e.log.lines) do
+				assert.is_nil(line:find("%c"), line)
+				assert.is_true(#line <= 200, #line .. ": " .. line)
+				if line:find("7\\10[ERROR] forged", 1, true) then
+					seen = seen + 1
+				end
+			end
+			assert.is_true(seen >= 3, "the level refused, the parameters at debug and the scene id")
+		end)
+	end)
+
 	-- #141 section 3, the rows for taps.
 	describe("taps (section 3)", function()
 		local function tap_env(on, level, settings)

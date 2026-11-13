@@ -6,6 +6,24 @@
 > Breeze Fan in 1.3), so the Actions tab has six actions, not the five of
 > check H1 (section 9).
 
+> **Since 1.10 (#214, 2026-11-13).** The security review's hardening.
+> Section 3: one window keeps at most 32 instances and 32 entries of other
+> MACs (`MAX_FOUND`, `MAX_HEARD`, both 64 before) plus up to 4 of the
+> pinned MAC (`MAX_PINNED`), within per-datagram budgets (64 records, 2048
+> octets of names) and per-window budgets (256 datagrams, 256 KB, 250 ms of
+> parsing); fan-supplied text in the rows is cleaned and cut
+> (`texts.clean`: no control characters, 64 characters a field, 75 a row);
+> two item rows that would read the same get the fan's MAC, then ` #2`,
+> ` #3` (`found.distinct`). Section 4: a kept pick lapses `found.KEEP_MS`
+> (10 min) after the pick, with a log line and a redraw (Use Selected Fan
+> then reads `Fan Address`), and while kept its address moves only within
+> its /24 subnet (or link-local to link-local). Section 6: `discovery.new`
+> takes `pin = fn() -> MAC` (the pinned fan's places of their own);
+> `discovery.candidates` takes the anchor address as a fourth argument;
+> `found` gains `KEEP_MS`, `LOG_FANS` and `found.distinct(items, entries,
+> taken)`. See
+> [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214).
+
 The contract for issue [#102](https://github.com/corytron/c4-modernforms-driver/issues/102):
 the owner asked (2026-11-07) that fan discovery run by itself at driver load
 and periodically, as the Hue driver's bridge detection does, and that the

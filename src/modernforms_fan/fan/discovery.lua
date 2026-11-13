@@ -10,7 +10,8 @@
 --   * discovery.usable(): which answers are worth anything: SRV port 80 and a private or link-local IPv4 address.
 --     The list keeps only these (auto-discovery-design section 3), and a follow reads only these.
 --   * discovery.candidates(): which addresses of a window's answers a follow may read (docs/address-follow-design.md
---     F4, 2.1): the usable answers of the pinned MAC.
+--     F4, 2.1): the usable answers of the pinned MAC in the subnet of the address the fan last answered at
+--     (discovery.same_subnet, #214).
 --   * discovery.new(): the Finder, the one owner of the search window, over four functions the driver wires to a
 --     dynamic network binding (C4:CreateNetworkConnection, C4:NetConnect(binding, 5353, "MULTICAST") to
 --     224.0.0.251, C4:SendToNetwork, K10) and to C4:SetTimer. Two callers open windows through Finder:find: the
@@ -37,18 +38,40 @@ local GROUP, PORT = "224.0.0.251", 5353 -- where mDNS queries go and where the a
 local MAX_HOPS = 16       -- compression pointers followed in one name (section 9.10)
 local MAX_NAME = 255      -- octets of a name on the wire (RFC 1035 section 2.3.4)
 local MAX_DATAGRAM = 9000 -- the largest multicast DNS message (RFC 6762 section 17)
-local MAX_FOUND = 64      -- fans kept in one window; Found Fans lists 16 of them (section 7.3)
-local MAX_HEARD = 64      -- (instance, address) pairs kept in one window for the follower (address-follow-design 2.1):
-                          -- as many as fans kept, so other fans cannot crowd the pinned one out (review of #48);
-                          -- candidates still reads at most MAX_CANDIDATES
+local MAX_RECORDS = 64    -- resource records read from one datagram, its sections together (#214). A fan's answer
+                          -- holds four (K10: PTR, SRV, TXT, A); past 64 the reading stops as at a break, keeping
+                          -- what was complete
+local MAX_NAME_OCTETS = 2048 -- octets of names read from one datagram, a pointer hop counting 2 (#214): eight names
+                             -- of the longest, where a fan's answer reads 116 to 176 (the K10 and Gen 1/2 layouts);
+                             -- past it the reading stops as past MAX_RECORDS, however the names are built
+-- The new names one window accepts (#214), the pinned fan's apart (MAX_PINNED). 32 instances and 32 (instance,
+-- address, MAC) entries: Found Fans shows 16 rows (texts.MAX_FOUND), so 32 instances list every fan the owner can
+-- see twice over, and 32 entries hold those 16 fans each at two addresses (a stale one and the fresh one, ECA FA11).
+-- What comes after is not kept, whoever sent it: one window of forged answers can put no more than this into the
+-- list (fan/found.lua) and its log line.
+local MAX_FOUND = 32      -- instances kept in one window, the first answer of each
+local MAX_HEARD = 32      -- entries kept in one window for the follower and the list (address-follow-design 2.1)
+local MAX_PINNED = 4      -- entries (and instances) of the pinned MAC kept in one window beside those, so answers of
+                          -- other MACs, forged or not, never crowd the pinned fan out (#214, review of #48): its
+                          -- current address and the MAX_CANDIDATES a follow may read
 local MAX_CANDIDATES = 3  -- addresses a follow reads after one window (address-follow-design F4)
+-- What one window may spend on datagrams (#214). The binding hears every mDNS packet of the house while a window is
+-- open, and anyone may send them; a fan answers each query with one datagram of about 300 bytes (K10) that parses in
+-- far less than a millisecond, so the fans of a house and the usual chatter of other devices stay well below all
+-- three. Past any of them the rest of the window's datagrams are dropped unread and counted (dropped= in the tally).
+local WINDOW_DATAGRAMS = 256 -- datagrams parsed in one window
+local WINDOW_BYTES = 262144  -- bytes parsed in one window: 256 datagrams of 1 KB, or 29 of the largest
+local WINDOW_PARSE_MS = 250  -- now() spent parsing in one window: a twelfth of it
 local HTTP_PORT = 80      -- the SRV port of a fan's /mf interface, the only one a follow reads (F4; MFR section 7)
 local REPEAT_MS = 1000    -- the query goes out a second time this long after the first (section 9.10)
 local WINDOW_MS = 3000    -- answers are collected this long after the first query (section 2.6)
 
 discovery.GROUP, discovery.PORT = GROUP, PORT
 discovery.MAX_HOPS, discovery.MAX_DATAGRAM, discovery.MAX_FOUND = MAX_HOPS, MAX_DATAGRAM, MAX_FOUND
+discovery.MAX_RECORDS, discovery.MAX_NAME_OCTETS, discovery.MAX_PINNED = MAX_RECORDS, MAX_NAME_OCTETS, MAX_PINNED
 discovery.MAX_HEARD, discovery.MAX_CANDIDATES = MAX_HEARD, MAX_CANDIDATES
+discovery.WINDOW_DATAGRAMS, discovery.WINDOW_BYTES, discovery.WINDOW_PARSE_MS =
+	WINDOW_DATAGRAMS, WINDOW_BYTES, WINDOW_PARSE_MS
 discovery.REPEAT_MS, discovery.WINDOW_MS = REPEAT_MS, WINDOW_MS
 
 -- The question ---------------------------------------------------------------------------------------------------
@@ -109,16 +132,23 @@ end
 -- The name that starts at pos, as the list of its labels, and the position where the record stream goes on. nil
 -- and a reason for anything that is not a name: a label or the name running past the datagram, a name over 255
 -- octets, a reserved label type, a pointer into the header or past the end, more than MAX_HOPS pointers (which is
--- also what a pointer loop comes to). Work is bounded by the 255 octets and the 16 hops.
-local function read_name(s, pos)
+-- also what a pointer loop comes to). Work is bounded by the 255 octets and the 16 hops, and by the datagram's
+-- budget (MAX_NAME_OCTETS, #214): every label takes its octets from budget.octets and every hop 2; with none left
+-- the name is not read ("budget") and budget.left (the records) is emptied, so the reading stops.
+local function read_name(s, pos, budget)
 	local labels, count, total = {}, 0, 1 -- total counts the root's octet
 	local resume, hops = nil, 0
 	local size = #s
 	while true do
+		if budget.octets <= 0 then
+			budget.left = 0
+			return nil, "budget"
+		end
 		local b = s:byte(pos)
 		if not b then
 			return nil, "short"
 		elseif b == 0 then
+			budget.octets = budget.octets - 1
 			return labels, resume or (pos + 1)
 		elseif b < 64 then
 			if pos + b > size then
@@ -128,6 +158,7 @@ local function read_name(s, pos)
 			if total > MAX_NAME then
 				return nil, "long"
 			end
+			budget.octets = budget.octets - (b + 1)
 			count = count + 1
 			labels[count] = s:sub(pos + 1, pos + b)
 			pos = pos + b + 1
@@ -136,6 +167,7 @@ local function read_name(s, pos)
 			if not low then
 				return nil, "short"
 			end
+			budget.octets = budget.octets - 2
 			hops = hops + 1
 			if hops > MAX_HOPS then
 				return nil, "loop"
@@ -199,9 +231,15 @@ end
 
 -- Walks `count` resource records from pos (RFC 1035 section 4.1.3) and hands each to visit(type, class, ttl,
 -- name_at, first, last) with the data at first..last. The cache-flush bit of the class (RFC 6762 section 10.2) is
--- cut off. Returns the position after them, or nil and why when the stream breaks off.
-local function walk(s, pos, count, visit)
+-- cut off. Each record takes one of budget.left (the datagram's MAX_RECORDS, shared by its sections, and emptied
+-- once its names have read MAX_NAME_OCTETS); with none left the walk stops ("records"). Returns the position after
+-- them, or nil and why when the stream breaks off.
+local function walk(s, pos, count, visit, budget)
 	for _ = 1, count do
+		if budget.left <= 0 then
+			return nil, "records"
+		end
+		budget.left = budget.left - 1
 		local after = skip_name(s, pos)
 		if not after then
 			return nil, "name"
@@ -296,13 +334,15 @@ local function parse_datagram(datagram)
 		return found, "rcode"
 	end
 
+	-- What the datagram may still cost (#214): records (MAX_RECORDS) and octets of names (MAX_NAME_OCTETS).
+	local budget = { left = MAX_RECORDS, octets = MAX_NAME_OCTETS }
 	local txts, srvs, addrs = {}, {}, {}
 	local function visit(rtype, class, ttl, name_at, first, last)
 		-- A time to live of 0 withdraws a record (RFC 6762 section 10.1).
 		if class ~= CLASS_IN or ttl == 0 or (rtype ~= TYPE_TXT and rtype ~= TYPE_SRV and rtype ~= TYPE_A) then
 			return
 		end
-		local labels = read_name(datagram, name_at)
+		local labels = read_name(datagram, name_at, budget)
 		if not labels then
 			return
 		end
@@ -316,7 +356,7 @@ local function parse_datagram(datagram)
 		elseif rtype == TYPE_SRV then
 			local target, after = nil, nil
 			if last - first >= 6 then
-				target, after = read_name(datagram, first + 6)
+				target, after = read_name(datagram, first + 6, budget)
 			end
 			if target and after <= last + 1 and not srvs[key] then
 				srvs[key] = { port = u16(datagram, first + 4), host = key_of(target) }
@@ -332,7 +372,8 @@ local function parse_datagram(datagram)
 
 	-- Questions are skipped (a legacy unicast answer repeats them), then answers, authority and additional records
 	-- alike; the section a record sits in does not matter here. A break in the stream ends the reading, and what
-	-- was complete before it stays.
+	-- was complete before it stays; so does the end of the budget ("records", #214). Skipping questions reads each
+	-- octet once at most, since a question's name is never followed through a pointer.
 	local pos, why = 13, nil
 	for _ = 1, u16(datagram, 5) do
 		local after = skip_name(datagram, pos)
@@ -343,14 +384,14 @@ local function parse_datagram(datagram)
 		pos = after + 4
 	end
 	if pos then
-		pos, why = walk(datagram, pos, u16(datagram, 7), visit)
+		pos, why = walk(datagram, pos, u16(datagram, 7), visit, budget)
 	end
 	if pos then
-		pos, why = walk(datagram, pos, u16(datagram, 9), nil)
+		pos, why = walk(datagram, pos, u16(datagram, 9), nil, budget)
 	end
 	if pos then
 		local _
-		_, why = walk(datagram, pos, u16(datagram, 11), visit)
+		_, why = walk(datagram, pos, u16(datagram, 11), visit, budget)
 	end
 
 	local seen = {}
@@ -377,7 +418,9 @@ end
 -- firmware = "02.00.0052" } (mac and firmware nil when the TXT record lacks them or they are malformed). why is
 -- nil for a well-formed response, even one about other services (an empty list), and a short reason for
 -- anything else: "type", "short", "large", "query" (a question, such as our own echoed back), "opcode", "rcode",
--- "name", "malformed" (the stream broke off; the list holds what was complete before), "error". Never raises.
+-- "name", "malformed" (the stream broke off; the list holds what was complete before), "records" (more than
+-- MAX_RECORDS records, or more than MAX_NAME_OCTETS of names; the list holds what was complete before), "error".
+-- Never raises.
 function discovery.parse(datagram)
 	local ok, found, why = pcall(parse_datagram, datagram)
 	if not ok then
@@ -429,14 +472,34 @@ end
 
 discovery.usable = usable
 
--- discovery.candidates(heard, mac12, current) -> { address, ... }: the addresses a follow reads after one window,
--- F4's first step (address-follow-design 2.1; ECA 3.4 step 1). From find's heard list, the usable entries (above:
--- SRV port 80, a private or link-local IPv4 address) whose TXT MAC is the pinned MAC (12 hex digits, case aside;
--- a MAC with ":" or "-" is read as parse reads one) and whose address is not `current` (the Fan Address in use):
--- their distinct addresses, in the order heard, at most MAX_CANDIDATES. Pure: heard is left as it was and nothing
--- is kept. A heard that is not a list, a pin without a MAC and entries that are not records give nothing; a nil
--- or empty current takes nothing away (the follower does not search then, F5). Never raises.
-function discovery.candidates(heard, pin_mac, current)
+-- discovery.same_subnet(a, b) -> bool: two addresses in the one spelling parse writes, in one subnet (#214): the
+-- same /24, or both in 169.254/16 (RFC 3927: the link-local block is one link). No documented API gives a driver
+-- the LAN's netmask: C4:GetControllerNetworkAddress returns the controller's address alone
+-- (API 32_serial_network_device/_5-GetControllerNetworkAddress.md), and GetMyNetworkAddress a binding's
+-- (_9-GetMyNetworkAddress.md); so /24, the netmask of nearly every home LAN. false for anything else; never raises.
+local function same_subnet(a, b)
+	local x, y = octets(a), octets(b)
+	if not x or not y then
+		return false
+	end
+	if x[1] == 169 and x[2] == 254 then
+		return y[1] == 169 and y[2] == 254
+	end
+	return x[1] == y[1] and x[2] == y[2] and x[3] == y[3]
+end
+
+discovery.same_subnet = same_subnet
+
+-- discovery.candidates(heard, mac12, current, anchor) -> { address, ... }: the addresses a follow reads after one
+-- window, F4's first step (address-follow-design 2.1; ECA 3.4 step 1). From find's heard list, the usable entries
+-- (above: SRV port 80, a private or link-local IPv4 address) whose TXT MAC is the pinned MAC (12 hex digits, case
+-- aside; a MAC with ":" or "-" is read as parse reads one), whose address is in the subnet of `anchor` (the address
+-- the pinned fan last answered at; `current` when anchor is nil; same_subnet above, #214) and is not `current` (the
+-- Fan Address in use): their distinct addresses, in the order heard, at most MAX_CANDIDATES. Pure: heard is left as
+-- it was and nothing is kept. A heard that is not a list, a pin without a MAC, an anchor that is no address and
+-- entries that are not records give nothing; a nil or empty current takes nothing away (the follower does not
+-- search then, F5). Never raises.
+function discovery.candidates(heard, pin_mac, current, anchor)
 	local found = {}
 	local pin = mac12(pin_mac)
 	if type(heard) ~= "table" or not pin then
@@ -445,12 +508,20 @@ function discovery.candidates(heard, pin_mac, current)
 	if type(current) == "string" then
 		current = trim(current) -- as the model trims a typed address (wire.ipv4)
 	end
+	if anchor == nil then
+		anchor = current
+	elseif type(anchor) == "string" then
+		anchor = trim(anchor)
+	end
+	if not octets(anchor) then
+		return found -- no subnet known: nothing is read (#214)
+	end
 	local taken = {}
 	for _, entry in ipairs(heard) do
 		if #found >= MAX_CANDIDATES then
 			break
 		end
-		if usable(entry) and mac12(entry.mac) == pin then
+		if usable(entry) and mac12(entry.mac) == pin and same_subnet(anchor, entry.address) then
 			local address = entry.address
 			if address ~= current and not taken[address] then
 				taken[address] = true
@@ -468,9 +539,11 @@ Finder.__index = Finder
 
 -- opts: open() makes the binding (an error or false says it could not; anything else is success), send(bytes)
 -- sends one datagram to 224.0.0.251:5353 (false or an error: not sent), close() ends the binding, timer(ms, fn)
--- is C4:SetTimer (an object with :Cancel()), now() is the clock in milliseconds (for last_closed), on_window(list,
--- err, heard) hears every closed window (see finish), log is common.log. A missing or failing one lands on the
--- same paths as a refusal, so building a finder never raises.
+-- is C4:SetTimer (an object with :Cancel()), now() is the clock in milliseconds (for last_closed and the parse
+-- budget), on_window(list, err, heard) hears every closed window (see finish), pin() is the pinned fan's MAC (any
+-- spelling mac12 reads; nil for none), whose answers keep places of their own (MAX_PINNED, #214), log is common.log.
+-- A missing or failing one lands on the same paths as a refusal (no pin: no places kept apart; no clock: no time
+-- budget), so building a finder never raises.
 function discovery.new(opts)
 	opts = opts or {}
 	return setmetatable({
@@ -480,6 +553,7 @@ function discovery.new(opts)
 		timer = opts.timer,
 		now = opts.now,
 		on_window = opts.on_window,
+		pin = opts.pin,
 		log = opts.log,
 		window = nil,
 		closed_at = nil,                -- now() when the last window ended (last_closed)
@@ -511,6 +585,19 @@ function Finder:clock()
 		return ms
 	end
 	return nil
+end
+
+-- The pinned fan's MAC as parse writes one (12 upper-case hex digits), or nil: no pin option, no pin, a pin without
+-- a MAC, or an option that raises.
+function Finder:pinned()
+	if self.pin == nil then
+		return nil
+	end
+	local ok, mac = pcall(self.pin)
+	if not ok then
+		return nil
+	end
+	return mac12(mac)
 end
 
 -- Is a window open? (A find while one runs joins it.)
@@ -579,8 +666,9 @@ function Finder:finish(w, err)
 		err = "send"
 	end
 	local tally = w.tally
-	self:say("debug", "Search: window over: sent=%d answers=%d other=%d queries=%d unparsed=%d fans=%d%s",
-		w.sent, tally.answer, tally.other, tally.query, tally.unparsed, #w.list, err and (" failed=" .. err) or "")
+	self:say("debug", "Search: window over: sent=%d answers=%d other=%d queries=%d unparsed=%d fans=%d%s%s",
+		w.sent, tally.answer, tally.other, tally.query, tally.unparsed, #w.list,
+		tally.dropped > 0 and (" dropped=" .. tally.dropped) or "", err and (" failed=" .. err) or "")
 	-- The window's turn with on_window is taken before the callbacks run (notify says why).
 	local notices = self.notices
 	local notice = { list = w.list, err = err, heard = w.heard, ready = false }
@@ -597,13 +685,15 @@ end
 
 -- find(callback): opens the binding, sends the query at once and again REPEAT_MS later, collects answers for
 -- WINDOW_MS, closes the binding and calls callback(list, err, heard) once: the fans as parse describes them,
--- de-duplicated by instance (the first answer wins), err as finish says, and heard, every distinct (instance,
--- address) pair of the window, up to MAX_HEARD, in the order heard, each { instance, address, mac, port } (mac nil
--- when the TXT record has none), for the follower (address-follow-design 2.1) and the list. Both lists are empty
--- when the window could not open. The callback also runs, at once, when the window cannot open. A find while one
--- runs adds its callback to that window: one binding, two queries, every callback told the same. Returns false
--- for a callback that is not a function. The first query goes out as soon as open returns; if a controller drops
--- it because the binding is not yet ONLINE (K10 saw 7 ms), the second one, a second later, answers that.
+-- de-duplicated by instance (the first answer wins), up to MAX_FOUND, err as finish says, and heard, every distinct
+-- (instance, address, MAC) of the window, up to MAX_HEARD, in the order heard, each { instance, address, mac, port }
+-- (mac nil when the TXT record has none), for the follower (address-follow-design 2.1) and the list. Answers of the
+-- pinned MAC (pin(), read when the window opens and when a find joins it) take places of their own, MAX_PINNED in
+-- each list, so no other answer crowds them out (#214). Both lists are empty when the window could not open. The
+-- callback also runs, at once, when the window cannot open. A find while one runs adds its callback to that window:
+-- one binding, two queries, every callback told the same. Returns false for a callback that is not a function. The
+-- first query goes out as soon as open returns; if a controller drops it because the binding is not yet ONLINE (K10
+-- saw 7 ms), the second one, a second later, answers that.
 function Finder:find(callback)
 	if type(callback) ~= "function" then
 		return false, "callback"
@@ -611,6 +701,7 @@ function Finder:find(callback)
 	local w = self.window
 	if w then
 		w.callbacks[#w.callbacks + 1] = callback
+		w.pin = self:pinned() or w.pin
 		return true
 	end
 	w = {
@@ -619,8 +710,12 @@ function Finder:find(callback)
 		seen = {},
 		heard = {},
 		heard_seen = {},
+		pin = self:pinned(),
+		places = { list = { own = 0, other = 0 }, heard = { own = 0, other = 0 } },
+		parsed = 0, bytes = 0, spent = 0, -- the window's budget used so far (WINDOW_*)
+		exhausted = nil,                 -- the budget that ran out: what comes after is dropped unread
 		sent = 0,
-		tally = { answer = 0, other = 0, query = 0, unparsed = 0 },
+		tally = { answer = 0, other = 0, query = 0, unparsed = 0, dropped = 0 },
 	}
 	self.window = w
 
@@ -662,14 +757,34 @@ function Finder:stop()
 	self.closed_at = self:clock()
 end
 
--- One answer's pair for the heard list: kept when the window has not heard this instance at this address before
--- and holds fewer than MAX_HEARD. The list keeps an instance's first answer only, so a stale address heard first
--- would hide the fresh one (ECA FA11, 3.9); this keeps both. The instance compares as the list's does, the first
--- spelling is kept, and each entry is a record of its own, so the list's records stay the list's. `known` says
--- the instance was in the list before this answer: the one case the list's debug line does not cover.
-local function hear(finder, w, key, fan, known)
-	local pair = key .. "\0" .. fan.address -- neither a cleaned instance nor an address holds a NUL
-	if w.heard_seen[pair] or #w.heard >= MAX_HEARD then
+-- Takes one of the window's places in `kind` ("list" or "heard") for an answer of the pinned MAC (own) or of any
+-- other: false when that side is full. The pinned MAC's places are counted apart, MAX_PINNED of them, so answers of
+-- other MACs never take them (#214).
+local function take_place(w, kind, own)
+	local places = w.places[kind]
+	local side = own and "own" or "other"
+	local cap = MAX_PINNED
+	if not own then
+		cap = kind == "list" and MAX_FOUND or MAX_HEARD
+	end
+	if places[side] >= cap then
+		return false
+	end
+	places[side] = places[side] + 1
+	return true
+end
+
+-- One answer's entry for the heard list: kept when the window has not heard this instance at this address with
+-- this MAC before and its side (take_place) has room. The list keeps an instance's first answer only, so a stale
+-- address heard first would hide the fresh one (ECA FA11, 3.9); this keeps both. The MAC is part of what compares,
+-- so another MAC's answer for the pinned fan's instance and address cannot hide the pinned fan's own (#214). The
+-- instance compares as the list's does, the first spelling is kept, and each entry is a record of its own, so the
+-- list's records stay the list's. `known` says the instance was in the list before this answer: the one case the
+-- list's debug line does not cover.
+local function hear(finder, w, key, fan, known, own)
+	-- Neither a cleaned instance, an address nor a MAC holds a NUL.
+	local pair = key .. "\0" .. fan.address .. "\0" .. (fan.mac or "")
+	if w.heard_seen[pair] or not take_place(w, "heard", own) then
 		return
 	end
 	w.heard_seen[pair] = true
@@ -679,11 +794,27 @@ local function hear(finder, w, key, fan, known)
 	end
 end
 
+-- The budget of the window that ran out before this datagram (WINDOW_*, #214), or nil. `size` is what parse would
+-- read of it. Once one has run out, every later datagram of the window is dropped, whatever its size.
+local function spent(w, size)
+	if w.exhausted then
+		return w.exhausted
+	elseif w.parsed >= WINDOW_DATAGRAMS then
+		return "datagrams"
+	elseif w.bytes + size > WINDOW_BYTES then
+		return "bytes"
+	elseif w.spent >= WINDOW_PARSE_MS then
+		return "time"
+	end
+	return nil
+end
+
 -- received(binding, port, data, from): ReceivedFromNetwork for the discovery binding. The sender (`from`) comes
 -- only from OS 4.0.0 (API 32_serial_network_device/_15-ReceivedFromNetwork.md) and is not needed: the A record
 -- carries the fan's address. Everything outside a window, the controller's own query echoed back, other
--- services' records and what is not DNS is dropped. Returns what it made of the datagram, for the specs and the
--- debug line: "closed", "query", "answer", "other" or "unparsed".
+-- services' records and what is not DNS is dropped, and so, unread, is every datagram after the window's budget
+-- ran out (WINDOW_DATAGRAMS, WINDOW_BYTES, WINDOW_PARSE_MS of now(); #214). Returns what it made of the datagram,
+-- for the specs and the debug line: "closed", "query", "dropped", "answer", "other" or "unparsed".
 function Finder:received(_binding, _port, data, _from)
 	local w = self.window
 	if not w then
@@ -694,18 +825,48 @@ function Finder:received(_binding, _port, data, _from)
 		tally.query = tally.query + 1
 		return "query"
 	end
+	local size = type(data) == "string" and #data or 0
+	if size > MAX_DATAGRAM then
+		size = 0 -- parse refuses it unread ("large")
+	end
+	local over = spent(w, size)
+	if over then
+		tally.dropped = tally.dropped + 1
+		if not w.exhausted then
+			w.exhausted = over
+			self:say("debug", "Search: this window's %s budget is spent; the rest of its datagrams are dropped unread",
+				over)
+		end
+		return "dropped"
+	end
+	w.parsed = w.parsed + 1
+	w.bytes = w.bytes + size
+	local started = self:clock()
+	local made = self:take(w, data)
+	local ended = started and self:clock()
+	-- A clock that went back, or jumped further than a whole window, measured no parsing.
+	if ended and ended >= started and ended - started <= WINDOW_MS then
+		w.spent = w.spent + (ended - started)
+	end
+	return made
+end
+
+-- One datagram of the window, within its budget: parsed, its fans into the list and the heard list.
+function Finder:take(w, data)
+	local tally = w.tally
 	local list, why = discovery.parse(data)
 	if #list > 0 then
 		tally.answer = tally.answer + 1
 		for _, fan in ipairs(list) do
 			local key = fan.instance:lower()
+			local own = w.pin ~= nil and fan.mac == w.pin
 			local known = w.seen[key]
-			if not known and #w.list < MAX_FOUND then
+			if not known and take_place(w, "list", own) then
 				w.seen[key] = true
 				w.list[#w.list + 1] = fan
 				self:say("debug", "Search: %s at %s", tail(fan.mac), fan.address)
 			end
-			hear(self, w, key, fan, known)
+			hear(self, w, key, fan, known, own)
 		end
 		return "answer"
 	elseif why == "query" then

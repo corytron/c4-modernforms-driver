@@ -54,7 +54,8 @@ directly is the fan's own threat model, not this driver's.
   recognise a generation 4 fan, which the driver then refuses). Nothing
   goes to the vendor's cloud or anywhere on the internet. The private
   details in the fan's answers (the owner's account, the Wi-Fi name) are
-  dropped when they arrive.
+  dropped when they arrive, and what the fan sends back is bounded
+  ([below](#what-the-driver-accepts-from-the-network-and-its-limits)).
 - **One multicast DNS question** on the controller's own network segment:
   `_easylink._tcp.local`, sent to 224.0.0.251:5353 twice a second apart,
   with 3 seconds of answers read. The driver asks it by itself, with no
@@ -65,13 +66,14 @@ directly is the fan's own threat model, not this driver's.
   and when the configured fan stops answering at its address, to follow it
   (below). It never scans a subnet. Any device on the segment can answer:
   the driver lists only answers that name port 80 and a private or
-  link-local IPv4 address, and another fan heard this way is only listed:
-  nothing is sent to it until the owner picks it.
+  link-local IPv4 address, within the limits below, and another fan heard
+  this way is only listed: nothing is sent to it until the owner picks it.
 - **The address follow.** When the configured fan has left **Fan
   Address**, the driver reads, after each search, at most three addresses
   that announced the configured fan's MAC address, each a private (RFC
-  1918) or link-local address, with one fixed read-only request (the fan's
-  static data), and
+  1918) or link-local address in the same subnet as the address where the
+  fan last answered (since 1.10, below), with one fixed read-only request
+  (the fan's static data), and
   moves only when that answer carries the configured fan's client id and
   MAC address
   ([`docs/address-follow-design.md`](docs/address-follow-design.md#1-decisions),
@@ -88,22 +90,75 @@ announced, a fan other than the configured one without the owner's pick or
 click), or to open a connection the contract does not name, counts as a
 vulnerability.
 
+### What the driver accepts from the network, and its limits
+
+Anything on the local network can answer the driver, so what it takes in
+is bounded before it is used. These limits are the hardening of the
+[security review of 2026-11-13](#security-review-2026-11-13-214), shipped
+in 1.10; none of them affects a fan that answers as a Modern Forms fan
+does.
+
+- **The fan's answers.** An HTTP redirect is never followed: a 3xx answer
+  is a failed request. The driver asks for an uncompressed answer
+  (`Accept-Encoding: identity`) and refuses a compressed one, one over
+  16 KB (a fan's are about half a kilobyte) and JSON nested deeper than 8
+  levels (a fan's is flat), each before it is decoded; a refused answer
+  counts as "no usable answer".
+- **Text a fan supplies** (its client id, model, light kit, firmware
+  versions, the names and addresses it announces) is cleaned before it
+  reaches a Composer row (**Fan ID**, **Fan Model**, **Firmware**,
+  **Status**, **Last Action**, **Found Fans**): control characters are
+  removed, a field is cut to 64 characters and a row to 75. In the log it
+  is cut short and its control characters are escaped or replaced, so it
+  cannot break a line or forge one.
+- **Multicast DNS answers.** One datagram is read within a budget of 64
+  records and 2048 octets of names, and one search window within 256
+  datagrams, 256 KB and 250 ms of parsing; what comes after a budget is
+  dropped unread. A window keeps at most 32 other fans, and the configured
+  fan's answers have places of their own, so other answers cannot crowd it
+  out. **Found Fans** shows at most 16 fans, and two rows that would read
+  the same get the fan's MAC address (then `#2`, `#3`), so a pick names one
+  fan. A different fan picked there waits at most 10 minutes for **Use
+  Selected Fan**, then the pick lapses.
+- **The address follow, and a waiting pick,** move only to an address in
+  the same /24 subnet as the address where the fan last answered, or from
+  a link-local address to another in 169.254/16. Control4 gives a driver no
+  netmask, so /24, the netmask of nearly every home network, is the rule. A
+  fan that moves to another subnet waits for the owner to type its
+  address; an address the owner types in **Fan Address** is never
+  restricted.
+
 ### What reaches the driver from inside Control4
 
 Control4 hands a driver its commands without a sender the driver can
-check: the fan item's actions and programming commands, the Breeze fan's
-messages and the keypad's ambient reading all arrive the same way, and
-anything on the controller that can send the fan device a command
-(programming, another driver) can send them. The controller, and whoever
-can change its project in Composer, are inside the trust boundary.
+check (`ExecuteCommand` carries none): the fan item's programming commands
+(Breeze On and the rest), the Breeze fan's messages and the keypad's
+ambient reading all arrive that way, and any driver in the project, or
+programming, can send the fan device such a command. The driver cannot
+authenticate them. The controller, and whoever can change its project in
+Composer, are inside the trust boundary. Since 1.10 (#214) two rules keep
+the surface small:
+
+- **Composer's actions** (the six on the fan item's Actions tab) run only
+  when they arrive as Composer sends them, as `LUA_ACTION`. A bare command
+  of the same name, from another driver, runs nothing. This keeps the
+  actions on Composer's path; it is not authentication.
+- **Nothing runs before the driver is ready:** an action or command that
+  arrives before the driver's late initialisation waits for it and then
+  runs, in order.
+
+The programming commands are unchanged: any driver can still send them.
 
 The reading on the **Ambient Light Level (Follower)** input (1.9, #207)
 arrives as one such command, `AMBIENT_LIGHT_LEVEL`, which Control4 does not
 document for drivers
 ([`docs/ambient-pause-design.md`](docs/ambient-pause-design.md)). The driver
-takes a reading that is a whole number from 0 to 255: from the bound
-keypad only when it knows that keypad's device id and the message names a
-device, and from any sender while nothing is bound. A reading only pauses or
+takes a reading that is a whole number from 0 to 255. Once it knows which
+keypad is bound (from the binding, and after a restart by asking Director,
+`C4:GetBoundProviderDevice`), only a reading that carries that keypad's
+device id counts; one without an id, or from another device, is ignored
+(since 1.10; until then a reading without an id passed). While no bound
+keypad is known, any sender's reading counts. A reading only pauses or
 resumes the keypad LED animations (the speed chase and the Breeze gusts),
 which **Keypad Links** reports. It changes nothing on the fan or the light,
 no setting and no other LED, and nothing of it is stored.
@@ -117,16 +172,31 @@ only on bundles and command lists signed with HMAC-SHA256 under the
 developer's dev key, which never crosses the wire; but each development
 package carries that key, so a development package is never handed to
 anyone and never installed as the production driver
-([`docs/dev-loop.md`](docs/dev-loop.md#security)).
+([`docs/dev-loop.md`](docs/dev-loop.md#security)). A development package,
+or a feature-branch package for a test on the developer's house, is served
+to the controller only for the one download of its install, each package
+alone under a random path (`build/serve/<32 hex characters>/`, emptied by
+every build), never from `build/release/`, where `tools/deploy.py` keeps
+the verified release packages.
 
 **A release build carries none of it:** not the dev-loop module
 (`common/devloop.lua`), the key (`common/devkey.lua`), the development
-commands (`fan/devcmds.lua`), the development-only rows of `driver.xml`
-(Dev Server, Dev State) or the Lua command window. `tools/build.sh` leaves
-them out and refuses to package a release build that still has one of
-those files or a `DEV-ONLY` part of `driver.xml`. A released package that
-carries any of it, or a way to make a release build fetch or run code from
-the network, is a vulnerability.
+commands (`fan/devcmds.lua`) or the development-only rows of `driver.xml`
+(Dev Server, Dev State). `tools/build.sh` leaves them out and refuses to
+package a release build that still has one of those files, a `DEV-ONLY`
+part of `driver.xml`, or a call that would open Composer's Lua command
+window; the Release workflow checks every package again (below). A
+released package that carries any of it, or a way to make a release build
+fetch or run code from the network, is a vulnerability.
+
+**Composer's Lua command window.** Until 1.10 this page said a release
+build had no Lua command window. That was wrong: release builds up to 1.9
+(build 220) left the window open, and a check on the author's house on
+2026-11-12 found build 220's window open and running what was typed into
+it. Since 1.10 (#214) both drivers lock the window when they start
+(`C4:AllowExecute(false)`, in `OnDriverInit`); a development build keeps
+it open for the dev loop. A release build whose window runs code is a
+vulnerability.
 
 ### Private data and the release packages
 
@@ -145,6 +215,61 @@ the network, is a vulnerability.
 Not covered here: Control4 OS, Composer Pro and Director belong to Snap
 One, and the fan's firmware, the Modern Forms app and its cloud service to
 their maker; report problems in them there.
+
+## Security review (2026-11-13, #214)
+
+On 2026-11-13 the author asked for a review of all the driver source for
+security flaws, with the emphasis on the drivers running on a Control4
+controller and being installed on one
+([#214](https://github.com/corytron/c4-modernforms-driver/issues/214)). It
+read every Lua module the two packages carry, both `driver.xml` files, and
+the packaging and release path, in three parts:
+
+- **Network input:** the fan's HTTP answers and the multicast DNS answers
+  of the local network.
+- **The Director surface:** what reaches the drivers from inside Control4:
+  actions, programming commands, the Breeze fan's messages, the ambient
+  reading, bindings, properties, conditions and timers.
+- **Packaging and install:** what a release package may contain, how it is
+  checked before it is released and before it is installed, and how a
+  development package is served.
+
+The findings were handled privately, as this policy asks, and fixed in 1.10
+"Shield Wall". What changed:
+
+- **Answers from the network are bounded:** no redirect followed, no answer
+  over 16 KB, compressed or nested deeper than 8 levels; text a fan
+  supplies cleaned and capped before it reaches a row or the log; budgets
+  for reading multicast DNS, at most 32 other fans a search, places of
+  their own for the configured fan's answers, and Found Fans rows that
+  never read the same
+  ([above](#what-the-driver-accepts-from-the-network-and-its-limits)).
+- **The address follow and a waiting pick stay in the fan's /24 subnet**,
+  and a pick waiting for Use Selected Fan lapses after 10 minutes. A
+  typed address is not restricted.
+- **Composer's actions run only as Composer actions**, and every action
+  and command waits for the driver's late initialisation
+  ([above](#what-reaches-the-driver-from-inside-control4)).
+- **The ambient input** counts, once a keypad is bound, only readings that
+  carry that keypad's id, and finds the bound keypad again after a
+  restart.
+- **The light** caps a fade, ramp or rate at 24 hours, and a value that is
+  no finite number acts at once.
+- **Add Breeze Fan:** when the Breeze fan is added but cannot be
+  connected, **Last Action** says so, and the next click connects that
+  device instead of adding a second one.
+- **Errors** in the binding, timer, condition and network entry points are
+  logged and contained, and a poll that fails is armed again.
+- **Composer's Lua command window** is locked in release builds of the fan
+  driver; this page had said release builds had none
+  ([above](#the-development-loop)).
+- **Packaging and install:** the stricter provenance check and the
+  file-by-file comparison of every package with its commit
+  ([below](#what-is-checked-automatically)), and development packages
+  served only from a random path.
+
+The fan's own lack of protection (above) is unchanged: it is the fan's,
+and no driver can add it.
 
 ## What is checked automatically
 
@@ -183,24 +308,34 @@ is switched on today.
   <https://securityscorecards.dev/viewer/?uri=github.com/corytron/c4-modernforms-driver>.
 - **Build provenance.** The Release workflow builds the packages with
   read-only access and, in a second job that runs no third-party code,
-  signs a build-provenance attestation for them, attached to the release
-  as well. Verify each download with
+  first compares every packaged file with the commit it was built from
+  (and tags), file by file (no file missing or added, no link, nothing
+  development-only, nothing that opens the Lua command window), then signs
+  a build-provenance attestation for them, attached to the release as
+  well. Verify each download with
 
   ```sh
   gh attestation verify modernforms_fan.c4z --repo corytron/c4-modernforms-driver \
-    --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml
+    --signer-workflow corytron/c4-modernforms-driver/.github/workflows/release.yml \
+    --source-ref refs/heads/main --source-digest <commit> \
+    --deny-self-hosted-runners
   ```
 
-  (and the same for `modernforms_breeze_fan.c4z`), and its checksum against
-  `SHA256SUMS.txt`; `--source-digest` with the `commit` from
-  `manifest.json` also checks the commit it was built from. Use GitHub CLI
-  2.102.0 or newer: `--signer-workflow` is what makes the Release workflow
-  the only accepted signer, and older versions either lack it or match only
-  the start of the workflow's path (GHSA-wjmr-j3rp-mh2g).
-  `tools/deploy.py start` runs the same check before an install on the
-  author's house and refuses a package that fails it. A package that fails
-  either check was not built by this repository's Release workflow: do not
-  install it, and report it.
+  where `<commit>` is the `commit` in the release's `manifest.json` (and
+  the same for `modernforms_breeze_fan.c4z`), and its checksum against
+  `SHA256SUMS.txt`. The command accepts only a package signed by the
+  Release workflow, built from that commit of `main` on a runner GitHub
+  hosts. A release cut by pushing its tag is signed from the tag instead:
+  verify it with `--source-ref refs/tags/vX.Y`, and accept it only when its
+  commit is on `main`. Use GitHub CLI 2.102.0 or newer:
+  `--signer-workflow` is what makes the Release workflow the only accepted
+  signer, and older versions either lack it or match only the start of the
+  workflow's path (GHSA-wjmr-j3rp-mh2g). `tools/deploy.py start` runs the
+  same check before an install on the author's house, checks that a tag's
+  commit is on `main`, reads back the signing certificate's ref, commit
+  and runner, and refuses a package that fails any of it. A package that
+  fails either check was not built by this repository's Release workflow:
+  do not install it, and report it.
 
 ## What to expect
 

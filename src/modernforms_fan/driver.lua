@@ -100,9 +100,18 @@ end
 -- A timer the modules can cancel; its callback takes no arguments.
 -- SetTimer's delay must be greater than 0 [API 34_timer/_1], so a due-now
 -- timer waits 1 ms.
+local TIMER_MAX_MS = 86400000 -- #214: no delay longer than a day reaches SetTimer
 local function timer(ms, callback)
-	return C4:SetTimer(math.max(1, math.floor(ms)), function()
-		callback()
+	local delay = tonumber(ms) or 1
+	if delay ~= delay or delay > TIMER_MAX_MS then
+		delay = TIMER_MAX_MS
+	end
+	return C4:SetTimer(math.max(1, math.floor(delay)), function()
+		-- #214 (S2-8): a failing callback is logged, never raised into Director.
+		local ok, err = pcall(callback)
+		if not ok then
+			log.error("a timer callback failed: %s", tostring(err))
+		end
 	end)
 end
 
@@ -612,6 +621,11 @@ discovery = discovery_mod.new({
 			on_window(list, err, heard)
 		end
 	end,
+	-- #214 (S1-5): the pinned fan's answers keep places of their own in a window.
+	pin = function()
+		local p = model:identity()
+		return p and p.mac or nil
+	end,
 	log = log,
 })
 
@@ -686,6 +700,16 @@ end
 -- Writes Found Fans when its text changed, or always with force (a pick snaps
 -- back: Composer then shows the picked row, whatever was written last). The
 -- value is the waiting pick's row, else the summary.
+local keep_timer = nil -- #214: redraws Found Fans when a waiting pick lapses
+local function cancel_keep_timer()
+	if keep_timer then
+		pcall(function()
+			keep_timer:Cancel()
+		end)
+		keep_timer = nil
+	end
+end
+
 draw_found = function(force)
 	if not found_list then
 		return
@@ -703,7 +727,8 @@ draw_found = function(force)
 	local summary, items = texts.found_rows({
 		state = state, pinned = pin ~= nil, entries = entries, info = model:info(),
 	})
-	items = items or {}
+	-- #214 (S1-5): two rows never read the same.
+	items = found_mod.distinct(items or {}, entries, { summary })
 	local shown = { summary }
 	local behind = {}
 	local overflow = #entries > texts.MAX_FOUND
@@ -1238,6 +1263,13 @@ dispatch.properties["Found_Fans"] = function(value)
 		found_list:keep(entry.key)
 		result("picked_wait", { instance = entry.instance })
 		draw_found(true)
+		-- #214 (S2-1): the pick waits KEEP_MS for Use Selected Fan; the row is
+		-- redrawn once it has lapsed.
+		cancel_keep_timer()
+		keep_timer = timer(found_mod.KEEP_MS + 1000, function()
+			keep_timer = nil
+			draw_found(true)
+		end)
 		return
 	end
 	found_list:drop()
@@ -1245,7 +1277,7 @@ dispatch.properties["Found_Fans"] = function(value)
 end
 
 -- Use Selected Fan: the waiting pick, else Fan Address (section 3.5).
-dispatch.commands["Use_Selected_Fan"] = function()
+dispatch.actions["Use_Selected_Fan"] = function()
 	local kept = found_list:kept()
 	local address, mac
 	if kept then
@@ -1265,7 +1297,7 @@ dispatch.commands["Use_Selected_Fan"] = function()
 end
 
 -- Name Items After Fan: the forced rename (fan-name-design N5).
-dispatch.commands["Name_Items_After_Fan"] = function()
+dispatch.actions["Name_Items_After_Fan"] = function()
 	names_job:run("forced", function(outcome, args)
 		result(NAME_RESULTS[outcome] or "name_unconfirmed", args)
 	end)
@@ -1278,7 +1310,7 @@ for _, name in ipairs({ "Breeze_On", "Breeze_Off", "Toggle_Breeze", "Set_Breeze_
 		breeze:command(name, params)
 	end
 end
-dispatch.commands["Add_Breeze_Fan"] = function()
+dispatch.actions["Add_Breeze_Fan"] = function()
 	breeze:add_switch()
 end
 for _, name in ipairs({ "MF_BREEZE_SET", "MF_BREEZE_TOGGLE", "MF_BREEZE_CYCLE", "MF_BREEZE_HELLO" }) do
@@ -1287,23 +1319,35 @@ for _, name in ipairs({ "MF_BREEZE_SET", "MF_BREEZE_TOGGLE", "MF_BREEZE_CYCLE", 
 	end
 end
 
-dispatch.commands["Reboot_Fan"] = function()
+dispatch.actions["Reboot_Fan"] = function()
 	model:reboot(function(key, args)
 		result(key, args)
 		refresh_status()
 	end)
 end
 
-dispatch.commands["Turn_Off_Away_Mode"] = function()
+dispatch.actions["Turn_Off_Away_Mode"] = function()
 	model:turn_off("away", function(key, args)
 		result(key, args)
 	end)
 end
 
-dispatch.commands["Turn_Off_Adaptive_Learning"] = function()
+dispatch.actions["Turn_Off_Adaptive_Learning"] = function()
 	model:turn_off("learning", function(key, args)
 		result(key, args)
 	end)
+end
+
+-- #214: every action and command waits for late init, like the proxy and
+-- link messages (on() above): before it, UpdateProperty, SendToDevice and the
+-- model are not ready [API 22_miscellaneous/_25.2-SafeUsageTable.md]. A
+-- Breeze fan's MF_BREEZE_HELLO at a Director restart, an early ambient
+-- reading or an action sent by another driver are buffered and run in order
+-- right after late init (common/device.lua, at most 200).
+for _, handlers in ipairs({ dispatch.actions, dispatch.commands }) do
+	for name, handler in pairs(handlers) do
+		handlers[name] = dev.after_late_init("ExecuteCommand " .. name, handler)
+	end
 end
 
 -- Lifecycle ----------------------------------------------------------------------
@@ -1314,6 +1358,14 @@ dispatch.install(_G)
 -- never reordered or renamed; its value is the persisted one, so the first
 -- difference after a restart reads as a change (D9).
 function OnDriverInit()
+	-- #214: a release build locks Composer's Lua command window, which an
+	-- unencrypted driver otherwise leaves open [FUND 6_Understanding .c4z
+	-- Drivers/_3-C4ALLOWEXECUTE.md; API 22_miscellaneous/_2-AllowExecute.md,
+	-- callable in OnDriverInit]. A dev build (it carries common/devloop.lua)
+	-- keeps the window the packager opened for it.
+	if not devloop then
+		pcall(C4.AllowExecute, C4, false)
+	end
 	online_now = (C4:PersistGetValue("mf_online")) == true
 	C4:AddVariable("Online", online_now and "1" or "0", "BOOL", true)
 	-- breeze-design BZ3: second, never reordered; seeded so a restart alone
@@ -1369,30 +1421,54 @@ function OnDriverLateInit()
 		end
 	end
 	dev.replay_bindings()
+	-- #207, #214: after a restart, the keypad bound to Ambient Light Level
+	-- (Follower) is read from Director, so only its readings count from the
+	-- start [API 32_serial_network_device/_4-GetBoundProviderDevice.md; not
+	-- before init, SafeUsageTable]. The state stays unknown until it reports.
+	if ambient:debug().bound == nil and ambient:state() == "unknown" then
+		local ok, id = pcall(C4.GetBoundProviderDevice, C4, 0, AMBIENT_BINDING)
+		if ok and tonumber(id) and tonumber(id) > 0 then
+			ambient:bound(tonumber(id))
+		end
+	end
 end
 
 -- A Button Link's binding changes (a keypad button bound or unbound): the
 -- links' bookkeeping, and the light's links get their LED state at once. The
 -- proxies' bindings are not links. A call before late init waits for it
 -- (common/device.lua).
+-- #214 (S2-8): each part runs on its own, so a failure in one is logged and
+-- the others still happen.
+local function contained(what, fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		log.error("OnBindingChanged: %s failed: %s", what, tostring(err))
+	end
+end
 OnBindingChanged = dev.binding_changed(function(binding, _, bound, other_device, other_binding)
 	if FAN_LINKS[binding] or LIGHT_LINKS[binding] then
-		links:binding_changed(binding, bound, other_device, other_binding)
+		contained("the links", function()
+			links:binding_changed(binding, bound, other_device, other_binding)
+		end)
 	end
 	if LIGHT_LINKS[binding] and bound then
-		dev.update_leds(true)
+		contained("the light's LEDs", dev.update_leds, true)
 	end
 	if binding == BREEZE_BINDING then
-		breeze:binding_changed(bound)
+		contained("the Breeze fan", function()
+			breeze:binding_changed(bound)
+		end)
 	end
 	if binding == AMBIENT_BINDING then
-		ambient:bound(bound and other_device or nil)
+		contained("the ambient input", function()
+			ambient:bound(bound and other_device or nil)
+		end)
 	end
 end)
 
 -- Section 2.7: the one condition, "Fan is online". With a VALUE (the text
 -- picked) it compares; without, it answers the state itself.
-function TestCondition(name, params)
+local function test_condition(name, params)
 	local answer = breeze:test_condition(name, params)
 	if answer ~= nil then
 		return answer
@@ -1412,10 +1488,23 @@ function TestCondition(name, params)
 	return equal
 end
 
+-- #214 (S2-8): a failure is logged and answers false, never raised into Director.
+function TestCondition(name, params)
+	local ok, answer = pcall(test_condition, name, params)
+	if not ok then
+		log.error("TestCondition %s failed: %s", tostring(name), tostring(answer))
+		return false
+	end
+	return answer
+end
+
 -- The search's answers: the dynamic binding's datagrams (the Finder's window).
 function ReceivedFromNetwork(binding, port, data, from)
 	if binding == FIND_BINDING then
-		discovery:received(binding, port, data, from)
+		local ok, err = pcall(discovery.received, discovery, binding, port, data, from)
+		if not ok then
+			log.error("ReceivedFromNetwork failed: %s", tostring(err))
+		end
 	end
 end
 
@@ -1441,6 +1530,7 @@ function OnDriverDestroyed()
 	breeze:stop()
 	cancel_night_timer()
 	ambient:stop()
+	cancel_keep_timer()
 	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
 	lrows:stop()
 	links:stop()
