@@ -1644,7 +1644,7 @@ describe("Modern Forms Fan driver", function()
 				run(c4, 5000)
 				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "3", TARGET = "3" })
 				run(c4, 100)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad is dark", 1, true))
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad read 3 at ", 1, true))
 				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "40", TARGET = "5" })
 				run(c4, 5000)
 				assert.truthy(env.Properties["Keypad Links"]:find("paused", 1, true), "still paused inside the 10 s hold")
@@ -1656,6 +1656,32 @@ describe("Modern Forms Fan driver", function()
 				run(c4, 100)
 				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "unbound runs as today")
 			end)
+
+		it("ends a pause by itself 12 h after the last dark reading when no bright one comes (#223, AP-D16)",
+			function()
+			local env, c4 = rows_driver()
+			run(c4, 11000)
+			fake.link_keypad(env, 303, 456, 12)
+			run(c4, 2000)
+			env.OnBindingChanged(500, "AMBIENT_LEVEL", true, 1155, 400)
+			run(c4, 6000)
+			env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "1", TARGET = "2" })
+			run(c4, 100)
+			assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad read 1", 1, true))
+			-- The 12 h safety net, shortened to 2 min here so the spec stays fast; nothing more arrives.
+			local ambient_mod = package.loaded["fan.ambient"]
+			local saved = ambient_mod.LAPSE_DEFAULT_MS
+			ambient_mod.LAPSE_DEFAULT_MS = 120000
+			local ok, err = pcall(function()
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "1", TARGET = "2" })
+				run(c4, 110000)
+				assert.truthy(env.Properties["Keypad Links"]:find("paused", 1, true), "still paused before it lapses")
+				run(c4, 15000)
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "the pause lapsed")
+			end)
+			ambient_mod.LAPSE_DEFAULT_MS = saved
+			assert(ok, err)
+		end)
 
 		it("shows them at once when a button is bound to Fan Speed 3 (L44) and hides them 8 s after it is"
 			.. " unbound (L45) (KL-D2, KL-D4, KL-D7)", function()

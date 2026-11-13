@@ -427,7 +427,15 @@ local function write_keypad_links(items)
 		for index, item in ipairs(items) do
 			copy[index] = item
 		end
-		copy[1] = items[1] .. texts.keypad_leds_note(shown, ambient ~= nil and ambient:dark())
+		-- #223 (AP-D17): while paused, the note names the last reading and its time.
+		local dark, last = ambient ~= nil and ambient:dark(), nil
+		if dark and ambient.last then
+			local level, at_s = ambient:last()
+			if level ~= nil then
+				last = { level = level, at_s = at_s, now_s = os.time() }
+			end
+		end
+		copy[1] = items[1] .. texts.keypad_leds_note(shown, dark, last)
 		items = copy
 	end
 	keypad_items = items
@@ -507,7 +515,11 @@ ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
 -- dark, both LED engines pause and send nothing. on_change is never called
 -- before late init: readings wait for it like every other message.
 local AMBIENT_BINDING = 500
+-- #223 (ambient-pause-design AP-D16): a dark verdict lapses 12 h after the
+-- last dark reading (ambient.lua's default), a safety net for a report the
+-- keypad never sent; the pause otherwise follows the keypad's readings only.
 ambient = ambient_mod.new({
+	epoch = os.time,
 	now = now_ms,
 	timer = timer,
 	on_change = function(dark, why)
@@ -990,6 +1002,10 @@ end
 -- #207 AP1: the bound keypad's reading arrives as a command, on change only.
 dispatch.commands["AMBIENT_LIGHT_LEVEL"] = function(params)
 	ambient:reading(params)
+	-- #223: a reading while paused updates the note's last reading.
+	if ambient:dark() then
+		write_keypad_links(keypad_raw)
+	end
 end
 dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds

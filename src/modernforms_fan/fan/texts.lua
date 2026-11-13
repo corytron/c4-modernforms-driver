@@ -1395,9 +1395,46 @@ end
 -- (83 characters with "13 of 13") would pass the 75 Composer clips at, so
 -- that the row would lose its end. While they are hidden no speed link is
 -- bound, nothing animates and nothing can be paused: the binding hint stays.
-function texts.keypad_leds_note(shown, dark)
+--
+-- `last` (#223, AP-D17), optional: { level = n, at_s = epoch seconds, now_s =
+-- epoch seconds }, the last counted reading and the present. While paused,
+-- the note names it: "; LED animations paused: the keypad read 1 at 23:51",
+-- the time as texts.clock gives it (with the date once over a day old), or
+-- without " at ..." when that is "". Only a whole-number level 0 to 255 with
+-- a number at_s counts; any other `last` gives the text without one. Every
+-- first row stays at or under ROW_CUT with every link bound ("13 of 13 links
+-- bound"): when the note would pass that, "the" goes, and nothing else. Only
+-- the date form needs it: "keypad read 255 at 11-12 23:51" makes 75.
+local function reading_note(last)
+	if type(last) ~= "table" then
+		return nil
+	end
+	local level, at = last.level, last.at_s
+	if type(level) ~= "number" or level ~= math.floor(level) or level < 0 or level > 255
+		or type(at) ~= "number" then
+		return nil
+	end
+	local now = type(last.now_s) == "number" and last.now_s or nil
+	-- texts.clock is only asked about a time os.date could format.
+	local when = ""
+	if at == at and at ~= math.huge and at ~= -math.huge then
+		when = texts.clock(at, now)
+	end
+	local tail = string.format("read %d", level)
+	if when ~= "" then
+		tail = tail .. " at " .. when
+	end
+	local budget = texts.ROW_CUT - #string.format("%d of %d links bound", texts.LINK_COUNT, texts.LINK_COUNT)
+	local note = "; LED animations paused: the keypad " .. tail
+	if #note > budget then
+		note = "; LED animations paused: keypad " .. tail
+	end
+	return note
+end
+
+function texts.keypad_leds_note(shown, dark, last)
 	if shown and dark == true then
-		return "; LED animations paused: the keypad is dark"
+		return reading_note(last) or "; LED animations paused: the keypad is dark"
 	end
 	if shown then
 		return "; LED settings shown"

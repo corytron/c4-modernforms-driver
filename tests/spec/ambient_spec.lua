@@ -1,10 +1,16 @@
 -- fan.ambient on fakes: whether the bound keypad's LEDs are dark, from its AMBIENT_LIGHT_LEVEL readings (#207,
--- docs/ambient-pause-design.md: AP1 to AP5, AP-D2 to AP-D5 and the interface of section 2). The timer records its
--- ms and callback; advance() moves the fake clock and fires every timer that falls due on the way. on_change is
--- recorded in r.changes as { dark, why }.
+-- docs/ambient-pause-design.md: AP1 to AP5, AP-D2 to AP-D5, the lapse of section 1a (#223, AP-D16 to AP-D18) and
+-- the interfaces of sections 1a and 2). The timer records its ms and callback; advance() moves the fake clock and
+-- fires every timer that falls due on the way. on_change is recorded in r.changes as { dark, why }.
+--
+-- The two timers share the one timer option, so the fake files them apart by their length: one of LAPSE_MIN_MS or
+-- more is a lapse (r.lapses, lapses(r)), since the module clamps every lapse to at least that, and any other is a
+-- hold (r.timers, live(r)), which is LIT_HOLD_MS; the hold's specs read as they did before #223. lapse_ms gives
+-- r.lapse (nil: the default 12 h), raises while r.fail_lapse and counts its calls in r.lapse_calls; epoch follows
+-- the fake clock, EPOCH0 + its whole seconds, and raises while r.fail_epoch.
 --
 -- Unless a spec says otherwise: the keypad is device 123, bound and settled (bound, then 6 s, so the first
--- reading counts), the threshold is the default 10.
+-- reading counts, at clock 7000 ms: epoch EPOCH0 + 7), the threshold is the default 10.
 
 local ambient = require("fan.ambient")
 
@@ -12,10 +18,14 @@ local KEYPAD = 123
 local OTHER = 456
 local HOLD_MS = 10000
 local SETTLE_MS = 5000
+local LAPSE_DEFAULT_MS = 43200000
+local LAPSE_MIN_MS = 60000
+local LAPSE_MAX_MS = 86400000
+local EPOCH0 = 1763000000
 
 local function fake_log()
 	local l = { lines = {} }
-	for _, level in ipairs({ "error", "warn", "info", "debug" }) do
+	for _, level in ipairs({ "error", "warn", "info", "debug", "always" }) do
 		l[level] = function(fmt, ...)
 			l.lines[#l.lines + 1] = { level = level, text = string.format(fmt, ...) }
 		end
@@ -40,10 +50,11 @@ local function fake_log()
 	return l
 end
 
--- The module on fakes. opts: no_clock (no `now`), no_timer (no `timer`), no_on_change.
+-- The module on fakes. opts: no_clock (no `now`), no_timer (no `timer`), no_on_change, no_lapse_ms (no
+-- `lapse_ms`), no_epoch (no `epoch`: os.time).
 local function rig(opts)
 	opts = opts or {}
-	local r = { clock = 1000, timers = {}, changes = {}, log = fake_log() }
+	local r = { clock = 1000, timers = {}, lapses = {}, changes = {}, log = fake_log(), lapse_calls = 0 }
 	r.a = ambient.new({
 		now = not opts.no_clock and function()
 			if r.fail_clock then
@@ -59,7 +70,8 @@ local function rig(opts)
 			function t:Cancel()
 				self.cancelled = true
 			end
-			r.timers[#r.timers + 1] = t
+			local list = ms >= LAPSE_MIN_MS and r.lapses or r.timers
+			list[#list + 1] = t
 			return t
 		end or nil,
 		on_change = not opts.no_on_change and function(dark, why)
@@ -68,15 +80,28 @@ local function rig(opts)
 				error("on_change refused")
 			end
 		end or nil,
+		lapse_ms = not opts.no_lapse_ms and function()
+			r.lapse_calls = r.lapse_calls + 1
+			if r.fail_lapse then
+				error("no sunrise")
+			end
+			return r.lapse
+		end or nil,
+		epoch = not opts.no_epoch and function()
+			if r.fail_epoch then
+				error("no epoch")
+			end
+			return EPOCH0 + math.floor(r.clock / 1000)
+		end or nil,
 		log = r.log,
 	})
 	return r
 end
 
--- The timers neither cancelled nor fired.
-local function live(r)
+-- The timers of a list neither cancelled nor fired.
+local function pending(list)
 	local out = {}
-	for _, t in ipairs(r.timers) do
+	for _, t in ipairs(list) do
 		if not t.cancelled and not t.fired then
 			out[#out + 1] = t
 		end
@@ -84,14 +109,27 @@ local function live(r)
 	return out
 end
 
--- Moves the clock by ms, firing every live timer that falls due on the way, in order, at its time.
+-- The holds neither cancelled nor fired.
+local function live(r)
+	return pending(r.timers)
+end
+
+-- The lapses neither cancelled nor fired.
+local function lapses(r)
+	return pending(r.lapses)
+end
+
+-- Moves the clock by ms, firing every live timer (holds and lapses) that falls due on the way, in order, at its
+-- time.
 local function advance(r, ms)
 	local target = r.clock + ms
 	while true do
 		local due
-		for _, t in ipairs(live(r)) do
-			if t.at + t.ms <= target and (due == nil or t.at + t.ms < due.at + due.ms) then
-				due = t
+		for _, list in ipairs({ r.timers, r.lapses }) do
+			for _, t in ipairs(pending(list)) do
+				if t.at + t.ms <= target and (due == nil or t.at + t.ms < due.at + due.ms) then
+					due = t
+				end
 			end
 		end
 		if due == nil then
@@ -379,7 +417,7 @@ describe("fan.ambient", function()
 			read(r, 0) -- the house keypad's first message after a bind
 			assert.are.equal("unknown", r.a:state())
 			assert.are.same({}, r.changes)
-			assert.is_true(r.log.has("debug", "reading ignored: 0 is the first after the bind (200 ms after it)"))
+			assert.is_true(r.log.has("always", "reading ignored: 0 is the first after the bind (200 ms after it)"))
 			advance(r, 1000)
 			read(r, 4)
 			assert.is_true(r.a:dark())
@@ -431,7 +469,7 @@ describe("fan.ambient", function()
 			local r = settled()
 			read(r, 3, OTHER)
 			assert.are.equal("unknown", r.a:state())
-			assert.is_true(r.log.has("debug", "reading ignored: 3 from device 456, not the bound device 123"))
+			assert.is_true(r.log.has("always", "reading ignored: 3 from device 456, not the bound device 123"))
 			read(r, 3, " 123 ")
 			assert.are.equal("dark", r.a:state())
 		end)
@@ -442,7 +480,7 @@ describe("fan.ambient", function()
 			local r = settled()
 			r.a:reading({ LEVEL = "3" })
 			assert.are.equal("unknown", r.a:state())
-			assert.is_true(r.log.has("debug", "reading ignored: 3 with no GROUP, while bound to device 123"))
+			assert.is_true(r.log.has("always", "reading ignored: 3 with no GROUP, while bound to device 123"))
 			for _, none in ipairs({ "", "   ", {}, true, 0 / 0, math.huge }) do
 				r.a:reading({ LEVEL = "3", GROUP = none })
 				assert.are.equal("unknown", r.a:state(), "GROUP " .. tostring(none))
@@ -506,7 +544,7 @@ describe("fan.ambient", function()
 				end
 				assert.is_true(os.clock() - started < 0.05, "took " .. (os.clock() - started) .. " s for 10 readings")
 				assert.are.equal("unknown", r.a:state())
-				assert.is_true(r.log.has("debug", "reading ignored: 3 with a GROUP of 32770 characters, no device id"))
+				assert.is_true(r.log.has("always", "reading ignored: 3 with a GROUP of 32770 characters, no device id"))
 			end
 			local r = settled()
 			r.a:reading({ LEVEL = "3", GROUP = string.rep(" ", 29) .. "123" })
@@ -554,9 +592,9 @@ describe("fan.ambient", function()
 			end
 			r.a:reading({ GROUP = "123" })
 			assert.are.equal("unknown", r.a:state(), "no LEVEL")
-			assert.is_true(r.log.has("debug", 'reading ignored: LEVEL "3.5" is not a whole number 0 to 255'))
-			assert.is_true(r.log.has("debug", "reading ignored: LEVEL 3.5 is not a whole number 0 to 255"))
-			assert.is_true(r.log.has("debug", "reading ignored: LEVEL nil is not a whole number 0 to 255"))
+			assert.is_true(r.log.has("always", 'reading ignored: LEVEL "3.5" is not a whole number 0 to 255'))
+			assert.is_true(r.log.has("always", "reading ignored: LEVEL 3.5 is not a whole number 0 to 255"))
+			assert.is_true(r.log.has("always", "reading ignored: LEVEL nil is not a whole number 0 to 255"))
 			assert.are.same({}, r.changes)
 		end)
 
@@ -574,7 +612,7 @@ describe("fan.ambient", function()
 			r.a:reading(nil)
 			r.a:reading("LEVEL=3")
 			assert.are.equal("unknown", r.a:state())
-			assert.is_true(r.log.has("debug", "reading ignored: the parameters are not a table"))
+			assert.is_true(r.log.has("always", "reading ignored: the parameters are not a table"))
 		end)
 	end)
 
@@ -675,23 +713,23 @@ describe("fan.ambient", function()
 	end)
 
 	describe("debug()", function()
-		it("reports the state, the last counted reading, the threshold, the bind and the hold", function()
+		it("reports the state, the last counted reading, the threshold, the bind, the hold and the lapse", function()
 			local r = rig()
-			assert.are.same({ state = "unknown", threshold = 10, hold = false }, r.a:debug())
+			assert.are.same({ state = "unknown", threshold = 10, hold = false, lapse = false }, r.a:debug())
 			r.a:bound(KEYPAD)
 			advance(r, 6000)
-			assert.are.same({ state = "unknown", threshold = 10, bound = KEYPAD, since_bind_ms = 6000, hold = false },
-				r.a:debug())
+			assert.are.same({ state = "unknown", threshold = 10, bound = KEYPAD, since_bind_ms = 6000, hold = false,
+				lapse = false }, r.a:debug())
 			read(r, 3)
 			read(r, 14)
 			advance(r, 1500)
 			assert.are.same({ state = "dark", level = 14, threshold = 10, bound = KEYPAD, since_bind_ms = 7500,
-				hold = true }, r.a:debug())
+				hold = true, last_level = 14, last_at_s = EPOCH0 + 7, lapse = true }, r.a:debug())
 			advance(r, HOLD_MS)
 			assert.are.same({ state = "lit", level = 14, threshold = 10, bound = KEYPAD, since_bind_ms = 17500,
-				hold = false }, r.a:debug())
+				hold = false, last_level = 14, last_at_s = EPOCH0 + 7, lapse = false }, r.a:debug())
 			r.a:bound(nil)
-			assert.are.same({ state = "unknown", threshold = 10, hold = false }, r.a:debug())
+			assert.are.same({ state = "unknown", threshold = 10, hold = false, lapse = false }, r.a:debug())
 		end)
 
 		it("has no since_bind_ms without a clock, or while the clock fails", function()
@@ -715,9 +753,11 @@ describe("fan.ambient", function()
 			local l = r.log
 			assert.is_true(l.has("debug", "Ambient light: bound to device 123"))
 			assert.is_true(l.has("debug", "Ambient light: reading 3 counted (threshold 10, state unknown)"))
-			assert.is_true(l.has("debug", "Ambient light: keypad dark (reading 3 < 10)"))
+			assert.is_true(l.has("always", "Ambient light: keypad dark (reading 3 < 10)"))
 			assert.is_true(l.has("debug", "Ambient light: reading 14 >= 10: lit again in 10 s"))
-			assert.is_true(l.has("debug", "Ambient light: keypad lit again (reading 14 >= 10, held 10 s)"))
+			assert.is_true(l.has("always", "Ambient light: keypad lit again (reading 14 >= 10, held 10 s)"))
+			-- #223: every message the keypad sends is logged whatever Debug Mode says, with its raw values.
+			assert.is_true(l.has("always", "Ambient light: the keypad sent LEVEL 3 GROUP 123 TARGET 1 (state unknown)"))
 			assert.are.equal(0, l.count("warn"))
 			r.a:bound(nil)
 			assert.is_true(l.has("debug", "Ambient light: unbound"))
@@ -752,6 +792,317 @@ describe("fan.ambient", function()
 				found = found or line:find("keypad dark (reading 3 < 10)", 1, true) ~= nil
 			end
 			assert.is_true(found)
+		end)
+	end)
+
+	-- #223, found on the house: after a dark reading at night no bright reading reached the driver in the morning,
+	-- and the chase stayed paused in a bright room until the binding was reconnected. AP-D16: the dark verdict
+	-- lapses; AP-D17: last(); AP-D18: nothing else changes (every spec above).
+	describe("#223 the dark verdict lapses", function()
+		-- The one lapse armed now.
+		local function lapse(r)
+			local got = lapses(r)
+			assert.are.equal(1, #got, "one lapse armed")
+			return got[1]
+		end
+
+		local function lapsed_since(at_s)
+			return "the dark verdict lapsed (no reading since " .. os.date("%H:%M", at_s) .. ")"
+		end
+
+		it("has the contract's constants", function()
+			assert.are.equal(LAPSE_DEFAULT_MS, ambient.LAPSE_DEFAULT_MS)
+			assert.are.equal(LAPSE_MIN_MS, ambient.LAPSE_MIN_MS)
+			assert.are.equal(LAPSE_MAX_MS, ambient.LAPSE_MAX_MS)
+		end)
+
+		it("arms the lapse on a dark reading, and none on a lit one", function()
+			local r = settled()
+			read(r, 40)
+			assert.are.same({}, r.lapses)
+			assert.are.equal(0, r.lapse_calls)
+			read(r, 3)
+			assert.are.equal(LAPSE_DEFAULT_MS, lapse(r).ms)
+			assert.are.equal(1, r.lapse_calls)
+			assert.is_true(r.a:debug().lapse)
+			assert.is_true(r.log.has("debug", "Ambient light: the dark verdict lapses in 12 h"))
+		end)
+
+		it("goes from dark to unknown when it fires, with one on_change(false)", function()
+			local r = settled()
+			read(r, 3)
+			changes(r)
+			advance(r, LAPSE_DEFAULT_MS - 1)
+			assert.is_true(r.a:dark())
+			assert.are.same({}, r.changes)
+			advance(r, 1)
+			assert.are.equal("unknown", r.a:state())
+			assert.is_false(r.a:dark())
+			assert.is_nil(r.a:debug().level)
+			assert.are.same({ { false, lapsed_since(EPOCH0 + 7) } }, changes(r))
+			assert.are.same({}, lapses(r))
+			assert.is_true(r.log.has("always", "Ambient light: " .. lapsed_since(EPOCH0 + 7)
+				.. ": the keypad state is unknown, the animations run"))
+			advance(r, 2 * LAPSE_MAX_MS)
+			assert.are.same({}, r.changes)
+			assert.are.equal("unknown", r.a:state())
+		end)
+
+		it("cancels a lit hold when it fires first", function()
+			local r = settled()
+			r.lapse = LAPSE_MIN_MS
+			read(r, 3)
+			changes(r)
+			advance(r, 55000)
+			read(r, 14)
+			local hold = live(r)[1]
+			advance(r, 5000)
+			assert.are.equal("unknown", r.a:state())
+			assert.is_true(hold.cancelled)
+			assert.are.same({ { false, lapsed_since(EPOCH0 + 62) } }, changes(r))
+			assert.is_true(r.log.has("debug", "the resume hold is cancelled (the dark verdict lapsed)"))
+			hold.cb() -- a cancelled hold that fires anyway changes nothing
+			advance(r, HOLD_MS)
+			assert.are.equal("unknown", r.a:state())
+			assert.are.same({}, r.changes)
+		end)
+
+		it("arms again with a fresh lapse_ms() at every dark reading while dark", function()
+			local r = settled()
+			r.lapse = 3600000
+			read(r, 3)
+			local first = lapse(r)
+			assert.are.equal(3600000, first.ms)
+			advance(r, 1800000)
+			r.lapse = 7200000
+			read(r, 5)
+			assert.is_true(first.cancelled)
+			assert.are.equal(7200000, lapse(r).ms)
+			assert.are.equal(2, r.lapse_calls)
+			first.cb() -- a cancelled lapse that fires anyway changes nothing
+			advance(r, 1800000)
+			assert.is_true(r.a:dark(), "past the first lapse's time")
+			advance(r, 7200000 - 1800000 - 1)
+			assert.is_true(r.a:dark())
+			advance(r, 1)
+			assert.are.equal("unknown", r.a:state())
+			local got = changes(r)
+			assert.are.equal(2, #got)
+			assert.are.same({ false, lapsed_since(EPOCH0 + 7 + 1800) }, got[2])
+		end)
+
+		it("arms when a threshold change makes the state dark, and runs on when one keeps it dark", function()
+			local r = settled()
+			read(r, 14)
+			r.a:set_threshold(20)
+			assert.is_true(r.a:dark())
+			local armed = lapse(r)
+			r.a:set_threshold(30)
+			assert.is_false(armed.cancelled)
+			assert.are.equal(1, r.lapse_calls)
+			advance(r, LAPSE_DEFAULT_MS)
+			assert.are.equal("unknown", r.a:state())
+		end)
+
+		it("is cancelled when the hold resumes after a lit reading", function()
+			local r = settled()
+			read(r, 3)
+			local armed = lapse(r)
+			read(r, 14)
+			assert.is_false(armed.cancelled, "a lit reading alone leaves it running")
+			advance(r, HOLD_MS)
+			assert.are.equal("lit", r.a:state())
+			assert.is_true(armed.cancelled)
+			assert.is_false(r.a:debug().lapse)
+			changes(r)
+			armed.cb()
+			advance(r, LAPSE_MAX_MS)
+			assert.are.same({}, r.changes)
+			assert.are.equal("lit", r.a:state())
+		end)
+
+		it("is cancelled when a lower threshold resumes through the hold, or at once with no hold", function()
+			local r = settled()
+			read(r, 6)
+			local armed = lapse(r)
+			r.a:set_threshold(6)
+			assert.is_false(armed.cancelled, "still dark during the hold")
+			advance(r, HOLD_MS)
+			assert.are.equal("lit", r.a:state())
+			assert.is_true(armed.cancelled)
+			r = settled()
+			read(r, 3)
+			armed = lapse(r)
+			r.fail_timer = true
+			read(r, 14)
+			assert.are.equal("lit", r.a:state())
+			assert.is_true(armed.cancelled)
+		end)
+
+		it("is cancelled by an unbind and by a bind", function()
+			for _, case in ipairs({ { nil, "unbound" }, { OTHER, "bound" }, { KEYPAD, "bound" } }) do
+				local r = settled()
+				read(r, 3)
+				local armed = lapse(r)
+				changes(r)
+				r.a:bound(case[1])
+				assert.is_true(armed.cancelled, case[2])
+				assert.are.same({ { false, case[2] } }, changes(r))
+				advance(r, LAPSE_MAX_MS)
+				assert.are.same({}, r.changes)
+				assert.are.equal("unknown", r.a:state())
+			end
+		end)
+
+		it("is cancelled by stop(), and a late callback changes nothing", function()
+			local r = settled()
+			read(r, 3)
+			local armed = lapse(r)
+			changes(r)
+			r.a:stop()
+			assert.is_true(armed.cancelled)
+			assert.is_false(r.a:debug().lapse)
+			armed.cb()
+			advance(r, LAPSE_MAX_MS)
+			assert.are.equal("dark", r.a:state())
+			assert.are.same({}, r.changes)
+		end)
+
+		it("takes lapse_ms() rounded and clamped to 1 min through 24 h, and 12 h for anything not a number", function()
+			local cases = {
+				{ nil, LAPSE_DEFAULT_MS }, { 0 / 0, LAPSE_DEFAULT_MS }, { math.huge, LAPSE_DEFAULT_MS },
+				{ -math.huge, LAPSE_DEFAULT_MS }, { "90000", LAPSE_DEFAULT_MS }, { true, LAPSE_DEFAULT_MS },
+				{ {}, LAPSE_DEFAULT_MS }, { -5, LAPSE_MIN_MS }, { 0, LAPSE_MIN_MS }, { 59999, LAPSE_MIN_MS },
+				{ LAPSE_MIN_MS, LAPSE_MIN_MS }, { 5400000.4, 5400000 }, { 5400000.5, 5400001 },
+				{ LAPSE_MAX_MS, LAPSE_MAX_MS }, { LAPSE_MAX_MS + 1, LAPSE_MAX_MS }, { 1e12, LAPSE_MAX_MS },
+			}
+			for _, case in ipairs(cases) do
+				local r = settled()
+				r.lapse = case[1]
+				read(r, 3)
+				assert.are.equal(case[2], lapse(r).ms, "lapse_ms() -> " .. tostring(case[1]))
+				assert.are.equal(0, r.log.count("warn"))
+			end
+			local r = settled({ no_lapse_ms = true })
+			read(r, 3)
+			assert.are.equal(LAPSE_DEFAULT_MS, lapse(r).ms, "no lapse_ms")
+			assert.are.equal(0, r.log.count("warn"))
+		end)
+
+		it("takes 12 h, with a warning, when lapse_ms raises", function()
+			local r = settled()
+			r.fail_lapse = true
+			read(r, 3)
+			assert.is_true(r.a:dark())
+			assert.are.equal(LAPSE_DEFAULT_MS, lapse(r).ms)
+			assert.is_true(r.log.has("warn", "lapse_ms failed, the default 12 h applies: "))
+			assert.are.equal(1, #r.changes)
+		end)
+
+		it("stays dark, with a warning, when the lapse cannot be armed", function()
+			local r = settled()
+			r.fail_timer = true
+			read(r, 3)
+			assert.is_true(r.a:dark())
+			assert.is_false(r.a:debug().lapse)
+			assert.is_true(r.log.has("warn", "the lapse timer could not be armed (43200000 ms)"))
+			r.fail_timer = false
+			read(r, 4)
+			assert.are.equal(1, #lapses(r), "the next dark reading arms it")
+		end)
+
+		it("decides as from unknown after a lapse: dark goes dark again, lit goes lit with no on_change", function()
+			local r = settled()
+			read(r, 3)
+			advance(r, LAPSE_DEFAULT_MS)
+			changes(r)
+			read(r, 4)
+			assert.is_true(r.a:dark())
+			assert.are.same({ { true, "keypad dark (reading 4 < 10)" } }, changes(r))
+			assert.are.equal(1, #lapses(r), "armed again")
+			r = settled()
+			read(r, 3)
+			advance(r, LAPSE_DEFAULT_MS)
+			changes(r)
+			read(r, 40)
+			assert.are.equal("lit", r.a:state())
+			assert.are.same({}, r.changes)
+			assert.are.same({}, live(r))
+			assert.are.same({}, lapses(r))
+		end)
+
+		it("keeps the last counted reading and its time in last(): through a lapse, not through a bind", function()
+			local r = rig()
+			assert.are.same({}, { r.a:last() })
+			r.a:bound(KEYPAD)
+			advance(r, 200)
+			read(r, 0) -- the bind's artifact is no reading
+			assert.are.same({}, { r.a:last() })
+			advance(r, 5800)
+			read(r, 3)
+			assert.are.same({ 3, EPOCH0 + 7 }, { r.a:last() })
+			advance(r, 4000)
+			read(r, 5, OTHER) -- ignored
+			read(r, 5)
+			assert.are.same({ 5, EPOCH0 + 11 }, { r.a:last() })
+			advance(r, LAPSE_DEFAULT_MS)
+			assert.are.equal("unknown", r.a:state())
+			assert.is_nil(r.a:debug().level)
+			assert.are.same({ 5, EPOCH0 + 11 }, { r.a:last() }, "a lapse keeps it")
+			r.a:bound(KEYPAD)
+			assert.are.same({}, { r.a:last() }, "a bind clears it")
+			r = settled()
+			read(r, 3)
+			r.a:bound(nil)
+			assert.are.same({}, { r.a:last() }, "an unbind clears it")
+			r.a:stop()
+			assert.are.same({}, { r.a:last() }, "it still answers after stop()")
+		end)
+
+		it("has no time in last() when epoch fails, and the lapse then says how long it waited", function()
+			local r = settled()
+			r.fail_epoch = true
+			read(r, 3)
+			local level, at_s = r.a:last()
+			assert.are.equal(3, level)
+			assert.is_nil(at_s)
+			assert.is_true(r.log.has("warn", "the epoch clock failed"))
+			changes(r)
+			advance(r, LAPSE_DEFAULT_MS)
+			assert.are.same({ { false, "the dark verdict lapsed (no reading for 12 h)" } }, changes(r))
+			r = settled()
+			r.fail_epoch, r.lapse = true, 5400000
+			read(r, 3)
+			changes(r)
+			advance(r, 5400000)
+			assert.are.same({ { false, "the dark verdict lapsed (no reading for 90 min)" } }, changes(r))
+		end)
+
+		it("takes epoch as a whole second, os.time by default, and nil for one that is not a number", function()
+			local r = settled({ no_epoch = true })
+			local before = os.time()
+			read(r, 3)
+			local _, at_s = r.a:last()
+			assert.is_true(at_s >= before and at_s <= os.time(), tostring(at_s))
+			for _, case in ipairs({ { 1763000000.9, 1763000000 }, { "1763000000", nil }, { 0 / 0, nil } }) do
+				local a = ambient.new({ epoch = function() return case[1] end, log = fake_log() })
+				a:reading({ LEVEL = "40" })
+				assert.are.same({ 40, case[2] }, { a:last() }, "epoch() -> " .. tostring(case[1]))
+			end
+		end)
+
+		it("reports last_level, last_at_s and lapse in debug()", function()
+			local r = settled()
+			local d = r.a:debug()
+			assert.is_nil(d.last_level)
+			assert.is_nil(d.last_at_s)
+			assert.is_false(d.lapse)
+			read(r, 3)
+			d = r.a:debug()
+			assert.are.same({ 3, EPOCH0 + 7, true }, { d.last_level, d.last_at_s, d.lapse })
+			advance(r, LAPSE_DEFAULT_MS)
+			assert.are.same({ state = "unknown", threshold = 10, bound = KEYPAD, since_bind_ms = 6000 + LAPSE_DEFAULT_MS,
+				hold = false, last_level = 3, last_at_s = EPOCH0 + 7, lapse = false }, r.a:debug())
 		end)
 	end)
 end)

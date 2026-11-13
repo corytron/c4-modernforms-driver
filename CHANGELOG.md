@@ -11,6 +11,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Fixed
+
+- The pause of the LED animations in the dark could last all day: the keypad sends its light reading only when it changes, and once, on the morning after a driver update, no bright reading reached the driver and the speed chase stayed paused in a bright room. Every message the keypad sends, and every pause and resume, is now written to the Lua output whatever Debug Mode says (a few lines a day), so such a pause can be traced; as a safety net, a pause ends by itself 12 hours after the keypad's last dark reading. While paused, `Keypad Links` names the last reading and its time, for example "the keypad read 1 at 23:51" (#223).
+
 ## 1.10 "Shield Wall", build 226 (2026-11-13)
 
 ### Changed
