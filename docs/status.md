@@ -1,8 +1,21 @@
-# Status of the Modern Forms fan driver (2026-11-09)
+# Status of the Modern Forms fan driver (2026-11-13)
 
 The single page that says what is built, what runs on the house, and what is
 open. Contracts and design notes keep their history; where they and this
 page disagree about the present, this page and the code win.
+
+**1.8 "Carryall" is released: build 207, 2026-11-13 (#195, the contract
+[`min-on-design.md`](min-on-design.md), the rounds in Discussions #197 and
+#199).** It adds `Light Min On (%)` for a light kit that stays dark at its
+lowest levels: Control4's 1 % becomes that fan level, as Min On trims a
+Control4 dimmer, so fades, holds, taps and the slider light from their
+first step. The owner said to ship it without hardware rounds; the house's
+first glow was not measured. No controller reboot is needed. On
+2026-11-12 the Windows session found the fan light's Click Rates now keep
+3 s (they snapped back to 0.250 / 0.750 on 2026-11-09), so the controller
+has been rebooted since and 1.5's tap fades and second-tap stop are live;
+it also set the Min On of the keypad dimmer beside the fan, whose lamp was
+slow to start, from 1 to 10 (Discussion #199). Before it:
 
 **1.7 "Stillsuit" is installed on the house: build 193, released and
 installed in place on 2026-11-10 (#177, #178, #185; deploy issues #181 and

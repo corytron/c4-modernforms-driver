@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.8 "Carryall", build 207 (2026-11-13)
+
 ### Added
 
 - `Light Min On (%)` on the fan's Properties page, for a light kit that stays dark at its lowest levels: set it a few points above the first level at which the light glows, and Control4's 1 % becomes that level, the way Min On trims a Control4 dimmer. A fade, a hold, a tap, the slider and a scene then light the light from their first step, and a dim down stops at the lowest lit level instead of going dark early. 0, the default, changes nothing. Fade, tap and hold times stay the same. A level set in the Modern Forms app, the remote or the wall control below Min On shows in Control4 as 1 % and is never changed. The Status row shows both levels, as "light 40 % (fan 52)", and the Documentation tab has a "Light Min On" section. No controller reboot (#195).
