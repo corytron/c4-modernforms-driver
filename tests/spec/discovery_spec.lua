@@ -104,7 +104,8 @@ end
 
 -- The finder on fakes: a binding that counts its opens, sends and closes, and a clock that runs the timers the
 -- finder arms. opts.open, opts.send, opts.timer and opts.now replace what the fakes do (now: the clock's
--- world.now; false: none); opts.on_window is the finder's listener; opts.no_log leaves the log out.
+-- world.now; false: none); opts.on_window is the finder's listener; opts.pin its pinned MAC (#214); opts.no_log
+-- leaves the log out.
 local function new_world(opts)
 	opts = opts or {}
 	local world = { opened = 0, closed = 0, sent = {}, sent_at = {}, now = 0, timers = {}, log = new_log() }
@@ -172,7 +173,7 @@ local function new_world(opts)
 		now = opts.now or nil -- false: no clock at all
 	end
 	world.finder = discovery.new({ open = open, send = send, close = close, timer = timer, now = now,
-		on_window = opts.on_window, log = (not opts.no_log) and world.log or nil })
+		on_window = opts.on_window, pin = opts.pin, log = (not opts.no_log) and world.log or nil })
 	return world
 end
 
@@ -796,7 +797,7 @@ describe("fan.discovery", function()
 			local runs = (" "):rep(100000)
 			local started = os.clock()
 			assert.same({}, discovery.candidates({ entry(CURRENT) }, PIN, runs .. CURRENT .. runs))
-			assert.same({ CURRENT }, discovery.candidates({ entry(CURRENT) }, PIN, "10.0" .. runs .. ".2.151"))
+			assert.same({ CURRENT }, discovery.candidates({ entry(CURRENT) }, PIN, "10.0" .. runs .. ".2.151", CURRENT))
 			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
 		end)
 
@@ -811,7 +812,7 @@ describe("fan.discovery", function()
 			assert.same({ MOVED }, discovery.candidates(heard, "00005e005301", CURRENT))
 			assert.same({ MOVED }, discovery.candidates(heard, "00:00:5E:00:53:01", CURRENT), "as parse reads a MAC")
 			assert.same({ MOVED }, discovery.candidates({ entry(MOVED, "00:00:5e:00:53:01") }, PIN, CURRENT))
-			assert.same({ ip(172, 16, 0, 1) }, discovery.candidates(heard, "00005E005302", CURRENT))
+			assert.same({ ip(172, 16, 0, 1) }, discovery.candidates(heard, "00005E005302", CURRENT, ip(172, 16, 0, 9)))
 			for _, pin in ipairs({ "00005E005303", "MF_00005E005301", "00005E00530", "00005E0053011", "", "  " }) do
 				assert.same({}, discovery.candidates(heard, pin, CURRENT), pin)
 			end
@@ -832,13 +833,14 @@ describe("fan.discovery", function()
 			for _, address in ipairs({ ip(10, 0, 0, 1), ip(10, 255, 255, 254), ip(172, 16, 0, 1),
 				ip(172, 31, 255, 254), "192.168.0.1", "192.168.255.254", ip(169, 254, 0, 1),
 				ip(169, 254, 255, 254) }) do
-				assert.same({ address }, discovery.candidates({ entry(address) }, PIN, CURRENT), address)
+				-- The address's own subnet as the anchor (#214), so the block is what decides here.
+				assert.same({ address }, discovery.candidates({ entry(address) }, PIN, CURRENT, address), address)
 			end
 			for _, address in ipairs({ ip(9, 255, 255, 255), ip(11, 0, 0, 0), ip(172, 15, 255, 255),
 				ip(172, 32, 0, 0), ip(192, 167, 255, 255), ip(192, 169, 0, 0), ip(169, 253, 255, 255),
 				ip(169, 255, 0, 0), ip(100, 64, 0, 1), "198.51.100.7", "127.0.0.1", "0.0.0.0", "224.0.0.251",
 				"255.255.255.255" }) do
-				assert.same({}, discovery.candidates({ entry(address) }, PIN, CURRENT), address)
+				assert.same({}, discovery.candidates({ entry(address) }, PIN, CURRENT, address), address)
 			end
 		end)
 
@@ -869,9 +871,9 @@ describe("fan.discovery", function()
 		end)
 
 		it("takes two addresses of one instance, in the order heard", function()
-			local heard = { entry(MOVED), entry("192.168.0.1") }
-			assert.same({ MOVED, "192.168.0.1" }, discovery.candidates(heard, PIN, CURRENT))
-			assert.same({ "192.168.0.1", MOVED }, discovery.candidates({ heard[2], heard[1] }, PIN, CURRENT))
+			local heard = { entry(MOVED), entry(ip(10, 0, 2, 153)) }
+			assert.same({ MOVED, ip(10, 0, 2, 153) }, discovery.candidates(heard, PIN, CURRENT))
+			assert.same({ ip(10, 0, 2, 153), MOVED }, discovery.candidates({ heard[2], heard[1] }, PIN, CURRENT))
 		end)
 
 		it("gives each address once, whichever instance named it", function()
@@ -881,9 +883,9 @@ describe("fan.discovery", function()
 
 		it("gives at most 3 addresses, the first heard; the current address and repeats do not count", function()
 			assert.equal(3, discovery.MAX_CANDIDATES)
-			local heard = { entry(CURRENT), entry(MOVED), entry(MOVED), entry(ip(172, 16, 0, 1)), entry(CURRENT),
-				entry("192.168.0.1"), entry(ip(169, 254, 0, 1)), entry(ip(10, 0, 0, 1)) }
-			assert.same({ MOVED, ip(172, 16, 0, 1), "192.168.0.1" }, discovery.candidates(heard, PIN, CURRENT))
+			local heard = { entry(CURRENT), entry(MOVED), entry(MOVED), entry(ip(10, 0, 2, 153)), entry(CURRENT),
+				entry(ip(10, 0, 2, 154)), entry(ip(10, 0, 2, 155)), entry(ip(10, 0, 2, 156)) }
+			assert.same({ MOVED, ip(10, 0, 2, 153), ip(10, 0, 2, 154) }, discovery.candidates(heard, PIN, CURRENT))
 		end)
 
 		it("gives nothing for an empty or missing heard list or a pin that is no MAC; no current takes nothing away",
@@ -896,8 +898,8 @@ describe("fan.discovery", function()
 				for _, pin in ipairs({ false, 42, {}, true }) do
 					assert.same({}, discovery.candidates(heard, pin, CURRENT))
 				end
-				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, nil))
-				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, ""))
+				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, nil, CURRENT))
+				assert.same({ CURRENT, MOVED }, discovery.candidates(heard, PIN, "", CURRENT))
 				assert.same({}, discovery.candidates())
 			end)
 
@@ -986,7 +988,8 @@ describe("fan.discovery", function()
 					{ instance = "MF_Fan_005301", address = MOVED, mac = PIN },
 				}
 				for index, each in ipairs(entries) do
-					local listed = #discovery.candidates({ each }, PIN, CURRENT) == 1
+					-- The entry's own subnet as the anchor (#214): only usable() decides here.
+					local listed = #discovery.candidates({ each }, PIN, CURRENT, each.address) == 1
 					assert.equal(discovery.usable(each), listed, "entry " .. index)
 				end
 			end)
@@ -1064,7 +1067,7 @@ describe("fan.discovery", function()
 			assert.same({ fx.FAN_ONE }, got.calls[1].list)
 		end)
 
-		it("keeps at most 64 fans in a window", function()
+		it("keeps at most 32 fans in a window (#214)", function()
 			local world = new_world()
 			local got = collector()
 			world.finder:find(got.callback)
@@ -1073,10 +1076,10 @@ describe("fan.discovery", function()
 			end
 			world.advance(3000)
 			local list = got.calls[1].list
-			assert.equal(64, #list)
-			assert.equal(64, discovery.MAX_FOUND)
+			assert.equal(32, #list)
+			assert.equal(32, discovery.MAX_FOUND)
 			assert.equal("MF_Fan_000001", list[1].instance)
-			assert.equal("MF_Fan_000064", list[64].instance)
+			assert.equal("MF_Fan_000032", list[32].instance)
 		end)
 
 		it("hears nothing after the window: the list it handed out stays as it was", function()
@@ -1512,7 +1515,7 @@ describe("fan.discovery", function()
 			assert.same({}, discovery.candidates(got.calls[1].heard, PIN, MOVED))
 		end)
 
-		it("keeps as many pairs as fans (64), so ten other fans heard first do not crowd the pinned one out",
+		it("keeps as many entries as fans (32), so ten other fans heard first do not crowd the pinned one out",
 			function()
 				assert.equal(discovery.MAX_FOUND, discovery.MAX_HEARD)
 				local world = new_world()
@@ -1530,7 +1533,7 @@ describe("fan.discovery", function()
 				assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
 			end)
 
-		it("keeps at most 64 pairs, the first heard: a 65th is not kept, whoever sent it", function()
+		it("keeps at most 32 entries, the first heard: a 33rd is not kept, whoever sent it (#214)", function()
 			local world = new_world()
 			local got = hearing()
 			world.finder:find(got.callback)
@@ -1538,8 +1541,9 @@ describe("fan.discovery", function()
 				world.finder:received(6001, 5353, fx.fan_message({ fan = numbered_fan(index) }))
 			end
 			world.advance(3000)
-			assert.equal(64, #got.calls[1].heard)
-			assert.equal("MF_Fan_000064", got.calls[1].heard[64].instance)
+			assert.equal(32, #got.calls[1].heard)
+			assert.equal(32, discovery.MAX_HEARD)
+			assert.equal("MF_Fan_000032", got.calls[1].heard[32].instance)
 		end)
 
 		it("gives both lists empty, with the error, when the window cannot be had", function()
@@ -2057,6 +2061,373 @@ describe("fan.discovery", function()
 			world.finder:find(function() end)
 			world.finder:stop()
 			assert.equal("closed", world.finder:received(6001, 5353, fx.K10_FIRST))
+		end)
+	end)
+
+	describe("bounds on what strangers' datagrams cost (#214)", function()
+		local SRV_OWNER = { fx.FAN_ONE.instance, "_easylink", "_tcp", "local" }
+
+		-- FAN_ONE's SRV, TXT and A records after `junk` records of a type nobody reads (each "x.local", no data).
+		local function after_junk(junk)
+			local fan = fx.FAN_ONE
+			local buf = enc.buffer()
+			buf.put(enc.header({ flags = 0x8400, an = junk + 3 }))
+			for _ = 1, junk do
+				enc.rr(buf, enc.name("x", "local"), 99, 1, 120, "")
+			end
+			enc.rr(buf, enc.name(unpack(SRV_OWNER)), TYPE.SRV, 1, 120, enc.srv(0, 0, 80, enc.name(fan.instance, "local")))
+			enc.rr(buf, enc.name(unpack(SRV_OWNER)), TYPE.TXT, 1, 4500,
+				enc.txt(PROTOCOL, "MAC=00:00:5E:00:53:01", "Firmware Rev=02.00.0052"))
+			enc.rr(buf, enc.name(fan.instance, "local"), TYPE.A, 1, 120, enc.a(fan.address))
+			return buf.bytes()
+		end
+
+		-- FAN_ONE's records after `long` TXT records whose owners are names of 251 octets (five labels of 49).
+		local function after_long_names(long)
+			local fan = fx.FAN_ONE
+			local label = string.rep("a", 49)
+			local buf = enc.buffer()
+			buf.put(enc.header({ flags = 0x8400, an = long + 3 }))
+			for _ = 1, long do
+				enc.rr(buf, enc.name(label, label, label, label, label), TYPE.TXT, 1, 120, enc.txt("k=v"))
+			end
+			enc.rr(buf, enc.name(unpack(SRV_OWNER)), TYPE.SRV, 1, 120, enc.srv(0, 0, 80, enc.name(fan.instance, "local")))
+			enc.rr(buf, enc.name(unpack(SRV_OWNER)), TYPE.TXT, 1, 4500,
+				enc.txt(PROTOCOL, "MAC=00:00:5E:00:53:01", "Firmware Rev=02.00.0052"))
+			enc.rr(buf, enc.name(fan.instance, "local"), TYPE.A, 1, 120, enc.a(fan.address))
+			return buf.bytes()
+		end
+
+		-- The costliest datagram the review found (security-214 S1-6): as many A records as 9000 bytes hold, each
+		-- owned by a pointer to one name of 127 one-octet labels (255 octets).
+		local function a_record_flood()
+			local labels = {}
+			for i = 1, 127 do
+				labels[i] = "a"
+			end
+			local name = enc.name(unpack(labels))
+			local data = enc.u16(TYPE.A) .. enc.u16(1) .. enc.u32(120) .. enc.u16(4) .. enc.a(CURRENT)
+			local rr = enc.ptr(12) .. data
+			local body, n = name .. data, 1
+			while 12 + #body + #rr <= discovery.MAX_DATAGRAM do
+				body, n = body .. rr, n + 1
+			end
+			return enc.header({ flags = 0x8400, an = n }) .. body, n
+		end
+
+		-- Every record a TXT record whose owner is a pointer to itself: each name a loop of 16 hops.
+		local function self_pointers(count)
+			local buf = enc.buffer()
+			buf.put(enc.header({ flags = 0x8400, an = count }))
+			for _ = 1, count do
+				enc.rr(buf, enc.ptr(buf.size()), TYPE.TXT, 1, 120, enc.txt(PROTOCOL))
+			end
+			return buf.bytes()
+		end
+
+		-- How many string.byte and string.sub calls fn() makes: the parser's work, counted rather than timed.
+		local function work(fn)
+			local byte, sub = string.byte, string.sub
+			local calls = 0
+			string.byte = function(...) -- luacheck: ignore 122
+				calls = calls + 1
+				return byte(...)
+			end
+			string.sub = function(...) -- luacheck: ignore 122
+				calls = calls + 1
+				return sub(...)
+			end
+			local ok, a, b = pcall(fn)
+			string.byte, string.sub = byte, sub -- luacheck: ignore 122
+			assert(ok, tostring(a))
+			return calls, a, b
+		end
+
+		it("reads at most 64 records of a datagram: a fan whose records come after them is not read", function()
+			assert.equal(64, discovery.MAX_RECORDS)
+			local list, why = parse(after_junk(61))
+			assert.same({ fx.FAN_ONE }, list, "61 + 3 records: all read")
+			assert.is_nil(why)
+			list, why = parse(after_junk(62))
+			assert.same({}, list, "the A record is the 65th")
+			assert.equal("records", why)
+		end)
+
+		it("reads at most 2048 octets of names from a datagram: a fan behind longer names is not read", function()
+			assert.equal(2048, discovery.MAX_NAME_OCTETS)
+			local list, why = parse(after_long_names(7))
+			assert.same({ fx.FAN_ONE }, list, "seven names of 251 octets and the fan's fit")
+			assert.is_nil(why)
+			list, why = parse(after_long_names(9))
+			assert.same({}, list)
+			assert.equal("records", why)
+		end)
+
+		it("parses a datagram of A records that all point at a 255-octet name in bounded work", function()
+			local datagram, records = a_record_flood()
+			assert.is_true(records > 500, tostring(records))
+			assert.is_true(#datagram <= discovery.MAX_DATAGRAM)
+			local calls, list, why = work(function() return discovery.parse(datagram) end)
+			assert.same({}, list)
+			assert.equal("records", why)
+			-- Unbounded, every record read its 127 labels: more than 100 000 calls. Bounded by 2048 octets of names
+			-- (about 1000 one-octet labels, two calls each) and 64 records (a few calls each).
+			assert.is_true(calls < 4000, tostring(calls))
+		end)
+
+		it("parses a datagram whose every name is a pointer loop in bounded work", function()
+			local datagram = self_pointers(200)
+			assert.is_true(#datagram <= discovery.MAX_DATAGRAM, tostring(#datagram))
+			local calls, list = work(function() return discovery.parse(datagram) end)
+			assert.same({}, list)
+			assert.is_true(calls < 4000, tostring(calls))
+		end)
+
+		it("still reads every fixture of a real fan and the two-fan datagram", function()
+			for _, name in ipairs({ "K10_FIRST", "K10_SECOND", "REORDERED", "K10_MOVED", "GEN12_ANNOUNCEMENT" }) do
+				local list, why = parse(fx[name])
+				assert.equal(1, #list, name)
+				assert.is_nil(why, name)
+			end
+			assert.equal(2, #parse(fx.TWO_FANS))
+		end)
+
+		it("parses at most 256 datagrams a window: the 257th is dropped unread and counted", function()
+			assert.equal(256, discovery.WINDOW_DATAGRAMS)
+			local world = new_world()
+			local got = collector()
+			world.finder:find(got.callback)
+			for _ = 1, 256 do
+				assert.equal("other", world.finder:received(6001, 5353, fx.OTHER_EASYLINK))
+			end
+			assert.equal("dropped", world.finder:received(6001, 5353, fx.K10_FIRST))
+			assert.equal("dropped", world.finder:received(6001, 5353, "hello"))
+			assert.equal("query", world.finder:received(6001, 5353, discovery.query()), "our echo is still known")
+			world.advance(3000)
+			assert.same({}, got.calls[1].list)
+			assert.is_true(world.log.has("DEBUG Search: this window's datagrams budget is spent"))
+			assert.is_true(world.log.has("other=256 queries=1 unparsed=0 fans=0 dropped=2"))
+			-- The next window has a budget of its own.
+			local again = collector()
+			world.finder:find(again.callback)
+			assert.equal("answer", world.finder:received(6001, 5353, fx.K10_FIRST))
+			world.advance(3000)
+			assert.same({ fx.FAN_ONE }, again.calls[1].list)
+		end)
+
+		it("parses at most 256 KB a window; a datagram too large to parse spends none of it", function()
+			assert.equal(262144, discovery.WINDOW_BYTES)
+			local world = new_world()
+			world.finder:find(function() end)
+			local oversized = enc.header({ flags = 0x8400 }) .. string.rep("\0", discovery.MAX_DATAGRAM)
+			for _ = 1, 100 do
+				assert.equal("unparsed", world.finder:received(6001, 5353, oversized))
+			end
+			local padded = enc.header({ flags = 0x8400 }) .. string.rep("\0", discovery.MAX_DATAGRAM - 12)
+			for index = 1, 29 do
+				assert.equal("other", world.finder:received(6001, 5353, padded), index)
+			end
+			assert.equal("dropped", world.finder:received(6001, 5353, padded))
+			assert.equal("dropped", world.finder:received(6001, 5353, fx.K10_FIRST), "small, but after the budget ran out")
+			world.advance(3000)
+			assert.is_true(world.log.has("DEBUG Search: this window's bytes budget is spent"))
+			assert.is_true(world.log.has("fans=0 dropped=2"))
+		end)
+
+		it("spends at most 250 ms of the clock parsing a window, and does not count a clock that went back", function()
+			assert.equal(250, discovery.WINDOW_PARSE_MS)
+			-- Each reading of this clock is 60 ms after the one before: every datagram measures 60 ms.
+			local t = 0
+			local world = new_world({ now = function()
+				t = t + 60
+				return t
+			end })
+			world.finder:find(function() end)
+			for index = 1, 5 do
+				assert.equal("answer", world.finder:received(6001, 5353, fx.K10_FIRST), index)
+			end
+			assert.equal("dropped", world.finder:received(6001, 5353, fx.K10_FIRST), "300 ms spent")
+			world.advance(3000)
+			assert.is_true(world.log.has("DEBUG Search: this window's time budget is spent"))
+			-- A clock that goes back, or jumps further than a window, measures nothing.
+			local readings, i = { 1000, 500, 600, 600 + 4000, 5000, 5001 }, 0
+			local odd = new_world({ now = function()
+				i = i + 1
+				return readings[i] or 5001
+			end })
+			odd.finder:find(function() end)
+			for index = 1, 3 do
+				assert.equal("answer", odd.finder:received(6001, 5353, fx.K10_FIRST), index)
+			end
+			assert.equal("answer", odd.finder:received(6001, 5353, fx.K10_FIRST))
+		end)
+
+		it("needs no clock: without one only the datagram and byte budgets apply", function()
+			local world = new_world({ now = false })
+			world.finder:find(function() end)
+			for _ = 1, 256 do
+				world.finder:received(6001, 5353, fx.K10_FIRST)
+			end
+			assert.equal("dropped", world.finder:received(6001, 5353, fx.K10_FIRST))
+		end)
+
+		-- 64 answers of other fans, each its own MAC and address, in the order sent.
+		local function crowd(world, count)
+			for index = 1, count do
+				local fan = { instance = string.format("MF_Fan_%06d", index), address = ip(10, 0, 9, index), port = 80,
+					mac = string.format("00005E00%04X", index), firmware = "1" }
+				world.finder:received(6001, 5353, fx.fan_message({ fan = fan }))
+			end
+		end
+
+		it("keeps the pinned fan's answer however many others came first (security-214 S1-5)", function()
+			local world = new_world({ pin = function() return PIN end })
+			local got = hearing()
+			world.finder:find(got.callback)
+			crowd(world, 64)
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.advance(3000)
+			local call = got.calls[1]
+			assert.equal(discovery.MAX_HEARD + 1, #call.heard)
+			assert.equal(discovery.MAX_FOUND + 1, #call.list)
+			assert.same(pair_of(fx.FAN_ONE_MOVED), call.heard[#call.heard])
+			assert.same({ MOVED }, discovery.candidates(call.heard, PIN, CURRENT))
+		end)
+
+		it("protects nothing without a pin: the 33rd answer is not kept, whoever sent it", function()
+			for _, pin in ipairs({ false, function() return nil end, function() error("gone") end,
+				function() return "MF_00005E005301" end, function() return 42 end }) do
+				local world = new_world({ pin = pin or nil })
+				local got = hearing()
+				assert.has_no.errors(function()
+					world.finder:find(got.callback)
+					crowd(world, 64)
+					world.finder:received(6001, 5353, fx.K10_MOVED)
+					world.advance(3000)
+				end)
+				assert.equal(discovery.MAX_HEARD, #got.calls[1].heard)
+				assert.same({}, discovery.candidates(got.calls[1].heard, PIN, CURRENT))
+			end
+		end)
+
+		it("keeps at most 4 entries of the pinned MAC a window", function()
+			assert.equal(4, discovery.MAX_PINNED)
+			local world = new_world({ pin = function() return "00:00:5e:00:53:01" end })
+			local got = hearing()
+			world.finder:find(got.callback)
+			for index = 1, 10 do
+				world.finder:received(6001, 5353, fx.fan_message({ fan = { instance = "MF_Fan_005301",
+					address = ip(10, 0, 2, 160 + index), port = 80, mac = PIN, firmware = "1" } }))
+			end
+			crowd(world, 40)
+			world.advance(3000)
+			local own = 0
+			for _, entry in ipairs(got.calls[1].heard) do
+				if entry.mac == PIN then
+					own = own + 1
+				end
+			end
+			assert.equal(4, own)
+			assert.equal(4 + discovery.MAX_HEARD, #got.calls[1].heard)
+		end)
+
+		it("reads the pin when the window opens and again when a find joins it", function()
+			local pins, calls = { nil, PIN }, 0
+			local world = new_world({ pin = function()
+				calls = calls + 1
+				return pins[calls]
+			end })
+			local got = hearing()
+			world.finder:find(function() end) -- the scheduler's window, no pin then
+			world.finder:find(got.callback)   -- the follower joins
+			assert.equal(2, calls)
+			crowd(world, 40)
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.advance(3000)
+			assert.same({ MOVED }, discovery.candidates(got.calls[1].heard, PIN, CURRENT))
+		end)
+
+		it("does not let another MAC's answer for the pinned fan's instance and address hide the pinned fan's", function()
+			local world = new_world()
+			local got = hearing()
+			world.finder:find(got.callback)
+			world.finder:received(6001, 5353, fx.fan_message({ fan = { instance = "MF_Fan_005301", address = MOVED,
+				port = 80, mac = "00005E005399", firmware = "1" } }))
+			world.finder:received(6001, 5353, fx.K10_MOVED)
+			world.advance(3000)
+			assert.equal(2, #got.calls[1].heard)
+			assert.same({ MOVED }, discovery.candidates(got.calls[1].heard, PIN, CURRENT))
+		end)
+
+		it("writes no text of an answer into the log but the MAC's last four digits and the address", function()
+			local world = new_world()
+			world.finder:find(function() end)
+			local hostile = { instance = "MF_\27[31m" .. string.rep("Z", 50), address = MOVED, port = 80,
+				mac = PIN, firmware = "\1\2" .. string.rep("9", 20) }
+			world.finder:received(6001, 5353, fx.fan_message({ fan = hostile }))
+			crowd(world, 64)
+			world.advance(3000)
+			for _, line in ipairs(world.log.lines) do
+				assert.is_nil(line:find("[%c\128-\255]"), line)
+				assert.is_true(#line <= 200, line)
+				assert.is_nil(line:find("ZZZ", 1, true), line)
+			end
+		end)
+	end)
+
+	describe("same_subnet and candidates' subnet (#214, security-214 S1-7)", function()
+		local function entry(address, mac)
+			return { instance = "MF_Fan_005301", address = address, mac = mac or PIN, port = 80 }
+		end
+
+		it("is the same /24, or both link-local; never another block", function()
+			assert.is_true(discovery.same_subnet(CURRENT, MOVED))
+			assert.is_true(discovery.same_subnet(CURRENT, CURRENT))
+			assert.is_true(discovery.same_subnet(ip(10, 0, 2, 1), ip(10, 0, 2, 254)))
+			assert.is_false(discovery.same_subnet(CURRENT, ip(10, 0, 3, 151)))
+			assert.is_false(discovery.same_subnet(CURRENT, ip(10, 9, 9, 9)))
+			assert.is_false(discovery.same_subnet(CURRENT, "192.168.2.151"))
+			assert.is_true(discovery.same_subnet(ip(169, 254, 1, 7), ip(169, 254, 200, 9)), "one link-local /16")
+			assert.is_false(discovery.same_subnet(ip(169, 254, 1, 7), CURRENT))
+			assert.is_false(discovery.same_subnet(CURRENT, ip(169, 254, 2, 151)))
+		end)
+
+		it("is false for what is not an address in parse's spelling, and never raises", function()
+			for _, other in ipairs({ "010.0.2.152", " 10.0.2.152", "10.0.2", "fan.local", "", 42, true, {} }) do
+				local result
+				assert.has_no.errors(function() result = discovery.same_subnet(CURRENT, other) end)
+				assert.is_false(result, tostring(other))
+				assert.is_false(discovery.same_subnet(other, CURRENT), tostring(other))
+			end
+			assert.is_false(discovery.same_subnet())
+		end)
+
+		it("gives a follow no address outside the subnet the fan last answered in", function()
+			local heard = { entry(ip(10, 9, 9, 9)), entry("192.168.2.20"), entry(ip(10, 0, 3, 152)),
+				entry(ip(169, 254, 169, 254)), entry(ip(172, 16, 2, 152)), entry(MOVED) }
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, CURRENT))
+			assert.same({ MOVED }, discovery.candidates(heard, PIN, CURRENT, CURRENT))
+		end)
+
+		it("takes the subnet of the anchor, the address the fan last answered at, when it is given", function()
+			local heard = { entry(MOVED), entry(ip(10, 0, 3, 152)), entry(ip(10, 0, 3, 153)) }
+			assert.same({ ip(10, 0, 3, 152), ip(10, 0, 3, 153) },
+				discovery.candidates(heard, PIN, CURRENT, ip(10, 0, 3, 151)))
+			assert.same({ ip(10, 0, 3, 153) }, discovery.candidates(heard, PIN, ip(10, 0, 3, 152), " " .. ip(10, 0, 3, 151)))
+		end)
+
+		it("follows a link-local fan only within 169.254/16", function()
+			local heard = { entry(ip(169, 254, 7, 7)), entry(CURRENT), entry(ip(169, 254, 9, 9)) }
+			assert.same({ ip(169, 254, 7, 7), ip(169, 254, 9, 9) }, discovery.candidates(heard, PIN, ip(169, 254, 1, 1)))
+		end)
+
+		it("gives nothing when no subnet is known: an anchor that is no address", function()
+			local heard = { entry(MOVED) }
+			for _, anchor in ipairs({ "fan.local", "", "010.0.2.151", 42, true }) do
+				assert.same({}, discovery.candidates(heard, PIN, CURRENT, anchor), tostring(anchor))
+			end
+			assert.same({}, discovery.candidates(heard, PIN, nil))
+			assert.same({}, discovery.candidates(heard, PIN, "fan.local"))
 		end)
 	end)
 end)

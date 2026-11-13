@@ -19,11 +19,23 @@
 --     texts.suffix for the log lines).
 --   * ASCII only, except U+201A, which stands for a comma inside a list item
 --     (a list property is one comma-separated string), as the Hue drivers
---     write it. What the owner typed into Fan Address, and the instance name
---     another fan announces (Found Fans, L32), are echoed cut, with every byte
---     outside printable ASCII shown as "?"; so is the Breeze strength given
---     (L34). Item names Director gives (L22, L23, L36, L37, L41) are printed
---     as they are, cut only between characters.
+--     write it, U+2026, which ends a text texts.clean cut, and the UTF-8 a
+--     name or a fan's answer holds. What the owner typed into Fan Address,
+--     and the instance name another fan announces (Found Fans, L32), are
+--     echoed cut, with every byte outside printable ASCII shown as "?"; so is
+--     the Breeze strength given (L34). Item names Director gives (L22, L23,
+--     L36, L37, L41, L46) are printed as they are, cut only between
+--     characters.
+--   * Text a fan sends (#214: the client id, the fan and light types, the
+--     firmware versions, an address) and the names a Last Action line holds
+--     go through texts.clean before they reach a row: no control character,
+--     no invalid UTF-8, at most TEXT_MAX characters each; and every row that
+--     holds them is cut at ROW_CUT, where Composer cuts. The characters <, &
+--     and > stay: UpdateProperty and UpdatePropertyList take plain text, and
+--     the SDK documents C4:XmlEscapeString only for XML a driver builds
+--     itself (API 24_properties/_5, _6; 9_helper/_20). What no escaping can
+--     carry is a character XML 1.0 forbids (NUL, the other C0 controls, U+FFFE
+--     and U+FFFF), and clean leaves none.
 --   * Rows stay under about 70 characters (Composer clips near 75, ECC F29).
 --     Two texts can pass that: Fan Automations with every item active (84
 --     characters; the contract gives no shorter form) and S9 with a
@@ -61,7 +73,8 @@ texts.PHASES = { "unset", "waiting", "online", "offline", "rebooting", "foreign"
 -- then the waiting pick, L32 (auto-discovery-design 5), then Breeze's eight,
 -- L33 to L40 (breeze-design section 5; "Breeze fan" since section 11), and
 -- L41, the 1.2 switch still bound (breeze-design BF-D10), then L42, the Breeze
--- LED animation without Per speed (breeze-leds-design BL-D3, section 2).
+-- LED animation without Per speed (breeze-leds-design BL-D3, section 2), and the
+-- rest in the order they came; L46 (#214) is the Breeze fan added but not bound.
 texts.RESULT_KEYS = {
 	"learned", "moved", "now_using", "already", "no_answer", "not_a_fan", "nothing_to_use",
 	"reboot_sent", "reboot_offline", "reboot_refused", "reboot_pending",
@@ -74,6 +87,7 @@ texts.RESULT_KEYS = {
 	"speed_leds_need_per_speed",
 	"keypad_leds_shown",
 	"keypad_leds_hidden",
+	"breeze_fan_not_connected",
 }
 
 -- S3 shows the typed text cut to this many characters (section 7.1).
@@ -98,6 +112,15 @@ local DAY_S = 86400
 
 -- U+201A, the "comma" of a list item (as the Hue drivers write it).
 local LOW_QUOTE = "\226\128\154"
+
+-- #214: fan-supplied text (an id, a type, a version, an address) and a name in
+-- a Last Action line are cut to this many characters by texts.clean, and a row
+-- that holds them to ROW_CUT, the width Composer shows (ECC F29).
+texts.TEXT_MAX = 64
+texts.ROW_CUT = 75
+
+-- U+2026, the end of a text texts.clean cut.
+local ELLIPSIS = "\226\128\166"
 
 -- Helpers -----------------------------------------------------------------
 
@@ -217,6 +240,133 @@ local function ascii(s)
 	return (s:gsub("[^ -~]", "?"))
 end
 
+-- The length in bytes of the valid UTF-8 character at `i` of `s`, whose first
+-- byte `b` is 128 or over, by RFC 3629 (no overlong form, no surrogate,
+-- nothing past U+10FFFF); nil when the bytes there are not one.
+local function utf8_len(s, i, b)
+	local need, lo, hi
+	if b >= 194 and b <= 223 then
+		need, lo, hi = 2, 128, 191
+	elseif b == 224 then
+		need, lo, hi = 3, 160, 191
+	elseif b == 237 then
+		need, lo, hi = 3, 128, 159
+	elseif b >= 225 and b <= 239 then
+		need, lo, hi = 3, 128, 191
+	elseif b == 240 then
+		need, lo, hi = 4, 144, 191
+	elseif b >= 241 and b <= 243 then
+		need, lo, hi = 4, 128, 191
+	elseif b == 244 then
+		need, lo, hi = 4, 128, 143
+	else
+		return nil
+	end
+	local second = s:byte(i + 1)
+	if not second or second < lo or second > hi then
+		return nil
+	end
+	for j = i + 2, i + need - 1 do
+		local c = s:byte(j)
+		if not c or c < 128 or c > 191 then
+			return nil
+		end
+	end
+	return need
+end
+
+-- Valid UTF-8 characters that clean does not keep: the C1 controls, the line
+-- and paragraph separators and the bidirectional controls (which break or
+-- reorder what follows them) become a space; U+FFFE and U+FFFF, which are no
+-- characters (XML 1.0 forbids them), become "?".
+local function replaced(ch)
+	local b1, b2, b3 = ch:byte(1, 3)
+	if b1 == 194 and b2 <= 159 then
+		return " " -- U+0080 to U+009F
+	elseif b1 == 226 and b2 == 128 and b3 >= 168 and b3 <= 174 then
+		return " " -- U+2028, U+2029, U+202A to U+202E
+	elseif b1 == 226 and b2 == 129 and b3 >= 166 and b3 <= 169 then
+		return " " -- U+2066 to U+2069
+	elseif b1 == 239 and b2 == 191 and (b3 == 190 or b3 == 191) then
+		return "?" -- U+FFFE, U+FFFF
+	end
+	return nil
+end
+
+-- texts.clean(x, max) -> string (#214): text from outside the driver (a fan's
+-- answer, a name) made safe for a row, a list item, the store or a log line.
+--   * A control character (NUL, the other C0 controls, DEL, the C1 controls,
+--     and the separators and bidirectional controls above) becomes a space.
+--   * Printable ASCII and valid UTF-8 stay as they are, < & > included.
+--   * Every byte that is not part of a valid UTF-8 character becomes "?".
+--   * Past `max` characters (default TEXT_MAX) the text is cut: the first
+--     max - 1 characters and U+2026, so the result is never longer than
+--     `max` characters. A max below 1 gives "".
+-- Blanks are left as they are (the callers trim). A whole number gives its
+-- digits; anything that is not a string or a whole number gives "". Linear:
+-- at most 4 x (max + 1) bytes are read, however long the text is.
+function texts.clean(x, max)
+	local s = scalar(x)
+	local cap = tonumber(max)
+	if cap == nil or cap ~= cap then
+		cap = texts.TEXT_MAX
+	end
+	cap = math.floor(cap)
+	if cap < 1 or s == "" then
+		return ""
+	end
+	-- Each character takes 1 to 4 bytes, so the first cap + 1 of them lie in
+	-- these bytes, and whatever was cut off is past the cut anyway.
+	if #s > 4 * (cap + 1) then
+		s = s:sub(1, 4 * (cap + 1))
+	end
+	local out, count, i, n = {}, 0, 1, #s
+	while i <= n and count < cap do
+		local _, run_end = s:find("^[ -~]+", i)
+		if run_end then
+			local take = math.min(run_end - i + 1, cap - count)
+			out[#out + 1] = s:sub(i, i + take - 1)
+			count, i = count + take, i + take
+		else
+			local b = s:byte(i)
+			local len = b >= 128 and utf8_len(s, i, b) or nil
+			local piece
+			if len then
+				piece = s:sub(i, i + len - 1)
+				piece = replaced(piece) or piece
+			else
+				len = 1
+				piece = (b < 32 or b == 127) and " " or "?"
+			end
+			out[#out + 1] = piece
+			count, i = count + 1, i + len
+		end
+	end
+	if i <= n then
+		-- More is left: the last character kept gives way to the marker.
+		local last = out[#out]
+		if #last > 1 and last:find("^[ -~]+$") then
+			out[#out] = last:sub(1, -2)
+		else
+			out[#out] = nil
+		end
+		out[#out + 1] = ELLIPSIS
+	end
+	return table.concat(out)
+end
+
+-- Fan-supplied text for a row (#214): blanks trimmed, then texts.clean to
+-- TEXT_MAX characters, then trimmed again (a control character at an end is a
+-- blank by then). "" for none.
+local function fan_text(x)
+	return trim(texts.clean(trim(scalar(x)), texts.TEXT_MAX))
+end
+
+-- A whole row that holds fan-supplied text, cut where Composer cuts.
+local function cut_row(text)
+	return texts.clean(text, texts.ROW_CUT)
+end
+
 -- Text a fan's multicast DNS answer carries (its instance name, its address),
 -- as Found Fans and L32 show it: control characters dropped (as
 -- texts.list_item drops them), every other byte outside printable ASCII shown
@@ -291,11 +441,12 @@ end
 
 -- Fan ID: "MF_00005E005301 (MAC 00:00:5e:00:53:01)", from the pin the model
 -- keeps ({ client_id, mac, ... }); "" before the first contact (section 7.3).
+-- The client id is the fan's own text: cleaned and cut (#214).
 function texts.fan_id(pin)
 	if type(pin) ~= "table" then
 		return ""
 	end
-	local id = scalar(pin.client_id)
+	local id = fan_text(pin.client_id)
 	if id == "" then
 		return ""
 	end
@@ -303,7 +454,7 @@ function texts.fan_id(pin)
 	if mac == "" then
 		return id
 	end
-	return string.format("%s (MAC %s)", id, mac)
+	return cut_row(string.format("%s (MAC %s)", id, mac))
 end
 
 -- The pin back from a Fan ID row (section 8: after a restore onto a new
@@ -338,7 +489,7 @@ local function maker_name(fan_type)
 	end
 	local ok, name = pcall(names.lookup, fan_type)
 	if ok and type(name) == "string" then
-		return trim(name)
+		return fan_text(name)
 	end
 	return ""
 end
@@ -358,19 +509,22 @@ end
 -- table) with the house's type on Gen 3 is 69 too. So no shortened form is
 -- needed, as Fan Automations needs one; a name longer than the table's, or a
 -- longer kit code, would have to bring one.
+--
+-- #214: the type and the kit are the fan's own text, each cleaned and cut to
+-- TEXT_MAX characters, and the row is cut at ROW_CUT.
 function texts.fan_model(pin, info, has_wind)
 	if type(info) ~= "table" then
 		return ""
 	end
 	local generation = type(pin) == "table" and pin.generation or nil
-	local fan = "fan " .. val(info.fan_type)
 	-- The type that was looked up is the type that is shown, blanks trimmed.
-	local fan_type = trim(scalar(info.fan_type))
+	local fan_type = fan_text(info.fan_type)
+	local fan = "fan " .. val(fan_type)
 	local name = maker_name(fan_type)
 	if name ~= "" then
 		fan = string.format("%s (%s)", name, fan_type)
 	end
-	local kit = scalar(info.light_type)
+	local kit = fan_text(info.light_type)
 	local light = "no light kit"
 	if kit ~= "" and info.has_light ~= false then
 		light = "light kit " .. kit
@@ -382,35 +536,37 @@ function texts.fan_model(pin, info, has_wind)
 	if has_wind == true then
 		out = out .. ", Breeze"
 	end
-	return out
+	return cut_row(out)
 end
 
 -- Firmware: "02.00.0052 (motor 03.00.0000) since 2026-10-27", and after a
 -- change "02.00.0060 (motor 03.00.0000) since 2026-11-02, was 02.00.0052"
 -- (section 7.3). `info` = { firmware, mcu_firmware, firmware_since,
--- firmware_was }. "" until a firmware is known.
+-- firmware_was }. "" until a firmware is known. #214: each version is the
+-- fan's own text, cleaned and cut to TEXT_MAX characters; the row is cut at
+-- ROW_CUT.
 function texts.firmware(info)
 	if type(info) ~= "table" then
 		return ""
 	end
-	local firmware = scalar(info.firmware)
+	local firmware = fan_text(info.firmware)
 	if firmware == "" then
 		return ""
 	end
 	local out = firmware
-	local motor = scalar(info.mcu_firmware)
+	local motor = fan_text(info.mcu_firmware)
 	if motor ~= "" then
 		out = out .. " (motor " .. motor .. ")"
 	end
-	local since = date_text(info.firmware_since)
+	local since = fan_text(date_text(info.firmware_since))
 	if since ~= "" then
 		out = out .. " since " .. since
 	end
-	local was = scalar(info.firmware_was)
+	local was = fan_text(info.firmware_was)
 	if was ~= "" then
 		out = out .. ", was " .. was
 	end
-	return out
+	return cut_row(out)
 end
 
 -- Last Seen: "2026-10-27 18:02:10, answered in 0.31 s" (section 7.3); the
@@ -667,6 +823,12 @@ end
 
 local STATUS = {}
 
+-- The address a status names (S4, S7 to S9, S11 to S13), "?" for none. It may
+-- be one a fan announced, so it is cleaned and cut (#214).
+local function where(v)
+	return val(fan_text(v.address))
+end
+
 -- S1, S2, S3: no usable address. The text the owner typed is S3's; S1 when
 -- the Found Fans list is failing (no search possible on this controller), S2
 -- otherwise (auto-discovery-design 5: the list fills by itself).
@@ -685,7 +847,7 @@ STATUS["invalid address"] = STATUS.unset
 
 -- S4, or S14 in its place.
 function STATUS.waiting(v)
-	return old_os_status(v) or string.format("Waiting for the fan at %s", val(v.address))
+	return old_os_status(v) or string.format("Waiting for the fan at %s", where(v))
 end
 
 -- S5, S6 or S14.
@@ -714,9 +876,9 @@ function STATUS.offline(v)
 	local since = clause("since", v.since, v.now)
 	local tail = v.known == true and "; showing last state" or "; state unknown"
 	if v.failure == "data" then
-		return string.format("No usable answer from %s%s%s", val(v.address), since, tail)
+		return string.format("No usable answer from %s%s%s", where(v), since, tail)
 	end
-	return string.format("Not answering at %s%s%s", val(v.address), since, tail)
+	return string.format("Not answering at %s%s%s", where(v), since, tail)
 end
 
 -- S10.
@@ -730,17 +892,17 @@ end
 
 -- S11: another fan answers at the address; named by the end of its MAC.
 function STATUS.foreign(v)
-	return string.format("Another fan (%s) answers at %s; nothing is sent", texts.suffix(v.other), val(v.address))
+	return string.format("Another fan (%s) answers at %s; nothing is sent", texts.suffix(v.other), where(v))
 end
 
 -- S12.
 function STATUS.gen4(v)
-	return string.format("%s is a Gen 4 fan; this driver controls Gen 1 to 3 only", val(v.address))
+	return string.format("%s is a Gen 4 fan; this driver controls Gen 1 to 3 only", where(v))
 end
 
 -- S13.
 function STATUS.notfan(v)
-	return string.format("%s answers, but not as a Modern Forms fan; nothing is sent", val(v.address))
+	return string.format("%s answers, but not as a Modern Forms fan; nothing is sent", where(v))
 end
 
 -- Status: the one line of section 7.1 for the model's status view
@@ -776,7 +938,7 @@ function texts.status(v)
 	if not build then
 		return ""
 	end
-	return build(v)
+	return cut_row(build(v))
 end
 
 -- Last Action ---------------------------------------------------------------
@@ -795,9 +957,11 @@ end
 --   fan_type                         the model the name table lacks (L24)
 --   strength                         the Breeze strength as given (L34)
 --   why                              the model's refusal reason (L35)
---   name                             the Breeze fan's item name (L36, L37),
---                                    or the 1.2 switch's (L41)
--- The last three are never read from a pin.
+--   name                             the Breeze fan's item name (L36, L37,
+--                                    L46), or the 1.2 switch's (L41)
+-- The last three are never read from a pin. #214: the ids, the addresses and
+-- the item names are cleaned and cut to TEXT_MAX characters here (texts.clean),
+-- and texts.result cuts the whole line at ROW_CUT.
 local function fields(args)
 	local a = type(args) == "table" and args or {}
 	local pin = type(a.pin) == "table" and a.pin or {}
@@ -812,16 +976,16 @@ local function fields(args)
 		was = was.client_id
 	end
 	return {
-		client_id = scalar(pick("client_id")),
+		client_id = fan_text(pick("client_id")),
 		generation = pick("generation"),
-		address = scalar(pick("address")),
-		was = scalar(was),
+		address = fan_text(pick("address")),
+		was = fan_text(was),
 		instance = a.instance,
 		at = a.at,
 		now = a.now,
 		which = a.which,
-		fan = scalar(a.fan),
-		light = scalar(a.light),
+		fan = fan_text(a.fan),
+		light = fan_text(a.light),
 		fan_type = scalar(a.fan_type),
 		strength = a.strength,
 		why = a.why,
@@ -1028,10 +1192,12 @@ local function given(x, cut)
 	return text:sub(1, cut)
 end
 
--- An item name as Director gives it (L36, L37, L41): control characters dropped,
--- blanks trimmed, and past `cut` bytes cut with no marker, never inside a
--- UTF-8 character (a name may hold any, and L22 prints names as they are).
--- "?" for none.
+-- An item name as Director gives it (L36, L37, L41, L46): control characters
+-- dropped, blanks trimmed, and past `cut` bytes cut with no marker, never
+-- inside a UTF-8 character (a name may hold any, and L22 prints names as they
+-- are). Then texts.clean (#214): a byte of no valid UTF-8 character is "?",
+-- and a C1 or bidirectional control a blank; the text is `cut` bytes at most
+-- by then, so clean cuts nothing. "?" for none.
 local function item_name(x, cut)
 	local text = trim((scalar(x):gsub("%c", "")))
 	if #text > cut then
@@ -1047,6 +1213,7 @@ local function item_name(x, cut)
 		end
 		text = trim(text)
 	end
+	text = trim(texts.clean(text, cut))
 	if text == "" then
 		return "?"
 	end
@@ -1140,6 +1307,16 @@ function RESULTS.breeze_old_switch(f)
 	return OLD_SWITCH .. item_name(f.name, ROW_MAX - #OLD_SWITCH)
 end
 
+-- L46 (#214, S2-1): Add Breeze Fan added the device, but binding it to this
+-- fan device failed; named, the name cut so the line stays at ROW_MAX (18
+-- characters of it). The owner connects it in Connections, then clicks Add
+-- Breeze Fan again, which finds it connected (L37) or binds it.
+local NOT_CONNECTED = ", not connected: use Connections, then retry"
+
+function RESULTS.breeze_fan_not_connected(f)
+	return "Added " .. item_name(f.name, ROW_MAX - #"Added " - #NOT_CONNECTED) .. NOT_CONNECTED
+end
+
 -- L42: Breeze LED Animation is Gusts while Speed LED Colors is not Per speed
 -- (breeze-leds-design BL-D3, section 2): the driver owns no colours to put back.
 function RESULTS.breeze_leds_need_per_speed()
@@ -1162,13 +1339,13 @@ function RESULTS.speed_leds_need_per_speed()
 end
 
 -- Last Action text for a result key (texts.RESULT_KEYS) and its args (see
--- `fields`). "" for a key it does not know.
+-- `fields`). "" for a key it does not know. Cut at ROW_CUT (#214).
 function texts.result(key, args)
 	local build = RESULTS[key]
 	if not build then
 		return ""
 	end
-	return build(fields(args))
+	return cut_row(build(fields(args)))
 end
 
 -- The tail the second write of a Use Selected Fan line carries once the
@@ -1326,7 +1503,7 @@ local function found_item(entry, name)
 		end
 		text = text .. mark
 	end
-	return texts.list_item(text)
+	return cut_row(texts.list_item(text))
 end
 
 -- Found Fans rows (auto-discovery-design 3.1 and 3.2): the summary, and the

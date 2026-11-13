@@ -11,8 +11,14 @@ wire.PATH = "/mf"
 wire.G4_PATH = "/device"
 -- Director adds Host, Accept, Accept-Encoding and Connection by itself and asks
 -- drivers not to overwrite them [verified: API 37_web_service/_13-urlSetTimeout].
+-- The one exception is Accept-Encoding: Director's own is "deflate, gzip" (same
+-- page), and the fan does not compress (M0 saw only Content-Type and
+-- Content-Length come back, docs/v1-design.md), so the request asks for the body
+-- as it is: "identity" (#214). That a header the driver names replaces
+-- Director's own of the same name is [assumed: libcurl's custom-header rule]; the
+-- transport refuses a compressed answer and counts the body's bytes either way.
 -- A shared table: copy it before handing it to a transfer.
-wire.HEADERS = { ["Content-Type"] = "application/json" }
+wire.HEADERS = { ["Content-Type"] = "application/json", ["Accept-Encoding"] = "identity" }
 wire.QUERY_STATE = '{"queryDynamicShadowData":1}'
 wire.QUERY_INFO = '{"queryStaticShadowData":1}'
 wire.QUERY_G4 = '{"query":true}'
@@ -35,6 +41,34 @@ end
 
 local function round(n)
 	return math.floor(n + 0.5)
+end
+
+-- Text for a log line (#214): text that came from the fan or from a transfer
+-- is cut to wire.LOG_TEXT_MAX characters, "…" ending a text that was cut, and
+-- every byte outside printable ASCII (control characters, NUL, the bytes of
+-- other encodings) becomes "?". Cut before the replacement, so a long text costs
+-- no more than a short one. Never raises.
+wire.LOG_TEXT_MAX = 200
+local ELLIPSIS = "\226\128\166" -- "…" in UTF-8, one character
+
+function wire.log_text(value, max)
+	local ok, text = pcall(tostring, value)
+	if not ok or type(text) ~= "string" then
+		return "?"
+	end
+	max = tonumber(max) or wire.LOG_TEXT_MAX
+	if max < 1 then
+		max = 1
+	end
+	local cut = #text > max
+	if cut then
+		text = text:sub(1, max - 1)
+	end
+	text = text:gsub("[^ -~]", "?")
+	if cut then
+		text = text .. ELLIPSIS
+	end
+	return text
 end
 
 -- The typed readers: a value of another type (including the empty table that
@@ -212,9 +246,16 @@ end
 
 -- Answers ----------------------------------------------------------------------------
 
--- No answer of a fan is near this; a router's or a NAS's page at a mistyped
--- address may be (N4), and is not worth decoding.
-local MAX_BODY_BYTES = 65536
+-- No answer of a fan is near this: M0's are 455 and 547 bytes, the static read
+-- the larger (tests/fixtures/mf_gen3.lua). A router's or a NAS's page at a
+-- mistyped address may be (N4), and is not worth decoding. Bodies over 16 KB are
+-- refused here and, before Director has gathered them, by the transport (#214).
+wire.MAX_BODY_BYTES = 16384
+
+-- The fan's answers are flat (depth 1: a string, number or boolean per key), and
+-- C4:JsonDecode is documented with no depth limit (API 12_json/_3-JsonDecode):
+-- nesting deeper than this is refused before the decoder sees it (#214).
+wire.MAX_DEPTH = 8
 
 -- Fields nothing in the driver reads (V20): removed from the decoded object so
 -- that no later log line, report or dump can carry them. `schedule` stays,
@@ -232,10 +273,67 @@ local function is_object(value)
 	return true
 end
 
+-- Why the arrays and objects of a JSON text cannot go to the decoder, in one
+-- linear pass (#214), or nil when they can: "deep" when they nest deeper than
+-- `limit`, "syntax" when the text cannot be JSON in a way that would make this
+-- count differ from a decoder's. Only "[" and "{" outside strings deepen it; a
+-- string runs from its quote to the next quote that no backslash escapes, and a
+-- backslash always takes the byte after it, so "\\" ends at its quote and "\""
+-- does not. "syntax" is a string that never ends, a "]" or "}" with nothing
+-- open, and "/" or "'" outside a string: JSON has none of these, and a decoder
+-- that took "/" for a comment or "'" for a quote would see other nesting.
+local STRUCTURE = "[%[%]{}\"/']"
+local QUOTE_OR_ESCAPE = "[\"\\]"
+local BYTE_QUOTE, BYTE_BACKSLASH = 34, 92
+local BYTE_OPEN_ARRAY, BYTE_OPEN_OBJECT = 91, 123
+local BYTE_CLOSE_ARRAY, BYTE_CLOSE_OBJECT = 93, 125
+
+local function nesting_refused(text, limit)
+	local depth, i = 0, 1
+	while true do
+		local at = text:find(STRUCTURE, i)
+		if not at then
+			return nil
+		end
+		local byte = text:byte(at)
+		if byte == BYTE_QUOTE then
+			local j = at + 1
+			while true do
+				local q = text:find(QUOTE_OR_ESCAPE, j)
+				if not q then
+					return "syntax"
+				end
+				if text:byte(q) == BYTE_BACKSLASH then
+					j = q + 2
+				else
+					i = q + 1
+					break
+				end
+			end
+		elseif byte == BYTE_OPEN_ARRAY or byte == BYTE_OPEN_OBJECT then
+			depth = depth + 1
+			if depth > limit then
+				return "deep"
+			end
+			i = at + 1
+		elseif byte == BYTE_CLOSE_ARRAY or byte == BYTE_CLOSE_OBJECT then
+			if depth == 0 then
+				return "syntax"
+			end
+			depth = depth - 1
+			i = at + 1
+		else
+			return "syntax"
+		end
+	end
+end
+
 -- The decoded JSON object of an answer's body. C4:JsonDecode fails in two
 -- documented ways, a raise and nil with a message (API 12_json/_3-JsonDecode),
 -- both counted as "json"; so is any other JSON value than an object (a number,
--- a string, an array). Never raises.
+-- a string, an array). A body over wire.MAX_BODY_BYTES (tested first, before any
+-- scan of it) or nested deeper than MAX_DEPTH is "json" too, and a third value
+-- says which, for the log; the decoder never sees it (#214). Never raises.
 function wire.decode(text)
 	if text == nil then
 		return nil, "empty"
@@ -243,11 +341,17 @@ function wire.decode(text)
 	if type(text) ~= "string" then
 		return nil, "json"
 	end
+	if #text > wire.MAX_BODY_BYTES then
+		return nil, "json", string.format("over %d bytes; refused", wire.MAX_BODY_BYTES)
+	end
 	if not text:find("%S") then
 		return nil, "empty"
 	end
-	if #text > MAX_BODY_BYTES then
-		return nil, "json"
+	local refused = nesting_refused(text, wire.MAX_DEPTH)
+	if refused == "deep" then
+		return nil, "json", string.format("nested deeper than %d; refused", wire.MAX_DEPTH)
+	elseif refused then
+		return nil, "json", "not JSON; refused before decoding"
 	end
 	local ok, value = pcall(function() return C4:JsonDecode(text) end)
 	if not ok or type(value) ~= "table" or not is_object(value) then
@@ -274,11 +378,13 @@ local MAX_UNKNOWN = 32
 local MAX_KEY_NAME = 40
 
 -- Names only, never values, sorted so the list does not depend on pairs().
+-- Each is cut to MAX_KEY_NAME bytes and every byte outside printable ASCII
+-- becomes "?", as for a log line (#214).
 local function unknown_keys(obj)
 	local names = {}
 	for key in pairs(obj) do
 		if type(key) == "string" and not KNOWN_KEYS[key] then
-			names[#names + 1] = key:sub(1, MAX_KEY_NAME)
+			names[#names + 1] = (key:sub(1, MAX_KEY_NAME):gsub("[^ -~]", "?"))
 		end
 	end
 	table.sort(names)

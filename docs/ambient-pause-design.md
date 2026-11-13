@@ -19,6 +19,20 @@
 > bind `Keypad Links` did not show it; the likely cause, a steady reading
 > the keypad does not send, is being checked, [`status.md`](status.md)).
 
+> **Since 1.10 (#214, 2026-11-13).** AP-D4: once the bound device id is
+> known, a reading without `GROUP` is ignored too (until then only a
+> `GROUP` that differed was), and a `GROUP` longer than 32 characters is no
+> device id and is ignored, bound or not. After a restart the driver asks
+> Director for the keypad bound to 500 at late init
+> (`C4:GetBoundProviderDevice`), so the check holds from the start; the
+> state stays `unknown` until that keypad reports. AP2, change-only
+> reporting, is confirmed on the house (2026-11-12): in a steady dark room
+> nothing arrives after a bind, so the pause starts at the next change of
+> the room's light, and a bind or a restart in a room already dark pauses
+> nothing until then. That explains section 5's missing pause; the manual
+> says so. See
+> [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214).
+
 ## 0. What the probe measured (MEASURED, OS 3.4.3, a C4-KD120 keypad dimmer on firmware 5.1.1)
 
 | # | Fact |

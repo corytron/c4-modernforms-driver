@@ -56,7 +56,8 @@ coordinator session (Ubuntu VM, this repo)   --SendMessage over Remote Control--
 - The Windows VM is on the same LAN as the controller and this VM, and
   reaches this VM's servers over it: the dev server (port 8081), the file
   server for dev and test builds (port 8091) and `tools/collect.py`, which
-  receives screenshots (port 8092). The Hue project's servers use 8080 and
+  receives screenshots (port 8092; `--bind lan` to reach it from the LAN,
+  PNG only, 10 MB each, untrusted, since #214). The Hue project's servers use 8080 and
   8090, so both projects can run theirs at once. Release packages come from
   the GitHub release URLs instead. The session keeps this project's files under
   `C:\c4-mf\` (the module `C:\c4-mf\Composer.psm1`, screenshots under
@@ -241,10 +242,12 @@ and `Debug Mode`, any dialog Composer showed and any `[ERROR]` line in a
 device's Lua tab (the brief's "Read back and report");
 the coordinator records the result with `tools/deploy.py done --devices N`
 or `failed --note`. A dev build or a feature-branch test build is the
-exception (`CLAUDE.md`, Deploy): the coordinator serves the `.c4z` from
-`build/release/` on port 8091 (`python3 -I -m http.server 8091 --bind
-0.0.0.0 --directory build/release`, stopped afterwards), puts its sha256 in
-the brief, and records the install with `tools/deploy.py record
+exception (`CLAUDE.md`, Deploy): `tools/build.sh --dev` or `--serve` puts
+each `.c4z` alone under a random path in `build/serve/`, and the
+coordinator serves that folder on port 8091 (`python3 -I -m http.server 8091
+--bind <VM LAN address> --directory build/serve`, stopped afterwards; since
+#214, never `build/release/`), puts the URL path and its sha256 in the
+brief, and records the install with `tools/deploy.py record
 --no-manifest`.
 
 The Composer checklist ([`composer-checklist.md`](composer-checklist.md))

@@ -11,6 +11,18 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Changed
+
+- Hardening from a security review of the driver (#214). Nothing changes for a fan that answers as a Modern Forms fan does.
+- **The fan's answers:** the driver never follows an HTTP redirect from the fan's address, refuses answers over 16 KB, compressed answers and JSON nested deeper than 8, and cleans and caps the fan's text (control characters removed, 64 characters a field) before it reaches Composer's rows and the log (#214).
+- **Finding and following fans:** a search keeps places for the pinned fan and at most 32 others, with limits on how much one search window reads. Two Found Fans rows that would read the same show the fan's MAC. A fan picked in Found Fans that waits for Use Selected Fan is dropped after 10 minutes. The automatic address follow moves only to an address in the same /24 subnet as where the fan last answered; a fan that moves to another subnet needs its address typed in Fan Address (#214).
+- **Commands from inside Control4:** the six actions run only as Composer sends them, not when another driver sends the same name as a command, and every action and command waits until the driver has started. Programming commands are unchanged (#214).
+- **Add Breeze Fan:** when the Breeze fan is added but cannot be connected, Last Action says so, and the next click connects that device instead of adding another (#214).
+- **The light:** a fade, ramp or rate is capped at 24 hours, and an impossible value acts at once (#214).
+- **The ambient input:** once a keypad is bound, only readings carrying its id count, and after a restart the driver asks Control4 which keypad is bound (#214).
+- **Composer's Lua command window** is locked in release builds (it was open in earlier releases); development builds keep it (#214).
+- Errors in the driver's entry points and timers are logged and contained, and a failed poll is armed again (#214).
+
 ## 1.9 "Sandwalk", build 220 (2026-11-13)
 
 ### Added

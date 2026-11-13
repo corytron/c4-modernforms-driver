@@ -150,3 +150,26 @@ description = "The all-zero UUID"
 regexes = [
     '''(?i)^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]{1,2}:0{8}-0{4}-0{4}-0{4}-0{12}$''',
 ]
+
+# The dev loop's key (docs/dev-loop.md, "The dev key"): 64 hex characters,
+# which tools/build.sh --dev writes into the stage of each dev package as
+# common/devkey.lua in the form `return "<key>"`. Its one home is outside the
+# repository (~/.config/c4-modernforms-driver/devkey); the dev packages under
+# build/ carry it too, and the allowlist above skips build/. A copy anywhere
+# else in the tree or the history is a finding, whatever the file is called.
+# The tests build their fake keys at run time (tools/tests/test_build.py), so
+# no test vector is a literal of this form.
+[[rules]]
+id = "dev-key"
+description = "The dev loop's key in the form tools/build.sh --dev writes it: return \"<64 hex characters>\""
+regex = '''return\s*\(?\s*["'][0-9a-fA-F]{64}["']'''
+keywords = ["return"]
+
+# A file named after the dev key (devkey, devkey.lua, devkey.lua.bak, any case)
+# outside build/: tools/build.sh refuses one under src/, and .gitignore keeps
+# every devkey.lua out of git; this catches the rest, a copy under tests/ or
+# docs/ say, by its name alone.
+[[rules]]
+id = "dev-key-file"
+description = "A file named devkey* (the dev key file, or a copy of a dev package's common/devkey.lua)"
+path = '''(?i)(?:^|/)devkey[^/]*$'''

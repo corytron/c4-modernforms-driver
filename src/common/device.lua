@@ -394,7 +394,12 @@ function device.new(opts)
 	function dev.binding_changed(handler)
 		return function(...)
 			if late_init_done then
-				return handler(...)
+				-- #214 (S2-8): a failing handler is logged, never raised into Director.
+				local ok, err = pcall(handler, ...)
+				if not ok then
+					log.error("OnBindingChanged on binding %s failed: %s", tostring((...)), tostring(err))
+				end
+				return
 			end
 			local id, _, bound, other = ...
 			for i = #early_bindings, 1, -1 do

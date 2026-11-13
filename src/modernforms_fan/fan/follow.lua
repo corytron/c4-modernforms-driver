@@ -13,7 +13,8 @@
 --
 --   follow.new({
 --       find = fn(cb(list, err, heard)),   -- Finder:find: one window, the query twice, 3 s of answers
---       candidates = discovery.candidates, -- (heard, mac12, current) -> { address, ... }: F4's first step
+--       candidates = discovery.candidates, -- (heard, mac12, current, anchor) -> { address, ... }: F4's first step;
+--                                          -- anchor: the address the pinned fan last answered at (#214)
 --       follow = fn(address, mac12, cb(result, args)),   -- model:follow: "followed" with { address, was },
 --                                          -- else "not_same", "no_answer" or "busy"
 --       phase = fn() -> string,            -- the model's phase now (model:phase())
@@ -110,12 +111,56 @@ local function mac_digits(text)
 	return (a .. b .. c .. d .. e .. f):upper()
 end
 
--- "...5301": an id in the log shows its last four characters only (docs/v1-design.md section 3.7).
+-- Text that came off the network, or through an option, as a log line may carry it (#214): at most LOG_CUT
+-- characters, and every byte that is not printable ASCII written as "?", so a fan's answer cannot break a line or
+-- forge one.
+local LOG_CUT = 200
+
+local function printable(text)
+	text = tostring(text)
+	if #text > LOG_CUT then
+		text = text:sub(1, LOG_CUT)
+	end
+	return (text:gsub("[^\32-\126]", "?"))
+end
+
+-- "...5301": an id in the log shows its last four characters only (docs/v1-design.md section 3.7), printable.
 local function tail(id)
 	if type(id) ~= "string" or id == "" then
 		return "...????"
 	end
-	return "..." .. id:sub(-4)
+	return "..." .. printable(id:sub(-4))
+end
+
+-- The four numbers of a dotted quad in the one spelling discovery and wire.ipv4 write (no leading zero), or nil.
+local function octets(text)
+	if type(text) ~= "string" then
+		return nil
+	end
+	local parts = { text:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$") }
+	if #parts ~= 4 then
+		return nil
+	end
+	for i, part in ipairs(parts) do
+		if #part > 3 or (#part > 1 and part:sub(1, 1) == "0") or tonumber(part) > 255 then
+			return nil
+		end
+		parts[i] = tonumber(part)
+	end
+	return parts
+end
+
+-- The rule of discovery.same_subnet, kept here so this module needs no other (#214): the same /24 (no documented
+-- API gives the LAN's netmask), or both in the link-local 169.254/16. false for anything that is not an address.
+local function same_subnet(a, b)
+	local x, y = octets(a), octets(b)
+	if not x or not y then
+		return false
+	end
+	if x[1] == 169 and x[2] == 254 then
+		return y[1] == 169 and y[2] == 254
+	end
+	return x[1] == y[1] and x[2] == y[2] and x[3] == y[3]
 end
 
 local function span(ms)
@@ -295,6 +340,23 @@ function Follower:pinned_mac()
 	return mac_digits(pin.mac12) or mac_digits(pin.mac)
 end
 
+-- The address whose subnet a follow stays in (#214): where the pinned fan last answered (the pin's address), else
+-- `current`, the Fan Address in use; nil when neither is an address. Only the automatic move is held to it: an
+-- address the owner types into Fan Address is the owner's, wherever it is (F5).
+function Follower:anchor(current)
+	local ok, pin = pcall(self.o.identity)
+	if ok and type(pin) == "table" then
+		local address = trim(pin.address)
+		if octets(address) then
+			return address
+		end
+	end
+	if octets(current) then
+		return current
+	end
+	return nil
+end
+
 -- Follow Address Changes (F7): the last switch() and, when it is given, enabled(). Only true or "On" is On; one
 -- that raises is Off.
 function Follower:switched_on()
@@ -441,6 +503,7 @@ function Follower:open_window()
 		n = self.step, edits = self.edits, current = self:current(), mac = self:pinned_mac(), phase = phase,
 		open = true,
 	}
+	w.anchor = self:anchor(w.current)
 	self.window = w
 	local ok, started = pcall(self.o.find, function(list, err, heard)
 		self:window_closed(w, list, err, heard)
@@ -466,15 +529,17 @@ function Follower:check_silent(w, heard)
 		end
 	end
 	if here and not self.warned_silent then
-		self:say("warn", "Fan %s is on the network at %s, but its web server does not answer", tail(w.mac), w.current)
+		self:say("warn", "Fan %s is on the network at %s, but its web server does not answer", tail(w.mac),
+			printable(w.current))
 	end
 	self.warned_silent = here
 end
 
--- F4's first step through the option, then at most 3 distinct addresses other than the current one, whatever the
--- option answers.
+-- F4's first step through the option, then at most 3 distinct addresses other than the current one, each in the
+-- subnet of the window's anchor (#214: where the pinned fan last answered), whatever the option answers. An address
+-- outside it is never read: a fan that moved to another subnet waits for the owner to type its address.
 function Follower:pick(heard, w)
-	local ok, list = pcall(self.o.candidates, heard, w.mac, w.current)
+	local ok, list = pcall(self.o.candidates, heard, w.mac, w.current, w.anchor)
 	if not ok then
 		self:say("error", "Follow: the candidates could not be read: %s", tostring(list))
 		return {}
@@ -487,7 +552,12 @@ function Follower:pick(heard, w)
 			end
 			if type(address) == "string" and address ~= w.current and not seen[address] then
 				seen[address] = true
-				out[#out + 1] = address
+				if same_subnet(w.anchor, address) then
+					out[#out + 1] = address
+				else
+					self:say("debug", "Follow: %s is outside the subnet of %s; not read", printable(address),
+						tostring(w.anchor))
+				end
 			end
 		end
 	end
@@ -626,7 +696,7 @@ function Follower:read_done(read, result, args)
 		end
 		w.queue = {}
 	else
-		self:say("debug", "Follow: %s did not answer as the pinned fan (%s)", read.address, tostring(result))
+		self:say("debug", "Follow: %s did not answer as the pinned fan (%s)", read.address, printable(result))
 		w.unverified[#w.unverified + 1] = read.address
 	end
 	self:read_next(w)
@@ -640,7 +710,7 @@ function Follower:followed(read, args)
 		was = read.w.current
 	end
 	self.follows[#self.follows + 1] = self:now()
-	self:say("debug", "Follow: followed %s to %s (was %s)", tail(read.w.mac), address, tostring(was))
+	self:say("debug", "Follow: followed %s to %s (was %s)", tail(read.w.mac), printable(address), printable(was))
 	self:disarm()
 	local ok, err = pcall(self.o.on_followed, address, was)
 	if not ok then

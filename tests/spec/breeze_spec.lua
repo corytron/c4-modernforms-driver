@@ -1420,15 +1420,32 @@ describe("fan.breeze", function()
 			assert.is_true(r.log.has("always", "driver not found"))
 		end)
 
-		it("a bind that fails or raises is L40", function()
+		it("a bind that fails or raises says the device was added but not connected (#214)", function()
 			for _, bind in ipairs({ function() return false end, function() return nil end, raises }) do
 				local r = rig({ opts = { bind = bind } })
 				r.b:add_switch()
 				r.adds[1].cb(2001)
-				assert.same({ { key = "breeze_switch_failed", args = { name = "Aviator 5 Breeze", step = "bind" } } },
-					r.results)
+				assert.same({ { key = "breeze_fan_not_connected", args = { name = "Aviator 5 Breeze" } } }, r.results)
 			end
 		end)
+
+		it("after a failed bind, Add Breeze Fan binds the same device again and never adds another (#214)",
+			function()
+				local tries = 0
+				local r = rig({ opts = { bind = function()
+					tries = tries + 1
+					return tries >= 3
+				end } })
+				r.b:add_switch()
+				r.adds[1].cb(2001)
+				assert.is_false((r.b:add_switch()))
+				assert.equal(1, #r.adds, "no second device added")
+				assert.same({ "breeze_fan_not_connected", "breeze_fan_not_connected" }, r.keys())
+				assert.is_true((r.b:add_switch()))
+				assert.equal(1, #r.adds, "bound on the third try, still one device")
+				assert.same({ "breeze_fan_not_connected", "breeze_fan_not_connected", "breeze_switch_added" }, r.keys())
+				assert.equal(3, tries, "the same device bound three times")
+			end)
 
 		it("an add_device that raises or is missing is L40 at once", function()
 			for _, o in ipairs({ { opts = { add_device = raises } }, { without = { "add_device" } } }) do

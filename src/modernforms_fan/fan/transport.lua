@@ -14,6 +14,14 @@
 -- transfer on OS 3.4.2 (section 3.2, the Hue project's measurement). A request
 -- given up (a new address, stop()) is only forgotten: its answer, when it
 -- comes, finds a newer epoch and is dropped unread (section 4.2; ECM P9).
+--
+-- What comes back is bounded before Director gathers it (#214): redirects are
+-- refused (C4:url would follow them by itself), and so are a body over
+-- wire.MAX_BODY_BYTES and a compressed one. OnHeaders and OnBodyChunk do it by
+-- returning true, which aborts the transfer [verified: API 35_url/_9-OnHeaders,
+-- 35_url/_7-OnBodyChunk; hardware OS 3.4.2 in the Hue project, whose event
+-- stream aborts this way]. They start nothing: a transfer started from inside
+-- OnHeaders fails at once (the Hue project's curl error 2).
 
 local wire = require("fan.wire")
 
@@ -152,14 +160,59 @@ local function names_its_fan(obj)
 	return type(id) == "string" and id:find("%S") ~= nil
 end
 
+local function is_redirect(code)
+	code = tonumber(code)
+	return code ~= nil and code >= 300 and code <= 399
+end
+
+local function redirect_refused(code)
+	return { err = "http", code = code,
+		detail = string.format("the fan answered with a redirect; not followed (HTTP %d)", code) }
+end
+
+-- Why the answer is refused unread, or nil: the refusal recorded while it
+-- arrived (OnHeaders, OnBodyChunk), else a redirect among the responses even
+-- so, in case an abort was not honoured and the transfer went on.
+local function refusal_of(entry, responses)
+	if entry.refused then
+		return entry.refused
+	end
+	if type(responses) == "table" then
+		for _, response in ipairs(responses) do
+			if type(response) == "table" and is_redirect(response.code) then
+				return redirect_refused(tonumber(response.code))
+			end
+		end
+	end
+	return nil
+end
+
+-- The body as OnBodyChunk gathered it; response.body only if no chunk came
+-- (Director leaves it out once OnBodyChunk is set, API 35_url/_6-OnBody), and
+-- wire.decode caps that too.
+local function body_of(entry, response)
+	if entry.chunked then
+		return table.concat(entry.parts)
+	end
+	return response.body
+end
+
 -- err_code 0 and a 200 whose body is a JSON object is ok; everything else is a
 -- failure with one class (never both ok and err).
 local function classify(entry, now, responses, err_code, err_msg)
 	local result = result_of(entry, now)
+	local refused = refusal_of(entry, responses)
+	if refused then
+		local last = type(responses) == "table" and responses[#responses] or nil
+		result.err = refused.err
+		result.code = refused.code or (type(last) == "table" and tonumber(last.code)) or nil
+		result.detail = refused.detail
+		return result
+	end
 	err_code = tonumber(err_code) or 0
 	if err_code ~= 0 then
 		result.err = timed_out(err_code, err_msg) and "timeout" or "connect"
-		result.detail = string.format("transfer error %d: %s", err_code, tostring(err_msg or ""))
+		result.detail = string.format("transfer error %d: %s", err_code, wire.log_text(err_msg or ""))
 		return result
 	end
 	local response = type(responses) == "table" and responses[#responses] or nil
@@ -174,10 +227,10 @@ local function classify(entry, now, responses, err_code, err_msg)
 		result.detail = "HTTP " .. tostring(response.code)
 		return result
 	end
-	local obj, why = wire.decode(response.body)
+	local obj, why, refusal = wire.decode(body_of(entry, response))
 	if not obj then
 		result.err = why
-		result.detail = why == "empty" and "empty body" or "not a JSON object"
+		result.detail = refusal or (why == "empty" and "empty body" or "not a JSON object")
 		return result
 	end
 	if NAMES_ITS_FAN[entry.kind] and not names_its_fan(obj) then
@@ -213,7 +266,7 @@ local function arm_gap(self, gap_ms)
 		if self._on_idle then
 			local called, err = pcall(self._on_idle)
 			if not called then
-				say(self, "error", "fan transport: on_idle raised: %s", tostring(err))
+				say(self, "error", "fan transport: on_idle raised: %s", wire.log_text(err))
 			end
 		end
 	end)
@@ -222,7 +275,7 @@ local function arm_gap(self, gap_ms)
 		return
 	end
 	-- No timer, no gap: better a request too soon than a slot that never opens.
-	say(self, "error", "fan transport: could not arm the gap timer: %s", tostring(timer))
+	say(self, "error", "fan transport: could not arm the gap timer: %s", wire.log_text(timer))
 	self._gap = false
 	if self._on_idle then
 		pcall(self._on_idle)
@@ -239,7 +292,7 @@ local function finish(self, entry, result)
 	self._gap = true
 	local ok, err = pcall(entry.cb, result)
 	if not ok then
-		say(self, "error", "fan #%d: the result handler raised: %s", entry.seq, tostring(err))
+		say(self, "error", "fan #%d: the result handler raised: %s", entry.seq, wire.log_text(err))
 	end
 	if self._stopped then
 		return
@@ -256,13 +309,109 @@ local function on_done(self, entry, responses, err_code, err_msg)
 	end
 	entry.finished = true
 	local ok, result = pcall(function() return classify(entry, self._now(), responses, err_code, err_msg) end)
+	entry.parts = nil
 	if not ok then
-		say(self, "error", "fan #%d: unreadable transfer result: %s", entry.seq, tostring(result))
+		say(self, "error", "fan #%d: unreadable transfer result: %s", entry.seq, wire.log_text(result))
 		result = result_of(entry, entry.t0)
 		result.err = "connect"
 		result.detail = "unreadable transfer result"
 	end
 	finish(self, entry, result)
+end
+
+-- Guarding what comes back (#214) ----------------------------------------------------------
+
+-- A header's value by its name in any case, or nil. Without the
+-- response_headers_duplicates option a value is a string [verified: API
+-- 35_url/_13-SetOptions]; a list of them is read as its first.
+local function header_of(headers, wanted)
+	if type(headers) ~= "table" then
+		return nil
+	end
+	for name, value in pairs(headers) do
+		if type(name) == "string" and name:lower() == wanted then
+			if type(value) == "table" then
+				value = value[1]
+			end
+			if type(value) == "string" then
+				return value
+			end
+			return nil
+		end
+	end
+	return nil
+end
+
+local function too_big(code)
+	return { err = "json", code = code,
+		detail = string.format("the answer is over %d bytes; refused", wire.MAX_BODY_BYTES) }
+end
+
+-- OnHeaders, once per response [verified: API 35_url/_9-OnHeaders]: true
+-- aborts the transfer. A 3xx is refused (C4:url would follow it by itself), so
+-- is a Content-Length over the cap and a body that is not sent as it is (a
+-- Content-Encoding other than identity; M0's answers carry none). Otherwise the
+-- body of this response is gathered afresh.
+local function check_headers(entry, response)
+	if entry.refused then
+		return true
+	end
+	local code = type(response) == "table" and tonumber(response.code) or nil
+	if is_redirect(code) then
+		entry.refused = redirect_refused(code)
+		return true
+	end
+	local headers = type(response) == "table" and response.headers or nil
+	-- White space is dropped with one gsub each: linear, whatever the value.
+	local length = header_of(headers, "content-length")
+	length = length and length:gsub("%s", "")
+	if length and length:find("^%d+$") and tonumber(length) > wire.MAX_BODY_BYTES then
+		entry.refused = too_big(code)
+		return true
+	end
+	local encoding = header_of(headers, "content-encoding")
+	encoding = encoding and encoding:gsub("%s", ""):lower()
+	if encoding and encoding ~= "" and encoding ~= "identity" then
+		entry.refused = { err = "json", code = code, detail = "the answer is compressed (Content-Encoding); refused" }
+		return true
+	end
+	entry.parts, entry.bytes, entry.chunked = {}, 0, false
+	return false
+end
+
+-- OnBodyChunk [verified: API 35_url/_7-OnBodyChunk]: with it set Director does
+-- not gather the body, the transport does, and true aborts the transfer once
+-- the bytes pass the cap. What is read of a response refused already is not
+-- kept.
+local function take_chunk(entry, response, chunk)
+	if entry.refused then
+		return true
+	end
+	if type(chunk) ~= "string" then
+		return false
+	end
+	entry.bytes = (entry.bytes or 0) + #chunk
+	if entry.bytes > wire.MAX_BODY_BYTES then
+		entry.refused = too_big(type(response) == "table" and tonumber(response.code) or nil)
+		entry.parts = nil
+		return true
+	end
+	entry.parts = entry.parts or {}
+	entry.parts[#entry.parts + 1] = chunk
+	entry.chunked = true
+	return false
+end
+
+-- A guard that raises must not reach Director, and must not let the answer
+-- through unchecked: it aborts the transfer, which counts as refused.
+local function guarded(self, entry, fn, ...)
+	local ok, abort = pcall(fn, entry, ...)
+	if ok then
+		return abort == true
+	end
+	say(self, "error", "fan #%d: the answer guard raised: %s", entry.seq, wire.log_text(abort))
+	entry.refused = entry.refused or { err = "connect", detail = "the answer could not be checked; refused" }
+	return true
 end
 
 local function start_transfer(self, entry, request)
@@ -272,11 +421,17 @@ local function start_transfer(self, entry, request)
 		connect_timeout = transport.CONNECT_TIMEOUT_S,
 		fail_on_error = false,
 	})
+	transfer:OnHeaders(function(_, response)
+		return guarded(self, entry, check_headers, response)
+	end)
+	transfer:OnBodyChunk(function(_, response, chunk)
+		return guarded(self, entry, take_chunk, response, chunk)
+	end)
 	transfer:OnDone(function(_, responses, err_code, err_msg)
 		local ok, err = pcall(on_done, self, entry, responses, err_code, err_msg)
 		if not ok then
 			-- Whatever failed, the slot must not stay taken by this request.
-			say(self, "error", "fan #%d: the transfer handler raised: %s", entry.seq, tostring(err))
+			say(self, "error", "fan #%d: the transfer handler raised: %s", entry.seq, wire.log_text(err))
 			if self._inflight == entry then
 				self._inflight = nil
 			end
@@ -334,9 +489,12 @@ end
 -- HTTP status when one arrived; `json` the decoded object (wire.decode) when ok;
 -- `err` nil, "timeout", "connect" (any other transfer error), "http" (a status
 -- other than 200, the 404 on /mf that makes the model try the Gen 4 probe among
--- them), "empty" or "json" (the body is no JSON object, or on /mf it has no
--- clientId); `detail` a short text for the log, never part of an answer's body;
--- `ms` the time from send() to OnDone.
+-- them, and a redirect, which is never followed: `code` the 3xx), "empty" or
+-- "json" (the body is no JSON object, or on /mf it has no clientId, or it was
+-- refused unread: over wire.MAX_BODY_BYTES, compressed, or nested deeper than
+-- wire.MAX_DEPTH); `detail` a short text for the log, never part of an answer's
+-- body, any transfer text in it cut (wire.log_text); `ms` the time from send()
+-- to OnDone.
 function transport:send(req, cb)
 	if self._stopped then
 		return nil, "stopped"
@@ -357,14 +515,14 @@ function transport:send(req, cb)
 		gap_ms = request.gap_ms,
 	}
 	self._inflight = entry
-	say(self, "debug", "-> fan #%d %s %s", entry.seq, entry.kind, request.body)
+	say(self, "debug", "-> fan #%d %s %s", entry.seq, entry.kind, wire.log_text(request.body))
 	local started, err = pcall(start_transfer, self, entry, request)
 	if started then
 		return entry.seq
 	end
 	-- The transfer could not begin: the usual failure, delivered from a timer so
 	-- the caller gets its number first and send() never calls back.
-	say(self, "warn", "fan #%d: could not start the transfer: %s", entry.seq, tostring(err))
+	say(self, "warn", "fan #%d: could not start the transfer: %s", entry.seq, wire.log_text(err))
 	local deferred = pcall(self._timer, 1, function()
 		if entry.abandoned or entry.finished then
 			return

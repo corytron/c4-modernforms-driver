@@ -27,14 +27,16 @@
 --      allowed). Decided: a fraction is rejected, not rounded. The keypad sends whole numbers (AP1), so "3.5" is not
 --      a reading this module understands, and rounding it could tip the dark or lit verdict at the threshold.
 --      Rejected too: "abc", "-1", "256", "3.0" (text), "1e2", "0x10", "+3", "", a missing LEVEL.
---   2. GROUP, when both it and the bound device id are known, is the bound device: a reading from another device
---      is ignored. Ids compare as text, a whole number written without a fraction ("123" and 123 are the same).
+--   2. GROUP, once the bound device id is known, is the bound device: a reading from another device, or with no
+--      GROUP at all, is ignored (#214: an absent GROUP no longer passes the check). Ids compare as text, a whole
+--      number written without a fraction ("123" and 123 are the same). A GROUP longer than MAX_ID_CHARS is no
+--      device id: the reading is ignored, bound or not, before any pattern reads it (#214).
 --   3. The first reading after a bind that passes 1 and 2 is ignored when it comes within BIND_SETTLE_MS of the
 --      bind (inclusive), or when either time is unknown (no clock): the house keypad's first message after a bind
 --      read LEVEL 0 (AP3). Only that first one: later readings in the window count, and a first one later than the
 --      window counts. A bad LEVEL or another device's reading does not use the skip up.
 -- A reading while unbound counts (Director may deliver it before OnBindingChanged after a restart): it is taken
--- as from a bound keypad whose id is unknown, so GROUP is not checked and nothing is skipped.
+-- as from a bound keypad whose id is unknown, so GROUP is not checked (but for its length) and nothing is skipped.
 --
 -- bound(id) is a bind: the id (nil when it is not a number or non-empty text, and then GROUP is not checked) and
 -- the bind time are kept, the state is unknown, the hold is cancelled and the last reading forgotten. bound(nil)
@@ -67,6 +69,7 @@ ambient.LIT_HOLD_MS = 10000 -- AP-D3, DM15
 ambient.BIND_SETTLE_MS = 5000 -- AP-D4, AP3
 ambient.DEFAULT_THRESHOLD = 10 -- AP-D2
 ambient.MAX_LEVEL = 255 -- AP1: the keypad's Ambient Light Profile scale
+ambient.MAX_ID_CHARS = 32 -- #214: no device id is longer; a longer GROUP is refused before it is trimmed
 
 local Ambient = {}
 Ambient.__index = Ambient
@@ -126,13 +129,31 @@ local function level_of(value)
 	return n
 end
 
--- A device id as text, for comparing: a whole number without its fraction, other text trimmed; nil when unknown.
+-- Blanks trimmed, in linear time: the pattern form "^%s*(.-)%s*$" is quadratic on a long run of inner blanks
+-- (#49, #214), and GROUP is whatever the sender writes.
+local function trim(text)
+	local first = text:find("%S")
+	if not first then
+		return ""
+	end
+	local last = #text
+	while last > first and text:find("^%s", last) do
+		last = last - 1
+	end
+	return text:sub(first, last)
+end
+
+-- A device id as text, for comparing: a whole number without its fraction, other text trimmed; nil when unknown;
+-- false for text longer than MAX_ID_CHARS, which is no device id (refused before it is trimmed, #214).
 local function id_of(value)
 	local n
 	if type(value) == "number" then
 		n = value
 	elseif type(value) == "string" then
-		local text = value:match("^%s*(.-)%s*$")
+		if #value > ambient.MAX_ID_CHARS then
+			return false
+		end
+		local text = trim(value)
 		if text == "" then
 			return nil
 		end
@@ -150,9 +171,21 @@ local function id_of(value)
 	return tostring(n)
 end
 
--- A value for a log line: short, and never raising.
-local function shown(value)
-	local text = type(value) == "string" and string.format("%q", value) or tostring(value)
+-- A value for a log line: short, and never raising; a string in quotes, unless `bare`. #214: only the first 40
+-- bytes of a string are read, and a control character is written as \<code> ("\10" for a newline), so a value
+-- another driver sends can neither flood the log nor start a line of its own.
+local function shown(value, bare)
+	local text
+	if type(value) == "string" then
+		text = value:sub(1, 40):gsub("%c", function(c)
+			return "\\" .. c:byte()
+		end)
+		if not bare then
+			text = '"' .. text .. '"'
+		end
+	else
+		text = tostring(value)
+	end
 	if #text > 40 then
 		text = text:sub(1, 37) .. "..."
 	end
@@ -366,7 +399,7 @@ function Ambient:bound(id)
 		why = "unbound"
 		self:say("debug", "unbound: the keypad state is unknown, the animations run")
 	else
-		self.bound_given, self.bound_id = id, id_of(id)
+		self.bound_given, self.bound_id = id, id_of(id) or nil
 		self.bind_at, self.settling = self:clock(), true
 		why = "bound"
 		self:say("debug", "bound to device %s: the keypad state is unknown until a reading counts", shown(id))
@@ -395,8 +428,17 @@ function Ambient:reading(params)
 		return
 	end
 	local group = id_of(params.GROUP)
-	if group ~= nil and self.bound_id ~= nil and group ~= self.bound_id then
-		self:ignore("%d from device %s, not the bound device %s", level, group, self.bound_id)
+	if group == false then
+		self:ignore("%d with a GROUP of %d characters, no device id", level, #params.GROUP)
+		return
+	end
+	if self.bound_id ~= nil and group ~= self.bound_id then
+		if group == nil then
+			self:ignore("%d with no GROUP, while bound to device %s", level, shown(self.bound_id, true))
+		else
+			self:ignore("%d from device %s, not the bound device %s", level, shown(group, true),
+				shown(self.bound_id, true))
+		end
 		return
 	end
 	if self.settling then

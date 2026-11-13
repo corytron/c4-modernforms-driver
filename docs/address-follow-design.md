@@ -20,6 +20,21 @@ follower's windows now feed that list as every window does, and while the
 follower is armed the driver opens no windows of its own (AD4, AD6); the
 follower still never acts on the list or the pick (F8 as AD10 has it).
 
+> **Since 1.10 (#214, 2026-11-13).** The security review's hardening. F4:
+> a candidate must also lie in the same /24 subnet as the address where the
+> pinned fan last answered (the pin's address, else the current `Fan
+> Address`), or, when that address is link-local, in 169.254/16; no
+> documented API gives a driver the LAN's netmask, so /24 is the rule
+> (`discovery.same_subnet`; `discovery.candidates` takes that anchor as a
+> fourth argument, and the follower checks it again before a read). A fan
+> that moves to another subnet is not followed: the owner types its
+> address. F8's "never" gains an address outside that subnet; F5 is
+> unchanged, so an address the owner types is never restricted. F9's text
+> in `SECURITY.md` says so. Section 2.1's `heard` list keeps at most 32
+> entries a window (`MAX_HEARD`, was 64) plus up to 4 of the pinned MAC
+> (`MAX_PINNED`), so other MACs' answers cannot crowd the pinned fan out.
+> See [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214).
+
 ## 1. Decisions
 
 | # | Decision | Basis |

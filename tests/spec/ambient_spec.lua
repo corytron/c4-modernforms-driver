@@ -436,10 +436,30 @@ describe("fan.ambient", function()
 			assert.are.equal("dark", r.a:state())
 		end)
 
-		it("counts a reading with no GROUP", function()
+		-- #214 (S2-4): once the bound keypad's id is known, a reading must name it; one with no GROUP is ignored
+		-- as one from another device is.
+		it("ignores a reading with no GROUP once a keypad is bound with a known id", function()
 			local r = settled()
 			r.a:reading({ LEVEL = "3" })
-			assert.is_true(r.a:dark())
+			assert.are.equal("unknown", r.a:state())
+			assert.is_true(r.log.has("debug", "reading ignored: 3 with no GROUP, while bound to device 123"))
+			for _, none in ipairs({ "", "   ", {}, true, 0 / 0, math.huge }) do
+				r.a:reading({ LEVEL = "3", GROUP = none })
+				assert.are.equal("unknown", r.a:state(), "GROUP " .. tostring(none))
+			end
+			assert.are.same({}, r.changes)
+			read(r, 3, KEYPAD)
+			assert.is_true(r.a:dark(), "the bound keypad's own reading still counts")
+		end)
+
+		it("does not use the skip up on a reading with no GROUP", function()
+			local r = rig()
+			r.a:bound(KEYPAD)
+			r.a:reading({ LEVEL = "2" })
+			read(r, 0)
+			assert.are.equal("unknown", r.a:state(), "the bind's artifact is still the one skipped")
+			read(r, 4)
+			assert.are.equal("dark", r.a:state())
 		end)
 
 		it("does not check GROUP after a bind with no usable id", function()
@@ -448,6 +468,11 @@ describe("fan.ambient", function()
 			advance(r, 6000)
 			read(r, 3, OTHER)
 			assert.is_true(r.a:dark())
+			r = rig()
+			r.a:bound("")
+			advance(r, 6000)
+			r.a:reading({ LEVEL = "3" })
+			assert.is_true(r.a:dark(), "no id known: a reading with no GROUP counts, as before")
 		end)
 
 		it("counts a reading while unbound, from any device, with nothing skipped", function()
@@ -457,6 +482,66 @@ describe("fan.ambient", function()
 			read(r, 20, KEYPAD)
 			assert.are.equal(1, #live(r))
 			assert.is_nil(r.a:debug().bound)
+		end)
+
+		it("counts a reading with no GROUP while unbound, and after an unbind", function()
+			local r = rig()
+			r.a:reading({ LEVEL = "3" })
+			assert.is_true(r.a:dark())
+			r = settled()
+			r.a:bound(nil)
+			r.a:reading({ LEVEL = "3" })
+			assert.is_true(r.a:dark())
+		end)
+
+		-- #214 (S2-2): GROUP is whatever the sender writes; no device id is longer than 32 characters, so a longer
+		-- one is refused before anything reads it, and the trim of a shorter one is linear.
+		it("refuses a GROUP longer than 32 characters, bound or not, and handles 32 KB of it at once", function()
+			assert.are.equal(32, ambient.MAX_ID_CHARS)
+			local long = "1" .. string.rep(" ", 32 * 1024) .. "2"
+			for _, r in ipairs({ settled(), rig() }) do
+				local started = os.clock()
+				for _ = 1, 10 do
+					r.a:reading({ LEVEL = "3", GROUP = long })
+				end
+				assert.is_true(os.clock() - started < 0.05, "took " .. (os.clock() - started) .. " s for 10 readings")
+				assert.are.equal("unknown", r.a:state())
+				assert.is_true(r.log.has("debug", "reading ignored: 3 with a GROUP of 32770 characters, no device id"))
+			end
+			local r = settled()
+			r.a:reading({ LEVEL = "3", GROUP = string.rep(" ", 29) .. "123" })
+			assert.is_true(r.a:dark(), "32 characters with the blanks: the bound keypad")
+			r = settled()
+			r.a:reading({ LEVEL = "3", GROUP = string.rep(" ", 30) .. "123" })
+			assert.are.equal("unknown", r.a:state(), "33 characters: refused")
+		end)
+
+		it("takes a bound id longer than 32 characters as unknown, so GROUP is not checked", function()
+			local r = rig()
+			r.a:bound(string.rep("7", 33))
+			advance(r, 6000)
+			read(r, 3, OTHER)
+			assert.is_true(r.a:dark())
+		end)
+
+		-- #214 (S2-7): what another driver sends reaches the log short and on one line.
+		it("logs a GROUP short, on one line, with its control characters written out", function()
+			local r = settled()
+			r.a:reading({ LEVEL = "3", GROUP = "4\n[ERROR] forged\0" })
+			local found
+			for _, line in ipairs(r.log.lines) do
+				if line.text:find("reading ignored: 3 from device", 1, true) then
+					found = line.text
+				end
+			end
+			assert.is_truthy(found)
+			assert.is_nil(found:find("%c"), found)
+			assert.is_truthy(found:find("4\\10[ERROR] forged\\0", 1, true), found)
+			r.a:reading({ GROUP = "123", LEVEL = string.rep("x\n", 5000) })
+			for _, line in ipairs(r.log.lines) do
+				assert.is_nil(line.text:find("%c"), line.text)
+				assert.is_true(#line.text <= 120, line.text)
+			end
 		end)
 
 		it("ignores LEVELs that are not whole numbers 0 to 255, and decides against rounding fractions", function()

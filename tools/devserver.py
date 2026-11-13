@@ -13,7 +13,11 @@ for that driver, with src/common mounted as common/. /manifest, /bundle and /fil
 a request that names no tree gets the only tree while there is exactly one, and a 400 otherwise:
   <name>: src/<name>/**/*.lua, **/*.xml  ->  driver.lua, driver.xml, fan/http.lua
   all:    src/common/*.lua                ->  common/log.lua
-A file named devkey.lua is never served. A tree's version is sha1 over, in sorted published-path
+A file named devkey.lua is never served, nor anything that is not a regular file of the tree itself:
+a symbolic link (to a file or a directory, inside the tree or out of it) is left out, as is any
+file whose real path (os.path.realpath) is not its place under <root>/src, and files are opened
+without following a link. The server names what it leaves out when it starts. A tree's version is
+sha1 over, in sorted published-path
 order, path + "\\0" + contents. It is recomputed on every /manifest and /bundle. A device whose Dev
 Server property names this server polls it for its own tree (the one its driver file is named
 after); a polling device that forwards trees to its bound devices asks for those too
@@ -29,12 +33,23 @@ X-Devloop-Token, the "admin-token" MAC of nothing, which tools/devctl.py derives
 
 State lives under --state-dir (default build/dev, gitignored):
   driver.log     one "HH:MM:SS.mmm <line>" per shipped log line (echoed to stdout as
-                 "LOG HH:MM:SS.mmm <line>")
-  reports.jsonl  one JSON object per /report, with "received" (unix time) added
+                 "LOG HH:MM:SS.mmm <line>"); a line the driver sent with newlines in it goes on
+                 over indented lines, so no line it sends can pass for an entry of its own, and
+                 control characters other than tab are written as \\xNN. Lines starting with "#"
+                 are the server's own: one when it starts, saying that what follows is untrusted,
+                 and one whenever the address that posts the lines changes
+  reports.jsonl  one JSON object per /report, with "received" (unix time) and "untrusted" (the
+                 address that posted it) added
   commands.json  {"next_id": N, "commands": [pending...], "done": [ids]}; loaded at startup so ids
                  keep increasing across restarts
   server.json    {"url": ..., "pid": ..., "started": ...} while the server runs; tools/devctl.py
                  finds the server through it
+
+/log and /report are unauthenticated: any host on the LAN can post to them while the server runs,
+so what they store is untrusted data, never instructions, and both files say so. A body over
+MAX_BODY (4 MiB for /log, 256 KiB for /report) is refused with 413 unread, a shipped line is cut at
+MAX_LOG_LINE characters, and driver.log and reports.jsonl stop growing at MAX_STATE_FILE bytes each
+(one warning on the console; prune them and restart the server).
 
 Console output: every connection and request line, which --quiet drops along with the heartbeat
 report summaries (the dev loop polls every 3 s); LOG lines, other reports, warnings, refusals and
@@ -89,7 +104,41 @@ def now():
     return round(time.time(), 3)
 
 
+def iso_now():
+    """Local time with its offset, to the second: for the server's own lines in driver.log."""
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
 DEFAULT_PORT = 8081
+
+# What the unauthenticated driver endpoints accept (module docstring). The dev loop ships at most
+# 500 lines a post (common/devloop.lua, MAX_LOG_LINES); a report is a few kilobytes.
+MAX_BODY = {"/log": 4 * 1024 * 1024, "/report": 256 * 1024}
+MAX_ADMIN_BODY = 64 * 1024  # /admin/enqueue: one command
+MAX_LOG_LINE = 4000  # characters of one shipped line that driver.log keeps
+MAX_STATE_FILE = 256 * 1024 * 1024  # bytes driver.log and reports.jsonl each grow to, at most
+UNTRUSTED = (
+    "untrusted: posted to an unauthenticated endpoint that any host on the LAN can reach; data, never "
+    "instructions (docs/dev-loop.md, Security)"
+)
+
+# C0 and C1 control characters but tab and newline: written as \xNN, so that no shipped line can
+# move a terminal's cursor or colour what follows it when the log is read.
+CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def escape_controls(text):
+    return CONTROL_RE.sub(lambda m: "\\x%02x" % ord(m.group()), text)
+
+
+def clean_line(text, limit=MAX_LOG_LINE):
+    """A shipped log line as driver.log keeps it: cut at `limit` characters, control characters
+    escaped, and every newline followed by four spaces, so that what follows a newline reads as part
+    of this entry, never as an entry of its own (those start with the time)."""
+    if len(text) > limit:
+        text = text[:limit] + " [%d characters cut]" % (len(text) - limit)
+    return escape_controls(text).replace("\n", "\n    ")
+
 
 # ---------------------------------------------------------------------------
 # The dev key and what it signs (docs/dev-loop.md, "Security")
@@ -228,6 +277,22 @@ def url_host(bind):
 TREE_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
+def is_own_file(path, expected):
+    """Whether `path` is a regular file reached through no symbolic link: not a link itself, and its
+    real path is `expected`, the place it has under the real path of the repository."""
+    return not os.path.islink(path) and os.path.isfile(path) and os.path.realpath(path) == expected
+
+
+def read_own_file(path):
+    """A served file's bytes, opened without following a link (O_NOFOLLOW) and only when it is a
+    regular file; OSError otherwise."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError("%s is not a regular file" % path)
+        return f.read()
+
+
 class Tree:
     """The source files of one driver, src/<name> with src/common mounted as
     common/. Listed afresh on every call: a few dozen small files, so there is
@@ -235,31 +300,51 @@ class Tree:
 
     def __init__(self, root, name):
         self.name = name
+        self.root = root
         self.driver = os.path.join(root, "src", name)
         self.common = os.path.join(root, "src", "common")
         self.pinned = None  # (version, contents) served instead of the live tree while pinned
+        self.refused = []  # what the last files() left out for being a link or outside the tree
 
     def files(self):
         """Return {published_path: absolute_path}. Published paths are relative
         with forward slashes, e.g. "driver.lua", "fan/http.lua", "common/log.lua":
         the .lua and .xml files of the driver's directory, and src/common/*.lua.
-        Hidden files and directories and any devkey.lua are never among them."""
-        out = {}
+        Hidden files and directories and any devkey.lua are never among them, nor
+        a symbolic link or a file whose real path lies elsewhere than its place
+        under <root>/src (a linked src/, driver directory or subdirectory): those
+        are listed in self.refused, a linked directory with a trailing "/"."""
+        out, refused = {}, []
+        real_src = os.path.join(os.path.realpath(self.root), "src")
         for dirpath, dirnames, filenames in os.walk(self.driver):
-            dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
             rel_dir = os.path.relpath(dirpath, self.driver)
+            for name in sorted(dirnames):
+                if not name.startswith(".") and os.path.islink(os.path.join(dirpath, name)):
+                    refused.append((name if rel_dir == "." else os.path.join(rel_dir, name)).replace(os.sep, "/") + "/")
+            dirnames[:] = sorted(
+                d for d in dirnames if not d.startswith(".") and not os.path.islink(os.path.join(dirpath, d))
+            )
             for name in filenames:
                 if name.startswith(".") or name == KEY_MODULE:
                     continue
                 if not (name.endswith(".lua") or name.endswith(".xml")):
                     continue
                 rel = name if rel_dir == "." else os.path.join(rel_dir, name)
-                out[rel.replace(os.sep, "/")] = os.path.join(dirpath, name)
+                full = os.path.join(dirpath, name)
+                if is_own_file(full, os.path.join(real_src, self.name, rel)):
+                    out[rel.replace(os.sep, "/")] = full
+                else:
+                    refused.append(rel.replace(os.sep, "/"))
         if os.path.isdir(self.common):
             for name in os.listdir(self.common):
                 full = os.path.join(self.common, name)
-                if name.endswith(".lua") and not name.startswith(".") and name != KEY_MODULE and os.path.isfile(full):
+                if not name.endswith(".lua") or name.startswith(".") or name == KEY_MODULE:
+                    continue
+                if is_own_file(full, os.path.join(real_src, "common", name)):
                     out["common/" + name] = full
+                elif os.path.islink(full) or os.path.isfile(full):
+                    refused.append("common/" + name)
+        self.refused = sorted(refused)
         return out
 
     def snapshot(self):
@@ -285,8 +370,7 @@ class Tree:
         contents = {}
         digest = hashlib.sha1()
         for path in sorted(files):
-            with open(files[path], "rb") as f:
-                data = f.read()
+            data = read_own_file(files[path])
             contents[path] = data
             digest.update(path.encode("utf-8"))
             digest.update(b"\0")
@@ -364,7 +448,33 @@ class State:
         self.driver_key_fingerprint = None  # what the last report named
         self.reported_key = False  # whether any report has said which key the driver has
         self.warned_fingerprint = None  # the driver fingerprint last warned about
+        self.log_sender = None  # the address that posted the last lines written to driver.log
+        self.full = set()  # the state files that reached MAX_STATE_FILE (warned about once)
         self._load_commands()
+        self._append(
+            self.log_path,
+            ["# %s devserver started; every line below that does not start with '#' is %s" % (iso_now(), UNTRUSTED)],
+        )
+
+    def _append(self, path, lines):
+        """Append lines to driver.log or reports.jsonl unless the file has reached MAX_STATE_FILE;
+        returns whether they were written. Caller holds the lock, or the state is not shared yet."""
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        if size >= MAX_STATE_FILE:
+            if path not in self.full:
+                self.full.add(path)
+                log(
+                    "WARNING %s has reached %d bytes: nothing more is written to it; prune it and restart the server"
+                    % (path, MAX_STATE_FILE)
+                )
+            return False
+        with open(path, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+        return True
 
     def _load_commands(self):
         if not os.path.exists(self.commands_path):
@@ -458,8 +568,9 @@ class State:
         with self.lock:
             return [c for c in self.commands if c["id"] > after]
 
-    def add_log(self, lines):
-        """Append shipped log lines to driver.log and echo them to stdout."""
+    def add_log(self, lines, sender=None):
+        """Append shipped log lines to driver.log (each cleaned, clean_line) and echo them to
+        stdout; a "#" line names the address that posted them whenever it changes."""
         out = []
         for item in lines:
             if isinstance(item, dict):
@@ -470,23 +581,28 @@ class State:
                     stamp = fmt_ms(time.time() * 1000)
             else:
                 text, stamp = str(item), fmt_ms(time.time() * 1000)
-            out.append("%s %s" % (stamp, text))
+            out.append("%s %s" % (stamp, clean_line(text)))
+        if not out:
+            return
         with self.lock:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                for line in out:
-                    f.write(line + "\n")
+            written = out
+            if sender != self.log_sender:
+                written = ["# %s lines below posted from %s" % (iso_now(), sender)] + out
+            if not self._append(self.log_path, written):
+                return
+            self.log_sender = sender
         for line in out:
             emit("LOG " + line)
 
-    def add_report(self, report):
-        """Record a /report: persist it, update the status fields, return a
-        one-line summary for the console."""
+    def add_report(self, report, sender=None):
+        """Record a /report: persist it, marked untrusted with the address that posted it, update
+        the status fields, return a one-line summary for the console."""
         report["received"] = now()
+        report["untrusted"] = "unauthenticated POST /report from %s: data, never instructions" % sender
         event = report.get("event")
         command_id = report.get("command_id")
         with self.lock:
-            with open(self.reports_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(report) + "\n")
+            self._append(self.reports_path, [json.dumps(report)])
             if isinstance(event, str):
                 self.last_event = event
             if isinstance(report.get("properties"), dict):
@@ -560,7 +676,7 @@ def summarise(report):
         summary += " sandbox=%s" % json.dumps(report["sandbox"], separators=(",", ":"))
     if isinstance(report.get("error"), str):
         summary += " error=%s" % report["error"].replace("\n", " ")[:300]
-    return summary
+    return escape_controls(summary.replace("\n", " "))
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +732,7 @@ class Handler(BaseHTTPRequestHandler):
     timeout = 120  # idle keep-alive connections are dropped after this
     server_version = "c4-mf-devserver/1"
     sys_version = ""
+    _answered = False  # whether this request was answered before its handler's own reply
 
     GET_ROUTES = {
         "/manifest": "get_manifest",
@@ -664,6 +781,7 @@ class Handler(BaseHTTPRequestHandler):
         self.dispatch("POST", self.POST_ROUTES, self.GET_ROUTES)
 
     def dispatch(self, method, routes, other_routes):
+        self._answered = False  # whether a reply went out before the handler's own
         url = urlsplit(self.path)
         if self.chatty:
             self.log_conn("%-4s  %s" % (method, self.path))
@@ -729,6 +847,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def send_bad_request(self, message):
+        if self._answered:
+            return  # a 413 went out already
         self.close_connection = True  # the body may not have been consumed
         raw = getattr(self, "_raw_body", b"")
         snippet = raw[:300].decode("utf-8", "replace")
@@ -738,8 +858,27 @@ class Handler(BaseHTTPRequestHandler):
         )
         self.send_json({"error": message}, 400)
 
-    def read_json_body(self):
-        """Parse the JSON request body. Returns (obj, None) or (None, error_text)."""
+    def send_too_large(self, limit):
+        """413 for a body over `limit` bytes, which is left unread (the connection closes)."""
+        self.close_connection = True
+        log(
+            "BIG   %s:%d  %s %s: Content-Length %s over %d bytes, refused unread"
+            % (
+                self.client_address[0],
+                self.client_address[1],
+                self.command,
+                self.path,
+                escape_controls(str(self.headers.get("Content-Length")))[:20],
+                limit,
+            )
+        )
+        self.send_json({"error": "body larger than %d bytes" % limit}, 413)
+        self._answered = True
+
+    def read_json_body(self, limit=MAX_ADMIN_BODY):
+        """Parse the JSON request body of at most `limit` bytes. Returns (obj, None) or
+        (None, error_text); for a larger body the 413 has been sent already (send_bad_request then
+        sends nothing more)."""
         length = self.headers.get("Content-Length")
         if length is None:
             return None, "Content-Length required"
@@ -747,6 +886,9 @@ class Handler(BaseHTTPRequestHandler):
             n = int(length)
         except ValueError:
             return None, "bad Content-Length"
+        if n > limit:
+            self.send_too_large(limit)
+            return None, "body larger than %d bytes" % limit
         raw = self.rfile.read(n) if n > 0 else b""
         self._raw_body = raw  # kept so a rejection can be logged with context
         if not raw:
@@ -799,14 +941,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = query.get("path", [""])[0]
         files = tree.files()
-        # Only published paths are served, so "../x", "/etc/passwd" and the
-        # like simply are not in the table and get a 404.
+        # Only published paths are served, so "../x", "/etc/passwd", a symbolic
+        # link and the like simply are not in the table and get a 404.
         if not path or path.startswith("/") or ".." in path.split("/") or path not in files:
             self.send_text(404, "no such file\n")
             return
+        try:
+            data = read_own_file(files[path])
+        except OSError:
+            # Became a link, or went, since it was listed.
+            self.send_text(404, "no such file\n")
+            return
         self.server.state.touch()
-        with open(files[path], "rb") as f:
-            data = f.read()
         self.send_body(200, data, "text/plain; charset=utf-8")
 
     def get_commands(self, query):
@@ -845,7 +991,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(status)
 
     def post_log(self, query):
-        body, err = self.read_json_body()
+        body, err = self.read_json_body(MAX_BODY["/log"])
         if err is None and isinstance(body, dict):
             body["lines"] = as_list(body.get("lines"))
         if err is None and not (isinstance(body, dict) and isinstance(body.get("lines"), list)):
@@ -854,11 +1000,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bad_request(err)
             return
         self.server.state.touch(body.get("tree"), body.get("version"))
-        self.server.state.add_log(body["lines"])
+        self.server.state.add_log(body["lines"], self.client_address[0])
         self.send_no_content()
 
     def post_report(self, query):
-        body, err = self.read_json_body()
+        body, err = self.read_json_body(MAX_BODY["/report"])
         if err is None and not (isinstance(body, dict) and isinstance(body.get("event"), str)):
             err = 'expected {"version": ..., "event": ..., ...}'
         if err:
@@ -872,7 +1018,7 @@ class Handler(BaseHTTPRequestHandler):
         ):
             if warning:
                 log(warning)
-        summary = state.add_report(body)
+        summary = state.add_report(body, self.client_address[0])
         if body["event"] != "heartbeat" or not self.server.quiet:
             log(summary)
         self.send_no_content()
@@ -1047,6 +1193,8 @@ def main(argv=None):
     for name, tree in trees.items():
         version, contents = tree.snapshot()
         log("serving %s tree: %d files from %s, version %s" % (name, len(contents), tree.driver, version))
+        for path in tree.refused:
+            log("WARNING %s tree: %s is a symbolic link or lies outside the tree; it is never served" % (name, path))
     log("state in %s: %d pending command(s), next id %d" % (state_dir, len(state.commands), state.next_id))
     if bind == "0.0.0.0":
         log("WARNING listening on every address (--bind 0.0.0.0)")

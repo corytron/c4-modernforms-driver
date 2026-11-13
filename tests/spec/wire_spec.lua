@@ -53,14 +53,28 @@ describe("fan.wire", function()
 	end)
 
 	describe("constants", function()
-		it("hold the paths, the header and the fixed bodies of sections 3.1 and 9.3", function()
+		it("hold the paths, the headers and the fixed bodies of sections 3.1 and 9.3", function()
 			assert.equal("/mf", wire.PATH)
 			assert.equal("/device", wire.G4_PATH)
-			assert.same({ ["Content-Type"] = "application/json" }, wire.HEADERS)
+			assert.same({ ["Content-Type"] = "application/json", ["Accept-Encoding"] = "identity" }, wire.HEADERS)
 			assert.equal('{"queryDynamicShadowData":1}', wire.QUERY_STATE)
 			assert.equal('{"queryStaticShadowData":1}', wire.QUERY_INFO)
 			assert.equal('{"query":true}', wire.QUERY_G4)
 			assert.equal('{"reboot":true}', wire.REBOOT)
+		end)
+
+		it("hold the bounds of an answer and of a log text (#214)", function()
+			assert.equal(16384, wire.MAX_BODY_BYTES)
+			assert.equal(8, wire.MAX_DEPTH)
+			assert.equal(200, wire.LOG_TEXT_MAX)
+		end)
+
+		it("ask for the body as it is: Accept-Encoding identity, no gzip or deflate (#214)", function()
+			assert.equal("identity", wire.HEADERS["Accept-Encoding"])
+			for name, value in pairs(wire.HEADERS) do
+				assert.is_nil(value:lower():find("gzip", 1, true), name)
+				assert.is_nil(value:lower():find("deflate", 1, true), name)
+			end
 		end)
 
 		it("are plain data: the module loads without Director (pure, section 9.3)", function()
@@ -301,11 +315,119 @@ describe("fan.wire", function()
 			assert.same({ nil, "json" }, { wire.decode({}) })
 		end)
 
-		it("does not decode a body over 64 KB: no fan's answer is that big (N4, a router's page)", function()
-			local calls = 0
-			c4.JsonDecode = function() calls = calls + 1 return {} end
-			assert.same({ nil, "json" }, { wire.decode("{" .. string.rep(" ", 70000) .. "}") })
-			assert.equal(0, calls)
+		describe("bounds before the decoder (#214)", function()
+			local calls, real
+
+			before_each(function()
+				calls = 0
+				real = c4.JsonDecode
+				c4.JsonDecode = function(self, text)
+					calls = calls + 1
+					return real(self, text)
+				end
+			end)
+
+			-- An object of `size` bytes whose one key holds a long string.
+			local function object_of(size)
+				local head, tail = '{"clientId":"MF_00005E005301","pad":"', '"}'
+				return head .. string.rep("x", size - #head - #tail) .. tail
+			end
+
+			-- {"a":{"a":...{"a":1}...}} with `depth` objects.
+			local function objects(depth)
+				return string.rep('{"a":', depth) .. "1" .. string.rep("}", depth)
+			end
+
+			it("does not decode a body over 16 KB: no fan's answer is that big (N4, a router's page)", function()
+				assert.same({ nil, "json", "over 16384 bytes; refused" },
+					{ wire.decode("{" .. string.rep(" ", 16383) .. "}") })
+				assert.same({ nil, "json", "over 16384 bytes; refused" }, { wire.decode(object_of(16385)) })
+				assert.equal(0, calls)
+			end)
+
+			it("decodes a body of exactly 16384 bytes", function()
+				local obj = assert(wire.decode(object_of(16384)))
+				assert.equal("MF_00005E005301", obj.clientId)
+				assert.equal(1, calls)
+			end)
+
+			it("tests the size first: 16 KB of white space is refused, not read as empty", function()
+				assert.same({ nil, "json", "over 16384 bytes; refused" }, { wire.decode(string.rep(" ", 20000)) })
+			end)
+
+			it("decodes depth 1, 2 and 8", function()
+				local obj = assert(wire.decode('{"clientId":"MF_00005E005301","a":{"b":[1,2]}}'))
+				assert.same({ 1, 2 }, obj.a.b)
+				assert(wire.decode(objects(1)))
+				assert(wire.decode(objects(2)))
+				local deep = assert(wire.decode(objects(8)))
+				assert.equal(1, deep.a.a.a.a.a.a.a.a)
+				assert.equal(4, calls)
+			end)
+
+			it("refuses depth 9 unread, in objects, arrays or both", function()
+				for _, text in ipairs({ objects(9), '{"a":' .. string.rep("[", 8) .. string.rep("]", 8) .. "}",
+					'{"a":[{"b":[{"c":[{"d":[{"e":1}]}]}]}]}', string.rep("[", 9) .. string.rep("]", 9) }) do
+					assert.same({ nil, "json", "nested deeper than 8; refused" }, { wire.decode(text) }, text)
+				end
+				assert.equal(0, calls)
+			end)
+
+			it("refuses 16 KB of '[' unread (the nesting a native decoder might recurse into)", function()
+				assert.same({ nil, "json", "nested deeper than 8; refused" }, { wire.decode(string.rep("[", 16384)) })
+				assert.same({ nil, "json", "nested deeper than 8; refused" },
+					{ wire.decode(string.rep('{"a":', 3000)) })
+				assert.equal(0, calls)
+			end)
+
+			it("does not count brackets inside strings, in keys or in values", function()
+				local brackets = string.rep("[{", 20)
+				local obj = assert(wire.decode('{"clientId":"MF_' .. brackets .. '","' .. brackets .. '":"]]}}"}'))
+				assert.equal("MF_" .. brackets, obj.clientId)
+				assert.equal("]]}}", obj[brackets])
+			end)
+
+			it("keeps an escaped quote inside its string: the brackets after it are still text", function()
+				local text = '{"clientId":"MF_00005E005301","note":"say \\"' .. string.rep("[", 12) .. '\\" ok"}'
+				local obj = assert(wire.decode(text))
+				assert.equal('say "' .. string.rep("[", 12) .. '" ok', obj.note)
+			end)
+
+			it("ends a string at the quote after an escaped backslash: what follows is counted", function()
+				local text = '{"a":"x\\\\","b":' .. string.rep("[", 9) .. string.rep("]", 9) .. "}"
+				assert.same({ nil, "json", "nested deeper than 8; refused" }, { wire.decode(text) })
+				local ok = '{"a":"x\\\\","b":[[1]]}'
+				assert.same({ { 1 } }, assert(wire.decode(ok)).b)
+				assert.equal(1, calls)
+			end)
+
+			it("refuses unread what cannot be JSON and could hide nesting from the count", function()
+				for name, text in pairs({
+					unterminated = '{"a":"' .. string.rep("[", 20),
+					escape_at_end = '{"a":"x\\',
+					comment = '/* " */ ' .. string.rep("[", 12) .. string.rep("]", 12) .. ' "',
+					line_comment = '{"a":1} // "',
+					single_quote = "{'a':'\"'," .. string.rep("[", 12) .. '"}',
+					close_first = "]]]]]]]]]]" .. string.rep("[", 12) .. "1" .. string.rep("]", 2),
+				}) do
+					assert.same({ nil, "json", "not JSON; refused before decoding" }, { wire.decode(text) }, name)
+				end
+				assert.equal(0, calls)
+			end)
+
+			it("takes '/' and \"'\" inside strings, as URLs and names have them", function()
+				local obj = assert(wire.decode('{"clientId":"MF_00005E005301","url":"http://example.com/a\\/b",'
+					.. '"name":"Den\'s fan"}'))
+				assert.equal("http://example.com/a/b", obj.url)
+				assert.equal("Den's fan", obj.name)
+			end)
+
+			it("reads every fixture answer as before", function()
+				for _, text in ipairs({ mf.STATE, mf.STATE_ON_3, mf.INFO, mf.INFO_OTHER, mf.INFO_NO_KIT, mf.GEN12_STATE,
+					mf.G4_DEVICE }) do
+					assert.is_table(wire.decode(text), text)
+				end
+			end)
 		end)
 
 		it("removes the private fields from the object it hands on (V20, V6), and keeps the rest", function()
@@ -566,6 +688,13 @@ describe("fan.wire", function()
 					assert.is_true(#name <= 40)
 				end
 			end)
+
+			it("replaces every byte outside printable ASCII in a name, as for a log line (#214)", function()
+				local raw = assert(C4:JsonDecode(mf.STATE))
+				raw["new\r\nKey\0\27[31m\226\128\166"] = 1
+				local st = assert(wire.state(raw))
+				assert.same({ "new??Key??[31m???" }, st.unknown)
+			end)
 		end)
 
 		describe("private data (V20, V6)", function()
@@ -701,6 +830,53 @@ describe("fan.wire", function()
 			assert.equal("00005E005301", wire.mac12(runs .. "00:00:5e:00:53:01" .. runs))
 			assert.is_nil(wire.mac12("00:00:5e" .. runs .. ":00:53:01"))
 			assert.is_true(os.clock() - started < 1, "a trim that is not linear takes minutes on this")
+		end)
+
+		it("scans a body's nesting in one pass, whatever its strings and escapes (#214)", function()
+			local calls = 0
+			c4.JsonDecode = function() calls = calls + 1 return nil, "stub" end
+			local escapes = '{"a":"' .. ('\\"'):rep(8000) .. '"}'
+			local strings = "[" .. ('"",'):rep(5400) .. "1]"
+			local blanks = "{" .. (" "):rep(16380) .. "}"
+			local started = os.clock()
+			for _ = 1, 20 do
+				for _, text in ipairs({ escapes, strings, blanks }) do
+					assert.is_true(#text <= wire.MAX_BODY_BYTES)
+					wire.decode(text)
+				end
+			end
+			assert.equal(60, calls, "each reached the decoder: nothing in them is nested")
+			assert.is_true(os.clock() - started < 1, "a scan that is not linear takes far longer on this")
+		end)
+	end)
+
+	describe("log_text (#214)", function()
+		it("leaves short printable text as it is", function()
+			assert.equal("Connection refused", wire.log_text("Connection refused"))
+			assert.equal("", wire.log_text(""))
+		end)
+
+		it("replaces control characters, NUL and bytes outside printable ASCII with '?'", function()
+			assert.equal("a??b?c?[31md???", wire.log_text("a\r\nb\0c\27[31md\226\128\166"))
+			assert.is_nil(wire.log_text("\1\2\3\t\127"):find("%c"))
+		end)
+
+		it("cuts text over 200 characters to 199 and '…'", function()
+			local text = wire.log_text(("A"):rep(5000))
+			assert.equal(("A"):rep(199) .. "\226\128\166", text)
+			assert.equal(("B"):rep(200), wire.log_text(("B"):rep(200)), "200 characters are not cut")
+			assert.equal(("C"):rep(199) .. "\226\128\166", wire.log_text(("C"):rep(201)))
+		end)
+
+		it("cuts first, so the cut never splits a replacement, and takes another limit", function()
+			assert.equal("ab?\226\128\166", wire.log_text("ab\0cdef", 4))
+			assert.equal("\226\128\166", wire.log_text("abc", 1))
+		end)
+
+		it("takes any value and never raises", function()
+			assert.equal("42", wire.log_text(42))
+			assert.equal("nil", wire.log_text(nil))
+			assert.equal("?", wire.log_text(setmetatable({}, { __tostring = function() error("no") end })))
 		end)
 	end)
 

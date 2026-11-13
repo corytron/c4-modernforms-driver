@@ -4,7 +4,9 @@
 -- src/common/dispatch.lua) and extended here with one handler table per proxy
 -- binding (docs/v1-design.md section 9.2); the rest is unchanged.
 --
---   dispatch.commands["Some_Action"] = function(params) ... end        -- ExecuteCommand, LUA_ACTION "Some Action"
+--   dispatch.actions["Some_Action"] = function(params) ... end         -- ExecuteCommand LUA_ACTION "Some Action" only
+--   dispatch.commands["Some_Command"] = function(params) ... end       -- ExecuteCommand "Some Command" (programming,
+--                                                                       -- other drivers' C4:SendToDevice)
 --   dispatch.properties["Debug_Mode"] = function(value) ... end        -- OnPropertyChanged("Debug Mode")
 --   dispatch.binding(5002)["ON"] = function(binding, params) ... end   -- ReceivedFromProxy(5002, "ON", params)
 --   dispatch.proxy["ON"] = function(binding, params) ... end           -- the same for a binding with no table
@@ -27,6 +29,7 @@
 local log = require("common.log")
 
 local dispatch = {
+	actions = {},
 	commands = {},
 	properties = {},
 	proxy = {},
@@ -70,14 +73,26 @@ function dispatch.binding(id)
 	return handlers
 end
 
+-- Composer actions arrive as LUA_ACTION with the action name in ACTION, and
+-- only that way reach dispatch.actions: a bare command of the same name (a
+-- stray or colliding SendToDevice from another driver) does not run an
+-- action (#214). ExecuteCommand carries no sender [API
+-- 5_director_command/_1-ExecuteCommand.md], so this is no authentication:
+-- it keeps actions to the path Composer uses. A LUA_ACTION with no action of
+-- that name falls back to dispatch.commands.
 function dispatch.execute_command(command, params)
-	params = params or {}
-	-- Composer actions arrive as LUA_ACTION with the action name in ACTION.
+	params = type(params) == "table" and params or {}
 	if command == "LUA_ACTION" and params.ACTION then
-		command = params.ACTION
+		local name = key(tostring(params.ACTION))
 		params.ACTION = nil
+		log.debug("ExecuteCommand LUA_ACTION %s", name)
+		local fn = dispatch.actions[name]
+		if fn ~= nil then
+			return call("action", name, fn, params)
+		end
+		return call("command", name, dispatch.commands[name], params)
 	end
-	local name = key(command)
+	local name = key(tostring(command))
 	log.debug("ExecuteCommand %s", name)
 	return call("command", name, dispatch.commands[name], params)
 end

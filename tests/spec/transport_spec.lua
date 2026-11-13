@@ -194,24 +194,36 @@ describe("fan.transport", function()
 	end)
 
 	describe("the call (section 3.2)", function()
-		it("posts the body to http://<address>/mf with the one header and the options", function()
+		it("posts the body to http://<address>/mf with its two headers, the options and the answer guards", function()
 			local seq = t:send(command_request(), collect)
 			assert.equal(1, seq)
 			local transfer = c4.last_transfer()
 			assert.equal("POST", transfer.method)
 			assert.equal("http://10.0.2.151/mf", transfer.url)
 			assert.equal('{"fanOn":true,"fanSpeed":3}', transfer.data)
-			assert.same({ ["Content-Type"] = "application/json" }, transfer.headers)
+			assert.same({ ["Content-Type"] = "application/json", ["Accept-Encoding"] = "identity" }, transfer.headers)
 			assert.same({ timeout = 5, connect_timeout = 3, fail_on_error = false }, transfer.options)
 			assert.is_function(transfer.callbacks.done)
-			assert.is_nil(transfer.callbacks.headers, "nothing is started from OnHeaders (section 3.2)")
-			assert.is_nil(transfer.callbacks.chunk)
+			assert.is_function(transfer.callbacks.headers, "OnHeaders refuses redirects and big bodies (#214)")
+			assert.is_function(transfer.callbacks.chunk, "OnBodyChunk counts the body's bytes (#214)")
+			assert.is_nil(transfer.callbacks.body)
+		end)
+
+		it("asks for the body as it is: Accept-Encoding identity, never gzip or deflate (#214)", function()
+			t:send(state_request(), collect)
+			local headers = c4.last_transfer().headers
+			assert.equal("identity", headers["Accept-Encoding"])
+			for name, value in pairs(headers) do
+				assert.is_nil(value:lower():find("gzip", 1, true), name)
+				assert.is_nil(value:lower():find("deflate", 1, true), name)
+			end
 		end)
 
 		it("gives each transfer its own copy of the header table", function()
 			t:send(state_request(), collect)
 			c4.last_transfer().headers["Content-Type"] = "text/plain"
-			assert.same({ ["Content-Type"] = "application/json" }, wire.HEADERS)
+			c4.last_transfer().headers["Accept-Encoding"] = "gzip"
+			assert.same({ ["Content-Type"] = "application/json", ["Accept-Encoding"] = "identity" }, wire.HEADERS)
 		end)
 
 		it("sends the Gen 4 probe to /device and nothing else there (section 3.6)", function()
@@ -618,14 +630,237 @@ describe("fan.transport", function()
 			assert.equal("no response", result.detail)
 		end)
 
-		it("reads the last response of a redirected transfer", function()
-			local result = one(function(transfer)
-				transfer.answered = true
-				transfer:redirect(302, "http://10.0.2.152/mf")
-				transfer:respond(200, mf.STATE)
+		describe("a redirect is refused, never followed (#214)", function()
+			for _, code in ipairs({ 301, 302, 303, 307, 308 }) do
+				it("aborts at a " .. code .. " and reports it as an http failure", function()
+					local result = one(function(transfer)
+						transfer.answered = true
+						transfer:redirect(code, "http://10.0.2.152/mf")
+					end)
+					local transfer = c4.last_transfer()
+					assert.is_true(transfer.aborted, "OnHeaders answered true")
+					assert.equal(1, #transfer.responses, "nothing was asked of the Location")
+					assert.is_false(result.ok)
+					assert.equal("http", result.err)
+					assert.equal(code, result.code)
+					assert.is_nil(result.json)
+					assert.equal(string.format("the fan answered with a redirect; not followed (HTTP %d)", code),
+						result.detail)
+				end)
+			end
+
+			it("refuses it for every kind of request", function()
+				for _, kind in ipairs({ "state", "info", "command", "g4", "reboot" }) do
+					t:set_address(ADDRESS)
+					local path = kind == "g4" and wire.G4_PATH or wire.PATH
+					assert(t:send({ kind = kind, path = path, body = '{"x":1}' }, collect))
+					c4.last_transfer():redirect(302, "http://127.0.0.1:8080/" .. kind)
+					local result = results[#results]
+					assert.equal(kind, result.kind)
+					assert.is_false(result.ok, kind)
+					assert.equal("http", result.err, kind)
+					assert.equal(302, result.code, kind)
+					clock.advance(250)
+				end
 			end)
-			assert.is_true(result.ok)
-			assert.equal(200, result.code)
+
+			it("refuses the answer even when the abort is not honoured and the Location answers 200", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:redirect(307, "http://203.0.113.9/elsewhere")
+					transfer.cancelled, transfer.aborted = false, false
+					transfer:respond(200, mf.STATE)
+				end)
+				assert.is_false(result.ok)
+				assert.equal("http", result.err)
+				assert.equal(307, result.code)
+				assert.is_nil(result.json)
+			end)
+
+			it("refuses a 3xx among the responses even when OnHeaders never ran for it", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					local guard = transfer.callbacks.headers
+					transfer.callbacks.headers = nil
+					transfer:redirect(302, "http://10.0.2.152/mf")
+					transfer.callbacks.headers = guard
+					transfer:respond(200, mf.STATE)
+				end)
+				assert.is_false(result.ok)
+				assert.equal("http", result.err)
+				assert.equal(302, result.code)
+				assert.equal("the fan answered with a redirect; not followed (HTTP 302)", result.detail)
+			end)
+
+			it("keeps its slot and its gap: on_idle follows GAP_MS after the refusal", function()
+				t:send(state_request(), collect)
+				c4.last_transfer():redirect(302, "http://10.0.2.152/mf")
+				assert.equal(1, #results)
+				assert.is_true(t:busy())
+				clock.advance(250)
+				assert.is_false(t:busy())
+				assert.equal(1, idle.count)
+			end)
+		end)
+
+		describe("the body is bounded at wire.MAX_BODY_BYTES (#214)", function()
+			-- A JSON object of the fan's of exactly `size` bytes.
+			local function body_of(size)
+				local head, tail = '{"clientId":"MF_00005E005301","pad":"', '"}'
+				return head .. string.rep("x", size - #head - #tail) .. tail
+			end
+
+			it("is 16384 bytes, the same cap wire.decode keeps", function()
+				assert.equal(16384, wire.MAX_BODY_BYTES)
+			end)
+
+			it("refuses a Content-Length over the cap in OnHeaders: aborted before any body", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:respond_headers(200, { ["Content-Length"] = "16385" })
+					assert.is_true(transfer.aborted)
+					transfer:chunk(string.rep("x", 100))
+					transfer:done(-1)
+				end)
+				assert.is_false(result.ok)
+				assert.equal("json", result.err)
+				assert.equal(200, result.code)
+				assert.is_nil(result.json)
+				assert.equal("the answer is over 16384 bytes; refused", result.detail)
+			end)
+
+			it("reads the Content-Length in any case, with blanks, and as large as it is written", function()
+				for _, header in ipairs({ { ["content-length"] = "20000" }, { ["CONTENT-LENGTH"] = " 1048576 " },
+					{ ["Content-Length"] = string.rep("9", 400) } }) do
+					t:set_address(ADDRESS)
+					t:send(state_request(), collect)
+					local transfer = c4.last_transfer()
+					transfer:respond_headers(200, header)
+					assert.is_true(transfer.aborted)
+					transfer:done(-1)
+					assert.equal("json", results[#results].err)
+					clock.advance(250)
+				end
+			end)
+
+			it("takes a Content-Length at the cap, and a body of exactly the cap", function()
+				local body = body_of(16384)
+				assert.equal(16384, #body)
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:respond(200, body, { ["Content-Length"] = tostring(#body) })
+				end)
+				assert.is_false(c4.last_transfer().aborted)
+				assert.is_true(result.ok)
+				assert.equal("MF_00005E005301", result.json.clientId)
+			end)
+
+			it("cancels a chunked body once its bytes pass the cap, and keeps nothing of it", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:respond_headers(200, { ["Transfer-Encoding"] = "chunked" })
+					transfer:chunk(string.rep(" ", 8192))
+					transfer:chunk(string.rep(" ", 8192))
+					assert.is_false(transfer.aborted, "16384 bytes are still within the cap")
+					transfer:chunk("{")
+					assert.is_true(transfer.aborted, "OnBodyChunk answered true at byte 16385")
+					transfer:done(-1)
+				end)
+				assert.is_false(result.ok)
+				assert.equal("json", result.err)
+				assert.equal(200, result.code)
+				assert.equal("the answer is over 16384 bytes; refused", result.detail)
+			end)
+
+			it("aborts a body sent in one piece far over the cap (the lab's 8 MB)", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:respond(200, string.rep(" ", 8 * 1024 * 1024) .. "x")
+				end)
+				assert.is_true(c4.last_transfer().aborted)
+				assert.equal("json", result.err)
+				assert.equal("the answer is over 16384 bytes; refused", result.detail)
+			end)
+
+			it("answers true to every chunk after the refusal, should Director call again", function()
+				t:send(state_request(), collect)
+				local transfer = c4.last_transfer()
+				transfer:respond_headers(200, {})
+				transfer:chunk(string.rep(" ", 16385))
+				assert.is_true(transfer.aborted)
+				transfer.cancelled, transfer.aborted = false, false
+				transfer:chunk("{}")
+				assert.is_true(transfer.aborted)
+			end)
+
+			it("gathers the body from its chunks when OnBodyChunk is set", function()
+				local result = one(function(transfer)
+					transfer.answered = true
+					transfer:respond_headers(200, { ["Content-Length"] = tostring(#mf.STATE) })
+					transfer:chunk(mf.STATE:sub(1, 100))
+					transfer:chunk(mf.STATE:sub(101, 300))
+					transfer:chunk(mf.STATE:sub(301))
+					transfer:done(0)
+				end)
+				assert.is_true(result.ok)
+				assert.equal("MF_00005E005301", result.json.clientId)
+				assert.equal(1, result.json.fanSpeed)
+			end)
+
+			it("refuses a compressed answer in OnHeaders, and takes one sent as it is", function()
+				for _, encoding in ipairs({ "gzip", "deflate", "br", " GZIP ", "identity, gzip" }) do
+					t:set_address(ADDRESS)
+					t:send(state_request(), collect)
+					local transfer = c4.last_transfer()
+					transfer:respond(200, mf.STATE, { ["Content-Encoding"] = encoding })
+					assert.is_true(transfer.aborted, encoding)
+					local result = results[#results]
+					assert.equal("json", result.err, encoding)
+					assert.equal("the answer is compressed (Content-Encoding); refused", result.detail)
+					clock.advance(250)
+				end
+				for _, encoding in ipairs({ "identity", " Identity ", "" }) do
+					t:set_address(ADDRESS)
+					t:send(state_request(), collect)
+					c4.last_transfer():respond(200, mf.STATE, { ["content-encoding"] = encoding })
+					assert.is_true(results[#results].ok, encoding)
+					clock.advance(250)
+				end
+			end)
+
+			it("refuses a body nested deeper than wire.MAX_DEPTH, naming why in the detail", function()
+				local deep = '{"clientId":"MF_00005E005301","a":' .. string.rep("[", 9) .. string.rep("]", 9) .. "}"
+				local result = one(function(transfer) answer(transfer, 200, deep) end)
+				assert.is_false(result.ok)
+				assert.equal("json", result.err)
+				assert.equal("nested deeper than 8; refused", result.detail)
+			end)
+
+			it("checks the answer of a request given up too: its redirect is not followed either", function()
+				t:send(state_request(), collect)
+				local old = c4.last_transfer()
+				t:set_address(ADDRESS)
+				old:redirect(302, "http://10.0.2.152/mf")
+				assert.is_true(old.aborted)
+				assert.equal(0, #results)
+			end)
+
+			it("aborts, rather than raise into Director, when a guard fails", function()
+				t:send(state_request(), collect)
+				local transfer = c4.last_transfer()
+				local abort
+				assert.has_no.errors(function()
+					abort = transfer.callbacks.headers(transfer, setmetatable({}, {
+						__index = function() error("odd response table") end,
+					}))
+				end)
+				assert.is_true(abort)
+				transfer:done(-1)
+				assert.is_false(results[1].ok)
+				assert.equal("connect", results[1].err)
+				assert.equal("the answer could not be checked; refused", results[1].detail)
+				assert.is_true(logged("the answer guard raised"))
+			end)
 		end)
 
 		it("delivers each transfer's result once, however often Director reports it", function()
@@ -1042,6 +1277,42 @@ describe("fan.transport", function()
 		it("is not told 'busy' for a good request just because a bad one came first", function()
 			t:send({ kind = "nope" }, collect)
 			assert.is_number(t:send(state_request(), collect))
+		end)
+	end)
+
+	describe("log lines carry transfer text cut and printable (#214)", function()
+		local long = "Failed\r\n\0\1\27[31m<b>" .. string.rep("A", 5000)
+
+		it("cuts a transfer error's message in the detail to 200 characters, controls replaced", function()
+			t:send(state_request(), collect)
+			fail(c4.last_transfer(), 7, long)
+			local detail = results[1].detail
+			assert.equal("connect", results[1].err)
+			assert.is_nil(detail:find("%c"), detail)
+			assert.is_nil(detail:find(string.rep("A", 200), 1, true))
+			assert.is_true(detail:find("Failed?????[31m<b>", 1, true) ~= nil, detail)
+			assert.equal("\226\128\166", detail:sub(-3), "the cut is marked")
+			assert.is_true(#detail <= #"transfer error 7: " + 199 + 3)
+		end)
+
+		it("leaves a short message whole", function()
+			t:send(state_request(), collect)
+			fail(c4.last_transfer(), 7, "Connection refused")
+			assert.equal("transfer error 7: Connection refused", results[1].detail)
+		end)
+
+		it("cuts what a raising result handler said in its error line", function()
+			t:send(state_request(), function() error(long, 0) end)
+			answer(c4.last_transfer(), 200, mf.STATE)
+			local line
+			for _, each in ipairs(lines) do
+				if each:find("the result handler raised", 1, true) then line = each end
+			end
+			assert.is_string(line)
+			assert.is_nil(line:find("%c"), line)
+			assert.is_nil(line:find(string.rep("A", 200), 1, true))
+			assert.is_true(line:find("\226\128\166", 1, true) ~= nil)
+			assert.is_true(#line < 300, "the line is " .. #line .. " bytes")
 		end)
 	end)
 

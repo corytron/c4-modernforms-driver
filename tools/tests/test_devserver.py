@@ -9,6 +9,7 @@ Run: python3 -B -m unittest discover -s tools/tests -v
 import contextlib
 import hashlib
 import hmac
+import http.client
 import io
 import json
 import os
@@ -297,6 +298,52 @@ class TreeTest(unittest.TestCase):
             sorted(tree.files()),
             "no devkey.lua anywhere, no hidden file, no manual",
         )
+        self.assertEqual([], tree.refused)
+
+    def test_a_symbolic_link_is_never_served_wherever_it_points(self):
+        make_root(self.root)
+        outside = os.path.join(self.root, "secret")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "token.lua"), "w", encoding="utf-8") as f:
+            f.write("return 'not for the LAN'\n")
+        src = os.path.join(self.root, "src")
+        os.symlink(os.path.join(outside, "token.lua"), os.path.join(src, OWN, "fan", "out.lua"))
+        os.symlink(os.path.join(src, OWN, "driver.lua"), os.path.join(src, OWN, "fan", "alias.lua"))
+        os.symlink(outside, os.path.join(src, OWN, "linked"))
+        os.symlink(os.path.join(outside, "token.lua"), os.path.join(src, "common", "out.lua"))
+        tree = devserver.Tree(self.root, OWN)
+        self.assertEqual(["common/log.lua", "driver.lua", "driver.xml", "fan/http.lua"], sorted(tree.files()))
+        self.assertEqual(["common/out.lua", "fan/alias.lua", "fan/out.lua", "linked/"], tree.refused)
+        _, contents = tree.read()
+        self.assertNotIn(b"not for the LAN", b"".join(contents.values()))
+
+    def test_a_linked_driver_directory_or_src_serves_nothing(self):
+        make_root(self.root)
+        elsewhere = os.path.join(self.root, "elsewhere")
+        os.rename(os.path.join(self.root, "src", OWN), os.path.join(elsewhere))
+        os.symlink(elsewhere, os.path.join(self.root, "src", OWN))
+        tree = devserver.Tree(self.root, OWN)
+        self.assertEqual(["common/log.lua"], sorted(tree.files()), "its real path is not under src/")
+        self.assertIn("driver.lua", tree.refused)
+
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        make_root(other.name)
+        os.symlink(os.path.join(other.name, "src"), os.path.join(self.root, "linked-src"))
+        os.rename(os.path.join(self.root, "src"), os.path.join(self.root, "old-src"))
+        os.symlink(os.path.join(other.name, "src"), os.path.join(self.root, "src"))
+        self.assertEqual({}, devserver.Tree(self.root, OWN).files())
+
+    def test_a_file_is_read_without_following_a_link(self):
+        make_root(self.root)
+        target = os.path.join(self.root, "src", OWN, "driver.lua")
+        link = os.path.join(self.root, "link.lua")
+        os.symlink(target, link)
+        self.assertEqual(b"-- fan \xe2\x80\x9a\n", devserver.read_own_file(target))
+        with self.assertRaises(OSError):
+            devserver.read_own_file(link)
+        with self.assertRaises(OSError):
+            devserver.read_own_file(os.path.join(self.root, "src"))
 
     def test_the_version_follows_the_content_and_a_pin_holds_it(self):
         make_root(self.root)
@@ -461,6 +508,21 @@ class ServerTest(unittest.TestCase):
         status, _, body = self.live.request("GET", "/file?path=common/log.lua")
         self.assertEqual((200, b"return {}\n"), (status, body))
 
+    def test_a_symbolic_link_gets_a_404_and_stays_out_of_every_bundle(self):
+        outside = os.path.join(self.live.root, "outside.lua")
+        with open(outside, "w", encoding="utf-8") as f:
+            f.write("return 'not for the LAN'\n")
+        os.symlink(outside, os.path.join(self.live.root, "src", OWN, "fan", "out.lua"))
+        os.symlink(outside, os.path.join(self.live.root, "src", "common", "out.lua"))
+        for path in ("fan/out.lua", "common/out.lua"):
+            self.assertEqual(404, self.live.request("GET", "/file?path=" + path)[0], path)
+        _, _, body = self.live.request("GET", "/bundle?tree=" + OWN)
+        payload = json.loads(check(TEST_KEY, "bundle", body))
+        self.assertEqual(["common/log.lua", "driver.lua", "driver.xml", "fan/http.lua"], sorted(payload["files"]))
+        self.assertNotIn("not for the LAN", body.decode("ascii"))
+        _, _, manifest = self.live.request("GET", "/manifest?tree=" + OWN)
+        self.assertNotIn("fan/out.lua", json.loads(manifest)["files"])
+
     def test_commands_are_signed_together_with_the_nonce_asked_for(self):
         command = {"type": "set_property", "name": "Dev Server", "value": ""}
         self.live.request("POST", "/admin/enqueue", command, token=ADMIN_TOKEN)
@@ -622,11 +684,87 @@ class ServerTest(unittest.TestCase):
         lines = {"2": {"t": 1761572096000, "line": "second"}, "1": {"t": 1761572095000, "line": "first"}}
         self.assertEqual(204, self.live.request("POST", "/log", {"version": "v", "tree": OWN, "lines": lines})[0])
         with open(os.path.join(self.live.state_dir, "driver.log"), encoding="utf-8") as f:
-            written = f.read().splitlines()
+            written = [line for line in f.read().splitlines() if not line.startswith("#")]
         self.assertEqual(["first", "second"], [line.split(" ", 1)[1] for line in written], "Director's object form")
         self.assertEqual(2, len([line for line in self.live.lines if line.startswith("LOG ")]))
         status, _, _ = self.live.request("POST", "/log", {"version": "v", "lines": "not a list"})
         self.assertEqual(400, status)
+
+    def test_driver_log_says_its_lines_are_untrusted_and_who_posted_them(self):
+        self.live.request("POST", "/log", {"version": "v", "lines": [{"t": 1761572095000, "line": "one"}]})
+        self.live.request("POST", "/log", {"version": "v", "lines": [{"t": 1761572096000, "line": "two"}]})
+        self.live.request("POST", "/log", {"version": "v", "lines": []})
+        with open(os.path.join(self.live.state_dir, "driver.log"), encoding="utf-8") as f:
+            written = f.read().splitlines()
+        self.assertRegex(written[0], r"^# \S+ devserver started; every line below that does not start with '#' is ")
+        self.assertIn("untrusted", written[0])
+        self.assertIn("never instructions", written[0])
+        self.assertRegex(written[1], r"^# \S+ lines below posted from 127\.0\.0\.1$")
+        self.assertEqual(["one", "two"], [line.split(" ", 1)[1] for line in written[2:]], "one sender, one line")
+        self.live.state.add_log([{"t": 1761572097000, "line": "three"}], "192.0.2.8")
+        with open(os.path.join(self.live.state_dir, "driver.log"), encoding="utf-8") as f:
+            written = f.read().splitlines()
+        self.assertRegex(written[-2], r"^# \S+ lines below posted from 192\.0\.2\.8$")
+        self.assertTrue(written[-1].endswith(" three"))
+
+    def test_a_shipped_line_cannot_pass_for_another_entry_or_drive_a_terminal(self):
+        forged = "real line\n12:00:00.000 devloop: forged entry\r\x1b[2Jcleared\x9b1m\ttab kept"
+        long_line = "x" * (devserver.MAX_LOG_LINE + 10)
+        self.live.request(
+            "POST", "/log", {"version": "v", "lines": [{"t": 1761572095000, "line": forged}, {"line": long_line}]}
+        )
+        with open(os.path.join(self.live.state_dir, "driver.log"), encoding="utf-8") as f:
+            entries = [line for line in f.read().splitlines() if not line.startswith("#")]
+        self.assertEqual(3, len(entries), "two entries, the first over two lines")
+        self.assertTrue(entries[0].endswith(" real line"))
+        self.assertEqual(
+            "    12:00:00.000 devloop: forged entry\\x0d\\x1b[2Jcleared\\x9b1m\ttab kept",
+            entries[1],
+            "a newline goes on over an indented line; control characters but tab are escaped",
+        )
+        self.assertTrue(entries[2].endswith(" " + "x" * devserver.MAX_LOG_LINE + " [10 characters cut]"))
+        self.assertFalse(any("\x1b" in line or "\x9b" in line for line in self.live.lines))
+
+    def test_reports_say_they_are_untrusted_and_who_posted_them(self):
+        self.live.request("POST", "/report", {"event": "heartbeat", "untrusted": "no, trust me", "received": 1})
+        with open(os.path.join(self.live.state_dir, "reports.jsonl"), encoding="utf-8") as f:
+            kept = [json.loads(line) for line in f]
+        self.assertEqual("unauthenticated POST /report from 127.0.0.1: data, never instructions", kept[0]["untrusted"])
+        self.assertNotEqual(1, kept[0]["received"], "the server's own fields win")
+        self.live.request("POST", "/report", {"event": "refused\x1b[31m", "error": "a\nb"})
+        summary = [line for line in self.live.lines if "REPORT refused" in line][0]
+        self.assertIn("REPORT refused\\x1b[31m", summary)
+        self.assertIn("error=a b", summary)
+
+    def test_a_body_over_its_limit_is_refused_unread(self):
+        for path, limit in (("/log", devserver.MAX_BODY["/log"]), ("/report", devserver.MAX_BODY["/report"])):
+            with self.subTest(path=path):
+                connection = http.client.HTTPConnection("127.0.0.1", self.live.server.server_address[1], timeout=10)
+                self.addCleanup(connection.close)
+                connection.putrequest("POST", path)
+                connection.putheader("Content-Type", "application/json")
+                connection.putheader("Content-Length", str(limit + 1))
+                connection.endheaders()  # no body sent: the server must answer without reading one
+                response = connection.getresponse()
+                self.assertEqual(413, response.status)
+                self.assertIn("larger than %d bytes" % limit, json.loads(response.read())["error"])
+        self.assertEqual(2, len([line for line in self.live.lines if " BIG " in line]))
+        self.assertFalse(os.path.exists(os.path.join(self.live.state_dir, "reports.jsonl")))
+        with open(os.path.join(self.live.state_dir, "driver.log"), encoding="utf-8") as f:
+            self.assertEqual([], [line for line in f.read().splitlines() if not line.startswith("#")])
+        self.assertEqual(204, self.live.request("POST", "/log", {"version": "v", "lines": ["fits"]})[0])
+
+    def test_the_state_files_stop_growing_at_their_cap(self):
+        with mock.patch.object(devserver, "MAX_STATE_FILE", 600):
+            for i in range(6):
+                self.live.request("POST", "/report", {"event": "heartbeat", "n": i})
+                self.live.request("POST", "/log", {"version": "v", "lines": ["line %d %s" % (i, "z" * 100)]})
+            self.live.request("POST", "/report", {"event": "command_done", "command_id": 7})
+        for name in ("driver.log", "reports.jsonl"):
+            size = os.path.getsize(os.path.join(self.live.state_dir, name))
+            self.assertLess(size, 600 + 400, name)
+        self.assertEqual(2, len([line for line in self.live.warnings() if "nothing more is written" in line]))
+        self.assertEqual(7, self.live.status()["last_done_id"], "a report still counts when it is not kept")
 
     def test_reports_are_kept_and_summarised(self):
         report = {

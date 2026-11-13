@@ -72,9 +72,10 @@ When a change is tried on the house before its release (most features
 since 1.4 were: Breeze on the LEDs, the fades, the speed chase), build the
 `--dev` packages with `tools/build.sh --dev` from the commit under test and
 install them through the Windows session the way `CLAUDE.md` (Deploy)
-describes for a dev build: served from `build/release/` on port 8091
-(`python3 -I -m http.server 8091 --bind 0.0.0.0 --directory build/release`),
-briefed with their sha256, recorded afterwards with `python3 tools/deploy.py
+describes for a dev build: `tools/build.sh --dev` puts each package alone
+under a random path in `build/serve/`, served on port 8091 (`python3 -I -m
+http.server 8091 --bind <VM LAN address> --directory build/serve`; never
+`build/release/`, #214), briefed with the URL path and their sha256, recorded afterwards with `python3 tools/deploy.py
 record ... --no-manifest` ("Deploy to the house" below), and the HTTP server
 stopped once the install is done. `tools/devserver.py` running (port 8081),
 the fan item's `Dev Server` row set to the `host:port` it prints, and

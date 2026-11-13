@@ -921,6 +921,11 @@ local function new_c4(env)
 	c4.variable_names = {}
 	c4.next_variable_id = 1001
 
+	-- [API 22_miscellaneous/_2-AllowExecute.md] recorded only.
+	function c4:AllowExecute(allowed)
+		record("AllowExecute", allowed)
+	end
+
 	function c4:AddVariable(name, value, var_type, read_only, hidden)
 		record("AddVariable", name, value, var_type, read_only, hidden)
 		if c4.variables[name] then

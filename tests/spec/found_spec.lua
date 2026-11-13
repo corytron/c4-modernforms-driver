@@ -381,14 +381,14 @@ describe("fan.found", function()
 	end)
 
 	describe("the kept pick (section 4)", function()
-		it("keeps a listed key and shows it at its latest address", function()
+		it("keeps a listed key and shows it at its latest address in its subnet (#214)", function()
 			local r = rig()
 			r.l:window({ one(), two() })
 			local e = r.l:keep(KEY2)
 			assert.equal(KEY2, e.key)
 			assert.equal(FAN2, e.address)
-			r.l:window({ one(), fan("MF_Fan_005302", ip(192, 0, 2, 7), MAC2) })
-			assert.equal(ip(192, 0, 2, 7), r.l:kept().address)
+			r.l:window({ one(), fan("MF_Fan_005302", ip(10, 0, 2, 160), MAC2) })
+			assert.equal(ip(10, 0, 2, 160), r.l:kept().address)
 			assert.equal(KEY2, r.l:kept().key)
 		end)
 
@@ -702,6 +702,212 @@ describe("fan.found", function()
 			local r = rig()
 			r.l:window({ fan(nil, FAN2, MAC2), fan(nil, FAN1, MAC1), fan("MF_Fan_005303", FAN1, MAC3) })
 			assert.same({ KEY1, KEY2, KEY3 }, r.keys())
+		end)
+	end)
+
+	describe("the kept pick's lifetime (#214, KEEP_MS)", function()
+		it("is 10 minutes", function()
+			assert.equal(600000, found.KEEP_MS)
+		end)
+
+		it("is taken within its lifetime, at its latest address", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.clock = r.clock + 599
+			assert.equal(KEY2, r.l:kept().key)
+			r.l:window({ one(), fan("MF_Fan_005302", ip(10, 0, 2, 160), MAC2) })
+			assert.equal(ip(10, 0, 2, 160), r.l:kept().address)
+			for _, line in ipairs(r.said("always")) do
+				assert.is_nil(line:find("dropped", 1, true), line)
+			end
+		end)
+
+		it("is dropped past its lifetime as if nothing was picked: kept() is nil, and a line says so", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.clock = r.clock + 600
+			assert.is_nil(r.l:kept())
+			assert.is_nil(r.l:kept(), "and stays dropped")
+			local lines = r.said("always")
+			assert.equal("Found Fans: the pick of ...5302 waited 10 min for Use Selected Fan; dropped", lines[#lines])
+			assert.is_not_nil(r.l:get(KEY2), "the fan stays listed")
+		end)
+
+		it("ages the dropped pick's key again: three sending windows without it remove it", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.clock = r.clock + 601
+			r.l:window({ one() })
+			assert.is_nil(r.l:kept())
+			r.l:window({ one() })
+			assert.is_not_nil(r.l:get(KEY2))
+			r.l:window({ one() })
+			assert.is_nil(r.l:get(KEY2))
+		end)
+
+		it("starts again with every pick, and ends with drop", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.clock = r.clock + 500
+			r.l:keep(KEY2)
+			r.clock = r.clock + 500
+			assert.equal(KEY2, r.l:kept().key, "500 s after the second pick")
+			r.l:drop()
+			r.l:keep(KEY1)
+			r.clock = r.clock + 599
+			assert.equal(KEY1, r.l:kept().key)
+		end)
+
+		it("starts at the first reading of a clock that failed at the pick, and stays without any clock", function()
+			local clock = { "late" }
+			local r = rig({ opts = { now = function() return clock[1] end } })
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			clock[1] = 100
+			assert.equal(KEY2, r.l:kept().key)
+			clock[1] = 699
+			assert.equal(KEY2, r.l:kept().key)
+			clock[1] = 700
+			assert.is_nil(r.l:kept())
+			local s = rig({ without = { "now" } })
+			s.l:window({ one(), two() })
+			s.l:keep(KEY2)
+			assert.equal(KEY2, s.l:kept().key)
+		end)
+
+		it("starts again when the clock went back", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.clock = r.clock - 1000
+			assert.equal(KEY2, r.l:kept().key)
+			r.clock = r.clock + 599
+			assert.equal(KEY2, r.l:kept().key)
+			r.clock = r.clock + 1
+			assert.is_nil(r.l:kept())
+		end)
+	end)
+
+	describe("the kept pick's subnet (#214, security-214 S1-7)", function()
+		it("does not move to an answer from another subnet while it is kept; the line says where it stays", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.l:window({ one(), fan("MF_Fan_005302", ip(192, 0, 2, 7), MAC2) })
+			assert.equal(FAN2, r.l:kept().address)
+			assert.same({ "Found Fans: the picked fan ...5302 answered at 192.0.2.7, outside the subnet of 10.0.2.152;"
+				.. " the pick stays there" }, r.said("debug"))
+		end)
+
+		it("takes the last answer within its subnet when a window heard it in both", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.l:window({ fan("MF_Fan_005302", ip(10, 0, 2, 160), MAC2), fan("MF_Fan_005302", ip(10, 9, 9, 9), MAC2) })
+			assert.equal(ip(10, 0, 2, 160), r.l:kept().address)
+		end)
+
+		it("moves link-local to link-local, and nowhere else", function()
+			local r = rig()
+			r.l:window({ fan("MF_Fan_005302", ip(169, 254, 1, 2), MAC2) })
+			r.l:keep(KEY2)
+			r.l:window({ fan("MF_Fan_005302", ip(169, 254, 200, 3), MAC2) })
+			assert.equal(ip(169, 254, 200, 3), r.l:kept().address)
+			r.l:window({ fan("MF_Fan_005302", FAN2, MAC2) })
+			assert.equal(ip(169, 254, 200, 3), r.l:kept().address)
+		end)
+
+		it("holds only the kept pick: other keys, and the pick once dropped, take any address", function()
+			local r = rig()
+			r.l:window({ one(), two() })
+			r.l:keep(KEY2)
+			r.l:window({ fan("MF_Fan_005301", ip(192, 0, 2, 7), MAC1), two() })
+			assert.equal(ip(192, 0, 2, 7), r.l:get(KEY1).address)
+			r.l:drop()
+			r.l:window({ one(), fan("MF_Fan_005302", ip(192, 0, 2, 8), MAC2) })
+			assert.equal(ip(192, 0, 2, 8), r.l:get(KEY2).address)
+		end)
+	end)
+
+	describe("found.distinct: Found Fans rows no two share (#214, security-214 S1-5)", function()
+		-- A MAC as a label prints it, built from its octets so no literal outside the documentation range is
+		-- written here.
+		local function label(...)
+			return table.concat({ ... }, ":")
+		end
+
+		it("leaves rows that differ as they are, in their places", function()
+			local items = { "MF_Fan_005301 at 10.0.2.151", "MF_Fan_005302 at 10.0.2.152" }
+			assert.same(items, found.distinct(items, { { mac = MAC1 }, { mac = MAC2 } }, { "2 fans found" }))
+		end)
+
+		it("gives each of two rows with one text its fan's MAC", function()
+			local forged = "02005E005301" -- another MAC whose last six digits are the pinned fan's
+			local items = { "MF_Fan_005301 at 10.0.2.152", "MF_Fan_005301 at 10.0.2.152", "MF_Fan_005302 at 10.0.2.152" }
+			local out = found.distinct(items, { { mac = forged }, { mac = MAC1 }, { mac = MAC2 } }, {})
+			assert.same({
+				"MF_Fan_005301 at 10.0.2.152 (MAC " .. label("02", "00", "5E", "00", "53", "01") .. ")",
+				"MF_Fan_005301 at 10.0.2.152 (MAC " .. label("00", "00", "5E", "00", "53", "01") .. ")",
+				"MF_Fan_005302 at 10.0.2.152",
+			}, out)
+		end)
+
+		it("numbers what a MAC cannot tell apart, and a row that reads as the summary", function()
+			local out = found.distinct({ "fan at 10.0.2.151", "fan at 10.0.2.151", "fan at 10.0.2.151" }, {}, {})
+			assert.same({ "fan at 10.0.2.151", "fan at 10.0.2.151 #2", "fan at 10.0.2.151 #3" }, out)
+			out = found.distinct({ "1 fan found", "fan at 10.0.2.151 #2", "fan at 10.0.2.151", "fan at 10.0.2.151" },
+				{ {}, {}, {}, {} }, { "1 fan found" })
+			assert.same({ "1 fan found #2", "fan at 10.0.2.151 #2", "fan at 10.0.2.151", "fan at 10.0.2.151 #3" }, out)
+		end)
+
+		it("gives every row a text of its own, however the rows are made", function()
+			local items, entries = {}, {}
+			for i = 1, 40 do
+				items[i] = (i % 3 == 0) and "x #2" or "x"
+				entries[i] = (i % 2 == 0) and { mac = MAC1 } or {}
+			end
+			local out = found.distinct(items, entries, { "x", "x #2" })
+			local seen = { x = true, ["x #2"] = true }
+			assert.equal(40, #out)
+			for _, text in ipairs(out) do
+				assert.is_nil(seen[text], text)
+				assert.is_nil(text:find(",", 1, true))
+				seen[text] = true
+			end
+		end)
+
+		it("never raises, and gives a list for anything", function()
+			assert.same({}, found.distinct(nil))
+			assert.same({}, found.distinct("items"))
+			assert.same({ "a", "a #2" }, found.distinct({ "a", "a" }, "entries", 42))
+			assert.same({ "a" }, found.distinct({ "a" }))
+		end)
+	end)
+
+	describe("the Found Fans line's length (#214, security-214 S1-8)", function()
+		it("names at most 16 fans and counts the rest", function()
+			assert.equal(16, found.LOG_FANS)
+			local r = rig()
+			local heard = {}
+			for i = 1, 20 do
+				heard[i] = fan(string.format("MF_Fan_%06d", i), ip(10, 0, 2, i), string.format("00005E0053%02X", i))
+			end
+			r.l:window(heard)
+			local line = r.said("always")[1]
+			assert.is_truthy(line:find("^Found Fans: 20 fans %("))
+			assert.is_truthy(line:find(", and 4 more%)$"), line)
+			local _, named = line:gsub(" at ", "")
+			assert.equal(16, named)
+		end)
+
+		it("writes an instance's tail with control characters or other bytes as ?", function()
+			local r = rig()
+			r.l:window({ fan("MF_\1\n\200\0", FAN2, nil) })
+			assert.same({ "Found Fans: 1 fan (...???? at 10.0.2.152)" }, r.said("always"))
 		end)
 	end)
 end)

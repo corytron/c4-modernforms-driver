@@ -312,6 +312,11 @@ describe("Modern Forms Breeze Fan", function()
 			assert.is_false(logged(lines, "waiting for a binding"), "an info line, silent without Debug Mode")
 		end)
 
+		it("locks Composer's Lua command window in a release build (#214)", function()
+			local _, c4 = breeze_fan()
+			assert.same({ { false } }, c4.calls_to("AllowExecute"))
+		end)
+
 		it("applies a state that came before late init, then says hello", function()
 			local env, c4 = fake.load_driver(DRIVER, nil, { device_id = SELF })
 			c4:Bind(FAN, PROVIDER_BINDING, SELF, FAN_BINDING, CLASS)
@@ -461,6 +466,61 @@ describe("Modern Forms Breeze Fan", function()
 				if line:find("^%[WARN%] Modern Forms Breeze Fan: MF_BREEZE_STATE ignored") then warned = warned + 1 end
 			end
 			assert.equal(2, warned)
+		end)
+
+		-- #214 (S2-2): FAN is whatever the sender writes. Its trim is linear, and a FAN past 256 bytes is no item
+		-- name: refused before anything reads it, while the state itself still counts.
+		it("refuses a FAN past 256 bytes at once, 32 KB of blanks included, and still takes the state", function()
+			local lines = capture_log()
+			local env, c4 = breeze_fan()
+			local long = "a" .. string.rep(" ", 32 * 1024) .. "b"
+			local started = os.clock()
+			for _ = 1, 10 do
+				state(env, "1", "1", long, { HAS_BREEZE = "1", STRENGTH = "2" })
+			end
+			assert.is_true(os.clock() - started < 0.05, "took " .. (os.clock() - started) .. " s for 10 states")
+			assert.equal("Breeze 2 on the fan", env.Properties["Status"])
+			assert.same({ 2 }, speeds(c4), "the state counts; only the name is refused")
+			assert.truthy(logged(lines, "^%[WARN%] Modern Forms Breeze Fan: MF_BREEZE_STATE: FAN of 32770 bytes refused"))
+			state(env, "1", "1", string.rep("n", 257), { HAS_BREEZE = "1", STRENGTH = "2" })
+			assert.equal("Breeze 2 on the fan", env.Properties["Status"], "257 bytes: refused")
+			state(env, "1", "1", string.rep(" ", 127) .. "Aviator 5" .. string.rep(" ", 120), { HAS_BREEZE = "1",
+				STRENGTH = "2" })
+			assert.equal("Breeze 2 on Aviator 5", env.Properties["Status"], "256 bytes: taken, trimmed")
+		end)
+
+		it("trims a FAN of inner blanks in linear time", function()
+			local env = breeze_fan()
+			local name = "a" .. string.rep(" ", 250) .. "b"
+			local started = os.clock()
+			for _ = 1, 100 do
+				state(env, "0", "1", name)
+			end
+			assert.is_true(os.clock() - started < 0.05, "took " .. (os.clock() - started) .. " s for 100 states")
+			assert.equal("Breeze off on a...", env.Properties["Status"], "cut to fit, the blanks before the cut dropped")
+		end)
+
+		-- #214 (S2-7): what another driver sends reaches the log short and on one line.
+		it("logs the values it refuses short, on one line, with their control characters written out", function()
+			local lines = capture_log()
+			local env = breeze_fan()
+			log.set_debug(true) -- DESIGNATE_PRESET's line is at info
+			local forged = "7\n[ERROR] Modern Forms Breeze Fan: forged" .. string.rep("x", 10000)
+			state(env, "1", "1", "Aviator 5", { HAS_BREEZE = "1", STRENGTH = forged })
+			state(env, forged, "1", "Aviator 5")
+			state(env, "1", forged, "Aviator 5")
+			tap(env, "SET_SPEED", { SPEED = forged })
+			tap(env, "DESIGNATE_PRESET", { PRESET = forged })
+			local seen = 0
+			for _, line in ipairs(lines) do
+				assert.is_nil(line:find("%c"), line)
+				assert.is_true(#line <= 160, #line .. ": " .. line)
+				if line:find("7\\10[ERROR] Modern Forms", 1, true) then
+					seen = seen + 1
+				end
+			end
+			assert.is_false(logged(lines, "^%[ERROR%]"), "no line of its own")
+			assert.equal(5, seen, "the five lines that name the value")
 		end)
 	end)
 
