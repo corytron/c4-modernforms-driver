@@ -609,13 +609,55 @@ local function fan_part(st)
 	return out
 end
 
--- S5's light part: "light off", "light 40 %", or "no light kit".
-local function light_part(st, has_light)
+-- A level of 0 to 100 as text, rounded half up; nil for anything else, so the
+-- two-level form of the light part below only ever shows sane levels.
+local function percent(x)
+	local s = whole(x)
+	local n = tonumber(s)
+	if n and n >= 0 and n <= 100 then
+		return s, n
+	end
+	return nil
+end
+
+-- The Light Min On that changes the light part: a number that rounds half up
+-- to 2 to 99 (min-on-design MO-D1, MO-D10); nil for nil, 0, 1 and anything
+-- the light would refuse, which all leave the levels as they are.
+local function min_on_of(x)
+	local n = tonumber(x)
+	if not n or n ~= n or n >= BIG or n <= -BIG then
+		return nil
+	end
+	n = math.floor(n + 0.5)
+	if n >= 2 and n <= 99 then
+		return n
+	end
+	return nil
+end
+
+-- S5's light part: "light off", "light 40 %", or "no light kit". With a Light
+-- Min On above 1 and the Control4 level known (min-on-design MO-D11, edge
+-- cases RP1), a light that is on shows the Control4 level first and the fan's
+-- after it, both even when they are equal: "light 40 % (fan 52)", and with
+-- the fan's level below the Min On "light 1 % (fan 5, below Min On)". A Min On
+-- of nil, 0 or 1, or no Control4 level, gives the text of release 1.5
+-- exactly, which shows the fan's level. The longest S5 row this makes is 68
+-- characters ("Online: fan off reverse Breeze set, light 1 % (fan 98, below Min
+-- On)"), and 70 for a pair the light never reports (100 % with a fan level
+-- below the Min On): within the 70 of the file's header either way.
+local function light_part(st, has_light, min_on, light_level)
 	if has_light == false then
 		return "no light kit"
 	end
 	if st.light_on == true then
 		local level = whole(st.level)
+		local m = min_on_of(min_on)
+		local shown = percent(light_level)
+		local fan, f = percent(st.level)
+		if m and shown and fan then
+			local below = f < m and ", below Min On" or ""
+			return "light " .. shown .. " % (fan " .. fan .. below .. ")"
+		end
 		return level and ("light " .. level .. " %") or "light on"
 	elseif st.light_on == false then
 		return "light off"
@@ -663,7 +705,7 @@ function STATUS.online(v)
 		return "Online, but the fan reports no " .. missing .. tail
 	end
 	local st = type(v.st) == "table" and v.st or {}
-	return string.format("Online: %s, %s", fan_part(st), light_part(st, v.has_light))
+	return string.format("Online: %s, %s", fan_part(st), light_part(st, v.has_light, v.min_on, v.light_level))
 end
 
 -- S7, S8, S9: offline after timeouts and refusals, or after answers that
@@ -715,6 +757,10 @@ end
 --   st         the state record (S5): fan_on, speed, direction, wind, wind_speed,
 --              light_on, level
 --   has_light  false for "no light kit"
+--   min_on     the light's Min On in use (S5; min-on-design MO-D11): above 1,
+--              with light_level, the light part shows both levels
+--   light_level the Control4 level the light reports, 0 to 100 (S5), from
+--              light:c4_level(st); nil gives the fan's level alone
 --   has_wind   accepted and unused: Breeze is shown from st.wind and st.fan_on
 --   missing    the key a needed field is missing as (S6): "fanSpeed" and so on
 --   os         the controller's version, text or C4:GetVersionInfo()'s table (S14)

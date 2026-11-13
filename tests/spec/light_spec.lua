@@ -1296,7 +1296,8 @@ describe("fan.light", function()
 					found = line
 				end
 			end
-			assert.is_truthy(found:find("^light fade 40 → 100 over 3%.0 s: 60 steps, ended at 3%.%d s$"), found)
+			-- #195 MO-D12: a level names its unit ("40 %" is Control4's).
+			assert.is_truthy(found:find("^light fade 40 %% → 100 %% over 3%.0 s: 60 steps, ended at 3%.%d s$"), found)
 			assert.same({}, env.log.of("warn"))
 		end)
 	end)
@@ -2774,6 +2775,688 @@ describe("fan.light", function()
 			env.model:answer() -- CHANGING and CHANGED
 			assert.same({ told_level = 0, changing_open = false, notify_light = 4, ramping = false, fading = false },
 				env.lt:debug())
+		end)
+	end)
+
+	-- #195 Min On (docs/min-on-design.md MO-D2 to MO-D12; docs/edge-cases-min-on.md sections 1 to 6). The
+	-- fake model speaks the fan's levels, as the real one does: every want and request below is a fan
+	-- level, and everything the proxy hears is a Control4 level.
+	describe("Min On (#195)", function()
+		-- An env whose light has Min On `M`, taken as late init's replay takes it: before the first
+		-- contact, nothing sent.
+		local function min_env(M, opts)
+			local env = new_env(opts)
+			local ok, taken = env.lt:set_min_on(M, "load")
+			assert.is_true(ok)
+			assert.equal(M, taken)
+			return env
+		end
+
+		-- The debug lines that match `pattern`.
+		local function debug_lines(env, pattern)
+			local out = {}
+			for _, line in ipairs(env.log.of("debug")) do
+				if line:find(pattern) then
+					out[#out + 1] = line
+				end
+			end
+			return out
+		end
+
+		describe("the mapping (MO-D3)", function()
+			it("is no change at M nil, 0 or 1, both ways, for every level", function()
+				for level = 0, 100 do
+					assert.equal(level, light.to_fan(level))
+					assert.equal(level, light.from_fan(level))
+					for _, M in ipairs({ 0, 1, "0", 0.4 }) do
+						assert.equal(level, light.to_fan(level, M), tostring(M))
+						assert.equal(level, light.from_fan(level, M), tostring(M))
+					end
+				end
+			end)
+
+			it("keeps every level in range for every M from 0 to 99: off is off, on is m to 100 on the fan, 1 to 100 here",
+				function()
+					for M = 0, 99 do
+						local m = math.max(1, M)
+						assert.equal(0, light.to_fan(0, M))
+						assert.equal(0, light.from_fan(0, M))
+						assert.equal(m, light.to_fan(1, M), "Control4's 1 % is the first lit level, M " .. M)
+						assert.equal(100, light.to_fan(100, M))
+						assert.equal(100, light.from_fan(100, M))
+						local before = m
+						for s = 1, 100 do
+							local f = light.to_fan(s, M)
+							assert.is_true(f >= m and f <= 100 and f == math.floor(f), "M " .. M .. ", " .. s .. " %")
+							assert.is_true(f >= before and f <= before + 1, "a straight line, never down, never a gap")
+							before = f
+						end
+						for f = 1, 100 do
+							local c = light.from_fan(f, M)
+							assert.is_true(c >= 1 and c <= 100 and c == math.floor(c), "M " .. M .. ", fan level " .. f)
+						end
+					end
+				end)
+
+			it("brings every fan level from m up back through Control4 unchanged, keeps them apart, is 1 % below m", function()
+				for M = 0, 99 do
+					local m = math.max(1, M)
+					local seen = {}
+					for f = m, 100 do
+						local c = light.from_fan(f, M)
+						assert.equal(f, light.to_fan(c, M), "M " .. M .. ", fan level " .. f .. " (RO5)")
+						assert.is_nil(seen[c], "two fan levels, one Control4 level")
+						seen[c] = true
+					end
+					for f = 1, m - 1 do
+						assert.equal(1, light.from_fan(f, M), "on below Min On is 1 %, never 0 (MO-D5)")
+					end
+				end
+			end)
+
+			it("takes a Control4 level back to within a point up to M 67 and two up to 80 (why RO1 keeps a memory)", function()
+				for M = 0, 80 do
+					local worst = 0
+					for s = 1, 100 do
+						worst = math.max(worst, math.abs(light.from_fan(light.to_fan(s, M), M) - s))
+					end
+					assert.is_true(worst <= (M <= 67 and 1 or 2), "M " .. M .. ": " .. worst)
+				end
+			end)
+
+			it("gives the edge cases' examples, rounding half up", function()
+				assert.equal(20, light.to_fan(1, 20))
+				assert.equal(22, light.to_fan(4, 20), "4 % is fan level 22 ...")
+				assert.equal(3, light.from_fan(22, 20), "... which maps back to 3 % (RO1)")
+				assert.equal(30, light.to_fan(13, 20), "TO7")
+				assert.equal(60, light.to_fan(50, 20))
+				assert.equal(51, light.from_fan(60, 20), "49.5 rounds up")
+				assert.equal(51, light.to_fan(2, 50))
+				assert.equal(3, light.from_fan(51, 50))
+				assert.equal(75, light.to_fan(50, 50))
+				assert.equal(1, light.from_fan(5, 20))
+				assert.equal(1, light.from_fan(20, 20))
+			end)
+
+			it("never turns a positive level off, never divides by 0, and says nil for no number", function()
+				assert.equal(20, light.to_fan(0.4, 20), "a level above 0 is at least 1 %")
+				assert.equal(52, light.to_fan("40", 20))
+				assert.equal(99, light.to_fan(1, 100), "M of 100 or more acts as 99")
+				assert.equal(100, light.from_fan(100, 1000))
+				assert.equal(1, light.from_fan(99, 1000))
+				assert.equal(0, light.to_fan(-3, 20))
+				assert.equal(100, light.to_fan(150, 20))
+				assert.is_nil(light.to_fan("abc", 20))
+				assert.is_nil(light.to_fan(nil, 20))
+				assert.is_nil(light.from_fan(0 / 0, 20))
+				assert.is_nil(light.from_fan(nil, 20))
+			end)
+		end)
+
+		-- Edge cases table 1.4: each check in the unit that table names, at M = 20 (MO-D8). The :1072 one
+		-- first: it could end a fade by itself.
+		describe("the eight checks of edge cases 1.4, at M = 20 (MO-D8)", function()
+			it(":1072 a fade does not end itself when a read shows its own step, which maps back to a neighbour", function()
+				-- 2 % (fan level 21) to 100 % over 2450 ms, two Control4 levels a tick: the first step is 4 %,
+				-- fan level 22, which maps back to 3 %.
+				local env = min_env(20)
+				env.start(true, 21)
+				env.model.answer_after = 10
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "2450" })
+				env.clock.advance(60)
+				assert.same({ 22 }, levels(env))
+				assert.equal(3, light.from_fan(22, 20))
+				env.lt:settled({ light_on = true, level = 22 }, "outside")
+				assert.is_true(env.lt:debug().fading, "its own step is no change from outside")
+				assert.same({ changing(2, 100, 2450) }, env.dev.sent)
+
+				-- 1 % (fan level 20) to 100 % over 9900 ms: the line passes 3 % and then 4 %, both fan level 22.
+				local slow = min_env(20)
+				slow.start(true, 20)
+				slow.model.answer_after = 10
+				slow.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "9900" })
+				slow.clock.advance(260)
+				assert.same({ 21, 22 }, levels(slow), "4 % at 250 ms is fan level 22 again: not wanted")
+				slow.lt:settled({ light_on = true, level = 22 }, "outside")
+				assert.is_true(slow.lt:debug().fading)
+				assert.same({ changing(1, 100, 9900) }, slow.dev.sent)
+				-- A level the fade did not set still ends it (LF-D15), told in Control4's levels.
+				slow.lt:settled({ light_on = true, level = 60 }, "outside")
+				assert.is_false(slow.lt:debug().fading)
+				assert.same({ changing(1, 100, 9900), changed(51) }, slow.dev.sent)
+			end)
+
+			it(":527 a change too small to show counts fan levels: 3 % to 6 % is fan level 22 to 24, one request", function()
+				local env = min_env(20)
+				env.start(true, 22)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "6", RATE = "3000" })
+				assert.same({ changing(3, 6, 0) }, env.dev.sent, "three Control4 levels, two of the fan's: no fade")
+				assert.same({ { light_on = true, level = 24 } }, env.model.wants)
+				assert.is_false(env.lt:debug().fading)
+				-- From off, off counts as the level below the first lit one, as it does at Min On 0.
+				local two = min_env(20)
+				two.start(false, 100)
+				two.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "2", RATE = "3000" })
+				assert.is_false(two.lt:debug().fading, "off to 2 %, fan level 21: two levels")
+				local three = min_env(20)
+				three.start(false, 100)
+				three.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "3", RATE = "3000" })
+				assert.is_true(three.lt:debug().fading, "off to 3 %, fan level 22: three levels")
+			end)
+
+			it(":546 a fade from off works out its dark first level in Control4's levels, then maps it: 13 % is fan 30",
+				function()
+					local env = min_env(20)
+					env.start(false, 100)
+					env.model.answer_after = 100
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "3000" })
+					assert.same({ changing(0, 100, 3000) }, env.dev.sent)
+					assert.same({ { light_on = true, level = 30 } }, env.model.wants, "100 x 400 / 3000 = 13 %, fan 30 (TO7)")
+					assert.same({ of_fade = true }, env.model.want_opts[1])
+					assert.same({ '{"lightBrightness":30}' }, env.model.requests, "written while dark, then lightOn (TO1)")
+					env.clock.advance(250) -- the turn-on is answered at 200 ms; the line runs from 13 % on
+					assert.same({ 30, 31 }, levels(env), "13 + 87 x 50 / 2600 = 15 %, fan level 31")
+					env.clock.advance(4000)
+					assert.same(changed(100), env.dev.sent[#env.dev.sent])
+				end)
+
+			it(":626 'at the preset' compares the fan's level with the preset's fan level", function()
+				-- The preset 50 % is fan level 60. Fan level 61 reads 52 %: two Control4 points, one of the fan's.
+				local settings = { preset = 50, click_up = 3000, click_down = 3000 }
+				local env = min_env(20, { settings = settings })
+				env.start(true, 61)
+				env.keypad.tap(0)
+				assert.same({ changed(52) }, env.dev.sent, "at the preset: nothing sent but the level (PL9)")
+				assert.same({}, env.model.wants)
+				local far = min_env(20, { settings = settings })
+				far.start(true, 62)
+				far.keypad.tap(0)
+				assert.same({ changing(53, 50, 0) }, far.dev.sent, "fan level 62 is two away")
+				assert.same({ { light_on = true, level = 60 } }, far.model.wants)
+			end)
+
+			it(":730 a step is wanted only when its fan level changes: 1 % to 100 %, a Control4 level a tick, is 80 steps",
+				function()
+					local env = min_env(20)
+					env.start(true, 20)
+					env.model.answer_after = 10
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "4950" })
+					env.clock.advance(6000)
+					local wanted = levels(env)
+					assert.equal(80, #wanted, "fan levels 21 to 100, each once, over 99 ticks (RT3)")
+					for i, level in ipairs(wanted) do
+						assert.equal(20 + i, level)
+					end
+					assert.same({ changing(1, 100, 4950), changed(100) }, env.dev.sent)
+				end)
+
+			it(":748 a last step at the target's fan level is not wanted again, and the proxy hears the target", function()
+				-- 41 % (fan 52) to 3 % (fan 22) over 1900 ms: the last tick is 4 %, fan level 22 as well.
+				local env = min_env(20)
+				env.start(true, 52)
+				env.model.answer_after = 10
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "3", RATE = "1900" })
+				env.clock.advance(1899)
+				local wanted = levels(env)
+				assert.equal(22, wanted[#wanted])
+				env.clock.advance(1000)
+				local n = 0
+				for _, level in ipairs(levels(env)) do
+					n = n + (level == 22 and 1 or 0)
+				end
+				assert.equal(1, n, "fan level 22 once")
+				assert.same({ changing(41, 3, 1900), changed(3) }, env.dev.sent, "3 %, what Control4 asked for, not 4 %")
+				assert.is_false(env.lt:debug().fading)
+			end)
+
+			it(":785 a fade to off writes back the raw fan level it started from, and skips one the fan keeps (TO4)",
+				function()
+					local env = min_env(20)
+					env.start(true, 52) -- 41 %
+					env.model.answer_after = 100
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "0", RATE = "2000" })
+					env.clock.advance(3000)
+					assert.same({ light_on = false, level = 52 }, env.model.wants[#env.model.wants], "fan level 52, not 41")
+					assert.same({ light_on = false, level = 52 }, env.model:confirmed())
+
+					local kept = min_env(20)
+					kept.start(true, 52)
+					kept.model.answer_after = nil
+					kept.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "0", RATE = "2000" })
+					kept.clock.advance(2000) -- the final off is wanted
+					kept.model.busy_override = false
+					kept.lt:idle({ light_on = false, level = 52 })
+					assert.same(changed(0), kept.dev.sent[#kept.dev.sent])
+					assert.same({ light_on = false }, kept.model.wants[#kept.model.wants], "the fan keeps 52 already")
+				end)
+
+			it(":1084 the proxy hears a Control4 level once: a remote stepping below Min On is 1 % once (OX6)", function()
+				local env = min_env(20)
+				env.start(true, 52)
+				for _, fan in ipairs({ 5, 8, 12, 19, 20 }) do
+					env.lt:settled({ light_on = true, level = fan }, "outside")
+				end
+				assert.same({ changed(1) }, env.dev.sent, "five fan levels, one Control4 level")
+				env.lt:settled({ light_on = true, level = 21 }, "outside")
+				assert.same({ changed(1), changed(2) }, env.dev.sent)
+				assert.same({}, env.model.wants, "nothing is written (MO-D5)")
+			end)
+		end)
+
+		describe("what the light does with it", function()
+			it("a slider set to 4 %: the fan gets 22 and the proxy hears 4 %, not 3 % (RO1, RO2, PL5)", function()
+				local env = min_env(20)
+				env.start(true, 52)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "4", RATE = "0" })
+				assert.same({ { light_on = true, level = 22 } }, env.model.wants)
+				assert.same({ '{"lightBrightness":22}' }, env.model.requests)
+				env.model:answer()
+				assert.same({ changing(41, 4, 0), changed(4) }, env.dev.sent)
+				assert.equal(4, env.lt:c4_level(env.model:confirmed()))
+				-- A later read of that level is no change; another level is mapped back.
+				env.lt:settled({ light_on = true, level = 22 }, "online")
+				env.lt:settled({ light_on = true, level = 23 }, "outside")
+				assert.same({ changing(41, 4, 0), changed(4), changed(5) }, env.dev.sent)
+			end)
+
+			it("a hold from off turns on at 1 %, fan level 20, lit at once, and ramps from there over Control4's range (TO5)",
+				function()
+					local env = min_env(20)
+					env.start(false, 100)
+					env.model.answer_after = 100
+					env.keypad.press(0)
+					env.clock.advance(400)
+					assert.same({ changing(0, 1, 0) }, env.dev.sent)
+					assert.same({ { light_on = true, level = 20 } }, env.model.wants, "the first want is fan level 20")
+					assert.same({ '{"lightBrightness":20}' }, env.model.requests, "the level while dark, then lightOn")
+					env.clock.advance(200)
+					assert.same({ changing(0, 1, 0), changed(1) }, env.dev.sent)
+					env.clock.advance(400) -- DIM_AFTER_ON_MS after the turn-on
+					assert.same(changing(1, 100, 4950), env.dev.sent[3], "the hold rate over Control4's range (RT1)")
+					env.clock.advance(6000)
+					for _, level in ipairs(levels(env)) do
+						assert.is_true(level >= 20)
+					end
+					assert.same(changed(100), env.dev.sent[#env.dev.sent])
+				end)
+
+			it("a hold down stops at 1 %, which is fan level 20, never below (TO6)", function()
+				local env = min_env(20)
+				env.start(true, 52)
+				env.model.answer_after = 100
+				env.keypad.press(1)
+				env.clock.advance(400)
+				assert.same({ changing(41, 1, 2000) }, env.dev.sent, "5000 ms x 40 / 100: over Control4's range")
+				env.clock.advance(3000)
+				assert.same({ light_on = true, level = 20 }, env.model.wants[#env.model.wants])
+				for _, level in ipairs(levels(env)) do
+					assert.is_true(level >= 20)
+				end
+				assert.same({ changing(41, 1, 2000), changed(1) }, env.dev.sent)
+			end)
+
+			it("a fade to off steps down to fan level 20, then off, then writes the raw starting level back dark (TO3)",
+				function()
+					local env = min_env(20)
+					env.start(true, 52)
+					env.model.answer_after = 100
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "0", RATE = "5000" })
+					env.clock.advance(6000)
+					local n = #env.model.wants
+					assert.same({ light_on = true, level = 20 }, env.model.wants[n - 2], "the last lit step: 1 %, fan level 20")
+					assert.same({ light_on = false }, env.model.wants[n - 1], "then off")
+					assert.same({ light_on = false, level = 52 }, env.model.wants[n], "then fan level 52 back, dark (TO4)")
+					for i = 1, n - 2 do
+						assert.is_true(env.model.wants[i].level >= 20, "visible to the end")
+					end
+					assert.equal('{"lightBrightness":52}', env.model.requests[#env.model.requests])
+					assert.same({ changing(41, 0, 5000), changed(0) }, env.dev.sent)
+					assert.same({ light_on = false, level = 52 }, env.model:confirmed())
+				end)
+
+			it("a level set outside Control4 below Min On shows as 1 %, on, and nothing is written (MO-D5, OX1, OX5)",
+				function()
+					local env = min_env(20)
+					env.start(false, 5)
+					env.model.confirmed_state = { light_on = true, level = 5 } -- the remote's own on, at the kept level
+					env.lt:settled({ light_on = true, level = 5 }, "outside")
+					assert.same({ changed(1) }, env.dev.sent, "1 %, never 0 while on")
+					assert.is_true(env.dev.is_on())
+					assert.equal(1, env.lt:c4_level(env.model:confirmed()))
+					env.clock.advance(10000)
+					assert.same({}, env.model.wants, "never raised to Min On")
+				end)
+
+			it("a fade up from a fan level below Min On starts at 1 %, fan level 20 (TO10)", function()
+				local env = min_env(20)
+				env.start(true, 5)
+				env.model.answer_after = 10
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "20000" })
+				assert.same({ changing(1, 100, 20000) }, env.dev.sent)
+				env.clock.advance(50)
+				assert.same({ 20 }, levels(env), "out of the dead zone at the first step")
+				env.clock.advance(25000)
+				for _, level in ipairs(levels(env)) do
+					assert.is_true(level >= 20)
+				end
+				assert.same(changed(100), env.dev.sent[#env.dev.sent])
+			end)
+
+			it("keeps times over Control4's range whatever M is: a 3 s tap from off plans 3 s (RT1)", function()
+				for _, M in ipairs({ 0, 20, 50, 80 }) do
+					local env = min_env(M, { settings = { click_up = 3000 } })
+					env.start(false, 100)
+					env.model.answer_after = 100
+					env.keypad.tap(0)
+					assert.same({ changing(0, 100, 3000) }, env.dev.sent, "Min On " .. M)
+					assert.equal(light.to_fan(13, M), env.model.wants[1].level, "the first level, lit")
+					env.clock.advance(4000)
+					assert.same(changed(100), env.dev.sent[#env.dev.sent], "Min On " .. M)
+				end
+			end)
+
+			it("SYNCHRONIZE tells the mapped level (PL10); Set Level 1 % is Min On and 0 is off (PL6 to PL8)", function()
+				local env = min_env(20)
+				env.start(true, 52)
+				env.send("SYNCHRONIZE")
+				assert.same({ online(true), changed(41) }, env.dev.sent)
+				env.clear()
+				env.send("SET_LEVEL", { LEVEL = "1" })
+				env.send("SET_LEVEL", { LEVEL = "0.4" })
+				env.send("SET_LEVEL", { LEVEL = "0" })
+				assert.same({ { light_on = true, level = 20 }, { light_on = true, level = 20 }, { light_on = false } },
+					env.model.wants)
+			end)
+
+			it("c4_level: 0 off, nil unknown, the memory first, else mapped back; min_on is 0 until set", function()
+				local plain = new_env()
+				assert.equal(0, plain.lt:min_on())
+				assert.equal(52, plain.lt:c4_level({ light_on = true, level = 52 }))
+				local env = min_env(20)
+				assert.equal(20, env.lt:min_on())
+				assert.is_nil(env.lt:c4_level(nil))
+				assert.is_nil(env.lt:c4_level({}))
+				assert.is_nil(env.lt:c4_level({ light_on = true }))
+				assert.equal(0, env.lt:c4_level({ light_on = false, level = 52 }))
+				assert.equal(41, env.lt:c4_level({ light_on = true, level = 52 }))
+				assert.equal(41, env.lt:c4_level({ light_on = true, level = 51.6 }))
+				assert.equal(1, env.lt:c4_level({ light_on = true, level = 5 }))
+				assert.equal(51, env.lt:c4_level({ light_on = true, level = 60 }))
+				env.start(true, 52)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "50", RATE = "0" })
+				assert.equal(50, env.lt:c4_level({ light_on = true, level = 60 }), "fan level 60 was wanted for 50 %")
+				assert.equal(41, env.lt:c4_level({ light_on = true, level = 52 }), "any other is mapped back")
+			end)
+
+			it("names the unit of every level in its debug lines (MO-D12)", function()
+				local env = min_env(20)
+				env.start(true, 52)
+				env.model.answer_after = 10
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "4", RATE = "0" })
+				env.clock.advance(100)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "50", RATE = "2000" })
+				env.clock.advance(3000)
+				assert.same({
+					"light SET_BRIGHTNESS_TARGET: target 4 % (fan level 22)",
+					"light SET_BRIGHTNESS_TARGET: fade 4 % (fan level 22) to 50 % (fan level 60) over 2000 ms",
+				}, debug_lines(env, "^light SET_BRIGHTNESS_TARGET: [tf]"))
+				local summary = debug_lines(env, "^light fade ")
+				assert.equal(1, #summary)
+				assert.is_truthy(summary[1]:find("^light fade 4 %% → 50 %% %(fan level 60%) over 2%.0 s: %d+ steps"),
+					summary[1])
+				local plain = new_env()
+				plain.start(true, 40)
+				plain.send("SET_LEVEL", { LEVEL = "30" })
+				assert.same({ "light SET_LEVEL: target 30 %" }, debug_lines(plain, ": target "))
+			end)
+		end)
+
+		describe("changing it: set_min_on (MO-D9, MO-D10)", function()
+			it("refuses what is no number, below 0, or 100 and over, keeping the M in use; rounds half up first", function()
+				local env = new_env()
+				env.start(true, 40)
+				for _, case in ipairs({ { nil, "not a number" }, { "abc", "not a number" }, { "", "not a number" },
+					{ "nan", "not a number" }, { "inf", "not a number" }, { 0 / 0, "not a number" },
+					{ -math.huge, "not a number" }, { -1, "outside 0 to 99" }, { "-0.6", "outside 0 to 99" },
+					{ 100, "outside 0 to 99" }, { "99.5", "outside 0 to 99" }, { 1e9, "outside 0 to 99" } }) do
+					local ok, why = env.lt:set_min_on(case[1], "property")
+					assert.is_false(ok, tostring(case[1]))
+					assert.equal(case[2], why, tostring(case[1]))
+					assert.equal(0, env.lt:min_on())
+				end
+				assert.same({}, env.dev.sent)
+				assert.same({}, env.model.wants)
+				assert.same({}, env.log.of("info"), "a refusal's warning is the coordinator's (BV1 to BV3)")
+				assert.same({ true, 21 }, { env.lt:set_min_on(20.5, "property") }, "BV4")
+				assert.equal(21, env.lt:min_on())
+				assert.same({ true, 21 }, { env.lt:set_min_on("21.4", "property") })
+				assert.same({ true, 0 }, { env.lt:set_min_on("-0.4", "property") })
+				assert.same({ true, 99 }, { env.lt:set_min_on("99.4", "load") })
+				assert.is_false((env.lt:set_min_on(100, "property")))
+				assert.equal(99, env.lt:min_on(), "a refusal keeps the M in use")
+			end)
+
+			it("at load: taken, and nothing is sent to the fan or the proxy, nor logged; the first report uses it (CM7)",
+				function()
+					local env = new_env()
+					env.start(true, 30)
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+					env.model:answer()
+					env.clear()
+					assert.same({ true, 20 }, { env.lt:set_min_on("20", "load") })
+					assert.equal(20, env.lt:min_on())
+					env.clock.advance(10000)
+					assert.same({}, env.dev.sent)
+					assert.same({}, env.model.wants)
+					assert.same({}, env.log.of("info"))
+					env.lt:settled({ light_on = true, level = 40 }, "start")
+					assert.same({ changed(26) }, env.dev.sent, "the memory went with the change: mapped back (RO4)")
+				end)
+
+			it("the value in use again changes nothing, and logs nothing (CM7)", function()
+				local env = new_env()
+				env.start(true, 40)
+				env.lt:set_min_on(20, "property")
+				env.clear()
+				assert.same({ true, 20 }, { env.lt:set_min_on(20, "property") })
+				assert.same({ true, 20 }, { env.lt:set_min_on("20.2", "property") })
+				assert.same({}, env.dev.sent)
+				assert.equal(1, #env.log.of("info"))
+			end)
+
+			it("with the light off: nothing is sent, the dark level stays, and one info line says what 1 % is (CM1, MO-D12)",
+				function()
+					local env = new_env()
+					env.start(false, 50)
+					assert.same({ true, 20 }, { env.lt:set_min_on(20, "property") })
+					env.clock.advance(10000)
+					assert.same({}, env.dev.sent)
+					assert.same({}, env.model.wants)
+					assert.same({ "Light Min On 20: Control4's 1 % is the fan's level 20" }, env.log.of("info"))
+					env.send("SET_LEVEL", { LEVEL = "40" })
+					assert.same({ { light_on = true, level = 52 } }, env.model.wants, "the next turn-on uses it")
+				end)
+
+			it("on at a level Control4 set: it stays, and the light moves once to its new fan level, nothing told (CM2)",
+				function()
+					local env = new_env()
+					env.start(true, 30)
+					env.model.answer_after = 100
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+					env.clock.advance(200)
+					env.clear()
+					env.lt:set_min_on(20, "property")
+					assert.same({ { light_on = true, level = 52 } }, env.model.wants)
+					assert.same({ false }, env.model.want_opts, "an ordinary want: no fade step")
+					env.clock.advance(1000)
+					assert.same({ '{"lightBrightness":52}' }, env.model.requests)
+					assert.same({}, env.dev.sent, "no CHANGING and no CHANGED: Control4's 40 % stays")
+					assert.is_false(env.lt:debug().fading)
+					assert.equal(40, env.lt:c4_level(env.model:confirmed()))
+					-- Back to 0 (CM5): the same, the other way.
+					env.lt:set_min_on(0, "property")
+					env.clock.advance(1000)
+					assert.same({ 52, 40 }, levels(env))
+					assert.same({}, env.dev.sent)
+					assert.same({ "Light Min On 20: Control4's 1 % is the fan's level 20", "Light Min On 0: levels are the fan's" },
+						env.log.of("info"))
+				end)
+
+			it("on at a level set outside: the fan is not touched, and the proxy hears the new level once (CM3, CM4)",
+				function()
+					local env = new_env()
+					env.start(true, 40) -- found by the first contact: no level of Control4's
+					env.lt:set_min_on(20, "property")
+					assert.same({ changed(26) }, env.dev.sent)
+					env.lt:set_min_on(30, "property")
+					assert.same({ changed(26), changed(15) }, env.dev.sent)
+					env.lt:set_min_on(50, "property")
+					assert.same({ changed(26), changed(15), changed(1) }, env.dev.sent, "raised above it: 1 %")
+					env.lt:set_min_on(1, "property")
+					assert.same({ changed(26), changed(15), changed(1), changed(40) }, env.dev.sent, "1 is no remap")
+					env.clock.advance(10000)
+					assert.same({}, env.model.wants)
+					assert.same("Light Min On 1: levels are the fan's", env.log.of("info")[4])
+					local top = new_env()
+					top.start(true, 100)
+					top.lt:set_min_on(20, "property")
+					assert.same({}, top.dev.sent, "100 % is fan level 100 at any Min On: nothing new to tell (R1)")
+				end)
+
+			it("during a fade: the fade keeps the M it started with, and CM2 applies once when it ends (CM6)", function()
+				local env = new_env()
+				env.start(true, 40)
+				env.model.answer_after = 100
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
+				env.clock.advance(1000)
+				local before = #env.model.wants
+				env.lt:set_min_on(20, "property")
+				assert.equal(before, #env.model.wants, "nothing at once")
+				env.clock.advance(1990)
+				local wanted = levels(env)
+				for i = 2, #wanted do
+					assert.equal(wanted[i - 1] + 1, wanted[i], "still Min On 0's line, never a jump half way")
+				end
+				env.clock.advance(1000)
+				assert.same({ changing(40, 80, 3000), changed(80) }, env.dev.sent, "the fade's own end: 80 %")
+				local n = #env.model.wants
+				assert.same({ light_on = true, level = 80 }, env.model.wants[n - 1])
+				assert.same({ light_on = true, level = 84 }, env.model.wants[n], "then once to 80 % at Min On 20")
+				assert.is_false(env.model.want_opts[n])
+				env.clock.advance(5000)
+				assert.equal(n, #env.model.wants)
+				assert.same({ changing(40, 80, 3000), changed(80) }, env.dev.sent, "no second CHANGED")
+				assert.same({ light_on = true, level = 84 }, env.model:confirmed())
+			end)
+
+			it("a fade stopped between its steps: the proxy hears the stopped level at the new M, once (CM6, CM3, TO9)",
+				function()
+					local env = new_env()
+					env.start(true, 40)
+					env.model.answer_after = nil
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "100", RATE = "3000" })
+					env.clock.advance(150) -- 41 on the wire, 43 waiting
+					env.lt:set_min_on(20, "property")
+					env.dev.on_ramp_stop(0)
+					env.model:answer()
+					assert.same({ changing(40, 100, 3000), changed(27) }, env.dev.sent, "fan level 41 is 27 % at Min On 20")
+					env.clock.advance(5000)
+					assert.same({ 41, 42, 43 }, levels(env), "nothing is moved: no level of Control4's was reached")
+				end)
+
+			for _, idle_first in ipairs({ false, true }) do
+				it("a change while a target is on the wire waits for its answer, then moves once"
+					.. (idle_first and " (idle() first)" or ""), function()
+					local env = new_env()
+					env.start(true, 30)
+					env.model.idle_first = idle_first
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+					env.lt:set_min_on(20, "property")
+					assert.same({ '{"lightBrightness":40}' }, env.model.requests, "nothing yet")
+					env.model:answer()
+					assert.same({ changing(30, 40, 0), changed(40) }, env.dev.sent)
+					assert.same({ '{"lightBrightness":40}', '{"lightBrightness":52}' }, env.model.requests)
+					env.model:answer()
+					assert.same({ changing(30, 40, 0), changed(40) }, env.dev.sent, "Control4's 40 % stays")
+					env.lt:settled({ light_on = true, level = 40 }, "outside")
+					assert.same(changed(26), env.dev.sent[#env.dev.sent], "the level it left is the fan's own again")
+				end)
+			end
+
+			it("several changes in a row: one request on the wire, then the newest (CM8)", function()
+				local env = new_env()
+				env.start(true, 30)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+				env.model:answer()
+				env.clear()
+				env.lt:set_min_on(10, "property")
+				env.lt:set_min_on(20, "property")
+				env.lt:set_min_on(30, "property")
+				assert.same({ '{"lightBrightness":45}' }, env.model.requests)
+				env.model:answer()
+				assert.same({ '{"lightBrightness":45}', '{"lightBrightness":58}' }, env.model.requests)
+				env.model:answer()
+				assert.same({}, env.dev.sent)
+				assert.equal(40, env.lt:c4_level(env.model:confirmed()))
+				assert.equal(3, #env.log.of("info"))
+			end)
+
+			for _, phase in ipairs({ "offline", "rebooting", "foreign" }) do
+				it("while the fan is " .. phase .. ": kept, nothing sent; the contact back reports with it (CM9)", function()
+					local env = new_env()
+					env.start(true, 30)
+					env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+					env.model:answer()
+					env.lt:phase(phase, {}, true)
+					env.clear()
+					assert.same({ true, 20 }, { env.lt:set_min_on(20, "property") })
+					env.clock.advance(10000)
+					assert.same({}, env.dev.sent)
+					assert.same({}, env.model.wants)
+					env.lt:phase("online", {}, true)
+					env.lt:settled({ light_on = true, level = 40 }, "online")
+					assert.same(changed(26), env.dev.sent[#env.dev.sent], "fan level 40 at Min On 20; the light stays")
+					assert.same({}, env.model.wants)
+				end)
+			end
+
+			it("a change waiting for a fade that going offline ends sends nothing afterwards (CM6, CM9)", function()
+				local env = new_env()
+				env.start(true, 40)
+				env.model.answer_after = 100
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "80", RATE = "3000" })
+				env.clock.advance(1000)
+				env.lt:set_min_on(20, "property")
+				env.lt:phase("offline", {}, true)
+				local wants = #env.model.wants
+				env.clock.advance(10000)
+				env.lt:phase("online", {}, true)
+				env.lt:idle(env.model:confirmed())
+				env.clock.advance(10000)
+				assert.equal(wants, #env.model.wants, "nothing is moved when the fan is back")
+			end)
+
+			it("takes the value after stop() and sends nothing", function()
+				local env = new_env()
+				env.start(true, 40)
+				env.lt:stop()
+				assert.same({ true, 20 }, { env.lt:set_min_on(20, "property") })
+				assert.same({}, env.dev.sent)
+				assert.same({}, env.model.wants)
+			end)
+
+			it("a model that fails while the light moves is contained (MO-D9 never raises)", function()
+				local env = new_env()
+				env.start(true, 30)
+				env.send("SET_BRIGHTNESS_TARGET", { LIGHT_BRIGHTNESS_TARGET = "40", RATE = "0" })
+				env.model:answer()
+				env.model.want = function() error("boom") end
+				local ok, M
+				assert.has_no.errors(function() ok, M = env.lt:set_min_on(20, "property") end)
+				assert.is_true(ok)
+				assert.equal(20, M)
+				assert.is_truthy(env.log.of("error")[1]:find("boom", 1, true))
+			end)
 		end)
 	end)
 end)

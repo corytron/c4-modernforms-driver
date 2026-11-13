@@ -3,7 +3,8 @@
 -- job's answers from docs/fan-name-design.md 2.3, and for the Found Fans rows,
 -- S2, L7, L21 and L32 from docs/auto-discovery-design.md sections 3 and 5, and
 -- for Breeze's S5 forms, L33 to L41 and the 13 links from
--- docs/breeze-design.md sections 5 and 11 (BF-D2, BF-D10). The module is pure, so nothing here needs the fake
+-- docs/breeze-design.md sections 5 and 11 (BF-D2, BF-D10), and for S5 with a
+-- Light Min On from docs/min-on-design.md MO-D11. The module is pure, so nothing here needs the fake
 -- runtime. Times are built from
 -- local-time fields, so the specs hold in any time zone.
 --
@@ -378,6 +379,149 @@ describe("fan.texts", function()
 					assert.equal("Online: fan on, light on",
 						texts.status(online({ st = state({ speed = odd, level = odd }) })), tostring(odd))
 				end
+			end)
+		end)
+
+		-- min-on-design MO-D11 and edge cases RP1: with a Light Min On above 1,
+		-- the light part names the Control4 level first and the fan's after it.
+		-- st.level is the fan's level, light_level the Control4 level the light
+		-- reports (light:c4_level(st)).
+		describe("S5 with a Light Min On (min-on-design MO-D11)", function()
+			local function min_on(m, light_level, over)
+				return online({ min_on = m, light_level = light_level, st = state(over) })
+			end
+
+			it("the light on: the Control4 level, then the fan's: light 40 % (fan 52)", function()
+				assert.equal("Online: fan speed 3, light 40 % (fan 52)", texts.status(min_on(20, 40, { level = 52 })))
+				assert.equal("Online: fan speed 3, light 100 % (fan 100)", texts.status(min_on(20, 100, { level = 100 })))
+				assert.equal("Online: fan off, light 50 % (fan 75)",
+					texts.status(min_on(50, 50, { fan_on = false, level = 75 })))
+				assert.equal("Online: Breeze 2, light 1 % (fan 20)",
+					texts.status(min_on(20, 1, { wind = true, wind_speed = 2, level = 20 })), "the fan at the Min On is lit")
+			end)
+
+			it("a fan level below the Min On: light 1 % (fan 5, below Min On)", function()
+				assert.equal("Online: fan speed 3, light 1 % (fan 5, below Min On)",
+					texts.status(min_on(20, 1, { level = 5 })))
+				assert.equal("Online: fan speed 3, light 1 % (fan 19, below Min On)",
+					texts.status(min_on(20, 1, { level = 19 })), "one below")
+				assert.equal("Online: fan speed 3, light 1 % (fan 1, below Min On)",
+					texts.status(min_on(2, 1, { level = 1 })), "the smallest Min On that changes anything")
+				assert.equal("Online: fan speed 3, light 1 % (fan 98, below Min On)",
+					texts.status(min_on(99, 1, { level = 98 })), "the largest")
+			end)
+
+			it("below is the fan's level against the Min On, whatever the Control4 level says", function()
+				assert.equal("Online: fan speed 3, light 1 % (fan 20)", texts.status(min_on(20, 1, { level = 20 })))
+				assert.equal("Online: fan speed 3, light 3 % (fan 5, below Min On)",
+					texts.status(min_on(20, 3, { level = 5 })), "the level given is shown, not a made-up 1 %")
+			end)
+
+			it("equal levels are still both shown while the Min On is above 1: light 40 % (fan 40)", function()
+				assert.equal("Online: fan speed 3, light 40 % (fan 40)", texts.status(min_on(2, 40, { level = 40 })))
+				assert.equal("Online: fan speed 3, light 100 % (fan 100)", texts.status(min_on(99, 100, { level = 100 })))
+			end)
+
+			it("a Min On of nil, 0 or 1 is the text of 1.5 exactly, the fan's level alone", function()
+				for _, m in ipairs({ false, 0, 1 }) do
+					local given = m or nil
+					local label = tostring(given)
+					assert.equal("Online: fan speed 3, light 40 %", texts.status(min_on(given, 40, { level = 40 })), label)
+					assert.equal("Online: fan speed 3, light 40 %", texts.status(min_on(given, 41, { level = 40 })),
+						label .. ": the fan's level, as before")
+					assert.equal("Online: fan speed 3, light 1 %", texts.status(min_on(given, 1, { level = 1 })), label)
+				end
+				assert.equal("Online: fan speed 3, light 40 %", texts.status(online({ light_level = 40 })),
+					"no min_on field")
+			end)
+
+			it("no Control4 level is the text of 1.5 exactly, whatever the Min On", function()
+				assert.equal("Online: fan speed 3, light 52 %", texts.status(min_on(20, nil, { level = 52 })))
+				assert.equal("Online: fan speed 3, light 5 %", texts.status(min_on(20, nil, { level = 5 })))
+				assert.equal("Online: fan speed 3, light 40 %", texts.status(online({ min_on = 20 })),
+					"no light_level field")
+			end)
+
+			it("off, unknown and no light kit are unchanged", function()
+				assert.equal("Online: fan speed 3, light off", texts.status(min_on(20, 0, { light_on = false })))
+				assert.equal("Online: fan off, light off",
+					texts.status(min_on(20, 0, { fan_on = false, light_on = false, level = 5 })))
+				assert.equal("Online: fan speed 3, light unknown", texts.status(min_on(20, 40, { light_on = "x" })))
+				assert.equal("Online: fan unknown, light unknown",
+					texts.status(online({ min_on = 20, light_level = 40, st = {} })))
+				assert.equal("Online: fan speed 3, no light kit",
+					texts.status(online({ min_on = 20, light_level = 40, has_light = false, st = state({ level = 52 }) })))
+			end)
+
+			it("a light on at an unknown fan level is 'light on', as in 1.5", function()
+				assert.equal("Online: fan on, light on",
+					texts.status(online({ min_on = 20, light_level = 40, st = { fan_on = true, light_on = true } })))
+				assert.equal("Online: fan on, light on",
+					texts.status(online({ min_on = 20, st = { fan_on = true, light_on = true } })))
+			end)
+
+			it("a Min On that is not 2 to 99 once rounded leaves the text of 1.5", function()
+				for _, odd in ipairs({ 1.4, -5, 99.5, 100, 150, 0 / 0, math.huge, -math.huge, 1e308, "x", "", {}, true }) do
+					assert.equal("Online: fan speed 3, light 52 %", texts.status(min_on(odd, 40, { level = 52 })),
+						tostring(odd))
+				end
+				assert.equal("Online: fan speed 3, light 40 % (fan 52)", texts.status(min_on(1.5, 40, { level = 52 })),
+					"1.5 rounds half up to 2")
+				assert.equal("Online: fan speed 3, light 40 % (fan 52)", texts.status(min_on("20", 40, { level = 52 })),
+					"a number as text")
+			end)
+
+			it("a Control4 or fan level that is not 0 to 100 leaves the text of 1.5", function()
+				for _, odd in ipairs({ -1, 101, 1e308, 0 / 0, math.huge, "many", {}, true }) do
+					assert.equal("Online: fan speed 3, light 52 %", texts.status(min_on(20, odd, { level = 52 })),
+						"light_level " .. tostring(odd))
+				end
+				assert.equal("Online: fan speed 3, light 150 %", texts.status(min_on(20, 40, { level = 150 })),
+					"a fan level over 100")
+				assert.equal("Online: fan speed 3, light on", texts.status(min_on(20, 40, { level = 0 / 0 })))
+				assert.equal("Online: fan speed 3, light 40 % (fan 52)",
+					texts.status(min_on(20, 39.6, { level = 52.4 })), "rounded half up, as every level")
+			end)
+
+			it("the longest rows stay within 70 characters", function()
+				local longest = texts.status(min_on(99, 1,
+					{ fan_on = false, direction = "reverse", wind = true, level = 98 }))
+				assert.equal("Online: fan off reverse Breeze set, light 1 % (fan 98, below Min On)", longest)
+				assert.equal(68, #longest)
+				local unknown = texts.status(online({ min_on = 99, light_level = 1,
+					st = { direction = "reverse", wind = true, light_on = true, level = 98 } }))
+				assert.equal("Online: fan unknown reverse Breeze, light 1 % (fan 98, below Min On)", unknown)
+				assert.equal(68, #unknown)
+				assert.equal("Online: fan speed 6 reverse, light 100 % (fan 100)",
+					texts.status(min_on(20, 100, { speed = 6, direction = "reverse", level = 100 })))
+			end)
+
+			it("every Min On and fan level: below exactly under the Min On, and never over 70 characters", function()
+				local base = { fan_on = false, direction = "reverse", wind = true }
+				for m = 2, 99 do
+					for f = 1, 100 do
+						base.level = f
+						for _, shown in ipairs({ 1, 50, 100 }) do
+							local text = texts.status(min_on(m, shown, base))
+							local tail = f < m and ", below Min On)" or ")"
+							local want = "Online: fan off reverse Breeze set, light " .. shown .. " % (fan " .. f .. tail
+							-- Asserted only on a miss: 29 400 asserts would swamp busted's output.
+							if text ~= want then
+								assert.equal(want, text, "Min On " .. m .. ", fan " .. f)
+							end
+							if #text > 70 then
+								assert.is_true(#text <= 70, text)
+							end
+						end
+					end
+				end
+			end)
+
+			it("S6 and S14 still outrank it", function()
+				assert.equal("Online, but the fan reports no lightBrightness; light control paused",
+					texts.status(online({ min_on = 20, light_level = 40, missing = "lightBrightness" })))
+				assert.equal("Controller OS 3.2.1 is older than 3.3.0; the light may misbehave",
+					texts.status(online({ min_on = 20, light_level = 40, os = "3.2.1" })))
 			end)
 		end)
 

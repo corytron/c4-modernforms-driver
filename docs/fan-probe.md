@@ -2,7 +2,8 @@
 
 The VM's tool for M1 ([issue #17](https://github.com/corytron/c4-modernforms-driver/issues/17)):
 it reads the fan and runs the write checks K11, K12, K13 and K15 of
-[`v1-design.md` section 11](v1-design.md#11-hardware-checks-before-the-first-install)
+[`v1-design.md` section 11](v1-design.md#11-hardware-checks-before-the-first-install),
+and K16 for Min On ([issue #195](https://github.com/corytron/c4-modernforms-driver/issues/195)),
 straight from the VM over the fan's local interface (`POST /mf`, see
 [`modernforms-api-research.md`](modernforms-api-research.md)), never through
 the controller. The source and its full help: [`tools/mf_probe.py`](../tools/mf_probe.py)
@@ -17,6 +18,7 @@ the controller. The source and its full help: [`tools/mf_probe.py`](../tools/mf_
 | `check K12` | `{"lightOn":false}` if the light is on, `{"lightBrightness":30}` (60 if it is at 30), a read, `{"lightOn":true}`, a read, `{"lightOn":false}`, a read; 1 s before each read | light |
 | `check K13` | 10 `{"fanOn":true,"fanSpeed":N}` (1 to 6 and back), then 20 `{"lightBrightness":N}` (1 to 100 and back), back to back, each burst ending on the speed and level the fan had; 2 s, a read | speed, light |
 | `check K15` | 12 `{"lightBrightness":N}` from 1 to 100, one every 0.25 s; 1 s; the same down to 1 | light |
+| `check K16 --level N [--hold S]` | `{"lightBrightness":N}` (while off, then `{"lightOn":true}`, if the light is off; nothing if it is on at N), the hold (30 s by default, at most 50), a read | light |
 | `fixture --from RAW --out tests/fixtures/NAME.json` | nothing: turns a raw answer into a fixture with the placeholders of `docs/scaffold-design.md` section 2 | nothing |
 
 Every check first reads the identity and the state, and at the end puts back
@@ -26,7 +28,9 @@ runs it at its own speed for the check and K13's speed burst starts it; if the
 light was off, K13 and K15 switch it on for the light part. The report's
 `verdict` gives the result for the contract: K11 `can_reverse` True or False,
 K12 whether V14's two steps hold, K13 latency and errors for `GAP_MS` and
-`RAMP_STEP_MS`, K15 a question for the owner's eyes.
+`RAMP_STEP_MS`, K15 and K16 a question for the owner's eyes. K16, repeated
+at a few levels, finds the first level at which the light glows, the
+house's Min On.
 
 ## What to tell the owner first
 
@@ -38,6 +42,7 @@ With M0's latencies (0.25 to 0.39 s per request):
 | K12 | "The fan's light comes on at 30 % for about 2 s and goes off again; if it is on, it goes off, shows 30 % briefly and returns to its level." | about 8 s |
 | K13 | "The fan runs through its six speeds and the light through its levels, then both return to how they were." | about 20 s |
 | K15 | "The fan's light ramps from 1 % to full in about 3 s and back down; please watch whether it looks like a smooth dim or a staircase." | about 10 s |
+| K16 | "The fan's light goes to N % for the next 30 s (or the hold) and then back to how it was; please say whether it is visibly lit." | the hold, plus about 2 s |
 
 The stock driver keeps polling the fan meanwhile, so the keypad LEDs and
 Composer may follow the changes late; nothing to fix. If a check reports that
