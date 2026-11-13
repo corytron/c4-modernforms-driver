@@ -510,6 +510,19 @@ sleds = speedleds_mod.new({
 })
 ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
 
+-- #223 (ambient-pause-design AP-D20): after the driver starts (an update, a
+-- Director restart), the keypad no longer sends its readings to this driver
+-- although the binding is still listed (measured on the house, 2026-11-13),
+-- until the binding is made again. So, AMBIENT_REBIND_MS after late init, the
+-- driver makes it again itself, as Composer's Connections would [API
+-- 9_helper/_19-unbind.md, 9_helper/_1-bind.md]: the same keypad, the same
+-- output. The output comes from the last OnBindingChanged (persisted), else
+-- 400, the Ambient Light Level (Source) of Control4's keypad dimmers and
+-- switches (measured).
+local AMBIENT_REBIND_MS = 30000
+local AMBIENT_SOURCE_KEY = "mf_ambient_source"
+local AMBIENT_SOURCE_BINDING = 400
+
 -- #207 (ambient-pause-design AP-D1 to AP-D6): the keypad bound to the
 -- Ambient Light Level (Follower) input pushes its reading; while it reads
 -- dark, both LED engines pause and send nothing. on_change is never called
@@ -1398,6 +1411,54 @@ local function show_restored()
 	end
 end
 
+-- The keypad bound to the Ambient Light Level (Follower) input, or nil
+-- [API 32_serial_network_device/_4-GetBoundProviderDevice.md: an id; nothing
+-- bound reads 0 or nil on the house].
+local function ambient_provider()
+	local ok, id = pcall(C4.GetBoundProviderDevice, C4, C4:GetDeviceID(), AMBIENT_BINDING)
+	if ok and type(id) == "table" then
+		id = next(id)
+	end
+	id = ok and tonumber(id) or nil
+	return (id and id > 0) and id or nil
+end
+
+local ambient_rebind_timer = nil
+local function cancel_ambient_rebind()
+	if ambient_rebind_timer then
+		pcall(function()
+			ambient_rebind_timer:Cancel()
+		end)
+		ambient_rebind_timer = nil
+	end
+end
+
+-- #223 (AP-D20): unbind and bind the same keypad output again, so it reports
+-- to this driver; nothing when nothing is bound any more.
+local function ambient_rebind()
+	ambient_rebind_timer = nil
+	local provider = ambient_provider()
+	if not provider then
+		return
+	end
+	local saved, output = tostring(store.get(AMBIENT_SOURCE_KEY) or ""):match("^(%d+):(%d+)$")
+	output = (tonumber(saved) == provider and tonumber(output)) or AMBIENT_SOURCE_BINDING
+	local me = C4:GetDeviceID()
+	log.always("Ambient light: binding the keypad (device %d, output %d) again after the start, so it reports to"
+		.. " this driver", provider, output)
+	local ok, err = pcall(function()
+		C4:Unbind(me, AMBIENT_BINDING)
+		C4:Bind(provider, output, me, AMBIENT_BINDING, "AMBIENT_LEVEL")
+	end)
+	if not ok then
+		log.warn("Ambient light: binding the keypad again failed: %s", tostring(err))
+	end
+	if ambient_provider() ~= provider then
+		log.warn("Ambient light: the keypad (device %d) is no longer bound to Ambient Light Level (Follower):"
+			.. " connect its Ambient Light Level (Source) again in Composer's Connections", provider)
+	end
+end
+
 function OnDriverLateInit()
 	dev.load_settings()
 	dev.load_colors()
@@ -1441,11 +1502,14 @@ function OnDriverLateInit()
 	-- (Follower) is read from Director, so only its readings count from the
 	-- start [API 32_serial_network_device/_4-GetBoundProviderDevice.md; not
 	-- before init, SafeUsageTable]. The state stays unknown until it reports.
-	if ambient:debug().bound == nil and ambient:state() == "unknown" then
-		local ok, id = pcall(C4.GetBoundProviderDevice, C4, 0, AMBIENT_BINDING)
-		if ok and tonumber(id) and tonumber(id) > 0 then
-			ambient:bound(tonumber(id))
-		end
+	local provider = ambient_provider()
+	if provider and ambient:debug().bound == nil and ambient:state() == "unknown" then
+		ambient:bound(provider)
+	end
+	-- #223 (AP-D20): make the keypad's binding again once the other drivers have started.
+	if provider then
+		cancel_ambient_rebind()
+		ambient_rebind_timer = timer(AMBIENT_REBIND_MS, ambient_rebind)
 	end
 end
 
@@ -1478,6 +1542,10 @@ OnBindingChanged = dev.binding_changed(function(binding, _, bound, other_device,
 	if binding == AMBIENT_BINDING then
 		contained("the ambient input", function()
 			ambient:bound(bound and other_device or nil)
+			-- #223: which keypad output feeds the input, for the rebind after a start.
+			if bound and tonumber(other_device) and tonumber(other_binding) then
+				store.set(AMBIENT_SOURCE_KEY, string.format("%d:%d", other_device, other_binding))
+			end
 		end)
 	end
 end)
@@ -1546,6 +1614,7 @@ function OnDriverDestroyed()
 	breeze:stop()
 	cancel_night_timer()
 	ambient:stop()
+	cancel_ambient_rebind()
 	cancel_keep_timer()
 	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
 	lrows:stop()
