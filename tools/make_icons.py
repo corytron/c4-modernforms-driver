@@ -206,18 +206,45 @@ def lin_grad(S, p0, p1):
     gy = Image.new("L", (1, MASTER))
     gy.putdata(ys)
     return ImageChops.add(
-        gx.resize((MASTER, MASTER), Image.Resampling.NEAREST),
-        gy.resize((MASTER, MASTER), Image.Resampling.NEAREST),
+        _stretch_row(gx, MASTER),
+        _stretch_column(gy, MASTER),
         1.0,
         -256,
     )
+
+
+# #231: Ubuntu's python3-pil 12.1.1-2ubuntu1.5 breaks Image.resize with NEAREST
+# (SystemError, returned NULL). Every NEAREST use here stretches one row or one
+# column, or enlarges by a whole number, which these compute exactly from the
+# pixel bytes: the same bytes NEAREST gives, without the broken call.
+def _stretch_row(row, height):
+    """An L image of width w and height 1, repeated down `height` rows."""
+    return Image.frombytes("L", (row.width, height), row.tobytes() * height)
+
+
+def _stretch_column(col, width):
+    """An L image of width 1 and height h, each pixel repeated across `width`."""
+    return Image.frombytes("L", (width, col.height), bytes(b for b in col.tobytes() for _ in range(width)))
+
+
+def _enlarge(img, factor):
+    """img enlarged by a whole number, each pixel a factor x factor block."""
+    if factor == 1:
+        return img.copy()
+    data, n = img.tobytes(), len(img.getbands())
+    rows = []
+    for y in range(img.height):
+        line = data[y * img.width * n : (y + 1) * img.width * n]
+        wide = b"".join(line[i : i + n] * factor for i in range(0, len(line), n))
+        rows.append(wide * factor)
+    return Image.frombytes(img.mode, (img.width * factor, img.height * factor), b"".join(rows))
 
 
 def column_profile(S, fn):
     """L image whose every column x has the value fn(x in target pixels)."""
     row = Image.new("L", (MASTER, 1))
     row.putdata([_clamp(fn((x + 0.5) / S)) for x in range(MASTER)])
-    return row.resize((MASTER, MASTER), Image.Resampling.NEAREST)
+    return _stretch_row(row, MASTER)
 
 
 def radial(S, centre, r_px, inner=0.0, ry_px=None):
@@ -796,7 +823,7 @@ def inspection_sheet(results, out_dir):
             y = y_top
             d.text((x, y - 10), "%s %d" % (name, size), fill=(90, 90, 90))
             for s in scales:
-                big = icon.resize((size * s, size * s), Image.Resampling.NEAREST)
+                big = _enlarge(icon, s)
                 sheet.paste(big, (x, y + pad), big)
                 y += 32 * s + pad
     path = os.path.join(out_dir, "icons_sheet.png")

@@ -124,5 +124,42 @@ class MakeIconsTest(unittest.TestCase):
                     self.assertEqual(fresh, committed, "run python3 tools/make_icons.py and commit the icons it writes")
 
 
+@unittest.skipUnless(Image is not None, "Pillow is not installed")
+class ExactResizeTest(unittest.TestCase):
+    """#231: the stand-ins for NEAREST give NEAREST's bytes. For a one-row or one-column stretch and a whole-number
+    enlargement each output pixel lies inside one input pixel, so BOX gives the same bytes; NEAREST itself is compared
+    too wherever this Pillow's NEAREST works (Ubuntu's 12.1.1-2ubuntu1.5 breaks it)."""
+
+    def references(self, img, size):
+        # BOX on RGBA premultiplies alpha, which NEAREST never does; band by band it does not.
+        bands = [band.resize(size, Image.Resampling.BOX) for band in img.split()]
+        out = [Image.merge(img.mode, bands)]
+        try:
+            out.append(img.resize(size, Image.Resampling.NEAREST))
+        except SystemError:
+            pass
+        return out
+
+    def test_stretch_row_and_column(self):
+        row = Image.new("L", (37, 1))
+        row.putdata([(i * 53) % 256 for i in range(37)])
+        col = Image.new("L", (1, 29))
+        col.putdata([(i * 97) % 256 for i in range(29)])
+        for ref in self.references(row, (37, 41)):
+            self.assertEqual(make_icons._stretch_row(row, 41).tobytes(), ref.tobytes())
+        for ref in self.references(col, (23, 29)):
+            self.assertEqual(make_icons._stretch_column(col, 23).tobytes(), ref.tobytes())
+
+    def test_enlarge_by_whole_numbers(self):
+        img = Image.new("RGBA", (5, 3))
+        img.putdata([((i * 41) % 256, (i * 67) % 256, (i * 13) % 256, (i * 89) % 256) for i in range(15)])
+        for factor in (1, 2, 3, 4):
+            with self.subTest(factor=factor):
+                mine = make_icons._enlarge(img, factor)
+                self.assertEqual(mine.size, (5 * factor, 3 * factor))
+                for ref in self.references(img, mine.size):
+                    self.assertEqual(mine.tobytes(), ref.tobytes())
+
+
 if __name__ == "__main__":
     unittest.main()
