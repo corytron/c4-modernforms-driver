@@ -83,6 +83,7 @@ local BINDING_NAMES = {
 	[LIGHT_PROXY] = "light proxy",
 	[LIGHT_LINK] = "light link, proxybindingid 5002",
 	[FAN_LINK] = "fan link",
+	[500] = "ambient follower, #207 H5",
 	[6001] = "mDNS MULTICAST",
 	[6002] = "mDNS UDP",
 	[6003] = "mDNS UDP_MIRROR",
@@ -1046,6 +1047,32 @@ function P.history(n)
 	end
 end
 
+-- #207 H4: does a driver get a keypad's ambient reading the way Composer's
+-- profile editor does? GET_AMBIENT_LEVEL is in no SDK file
+-- (docs/keypad-led-dimming-sdk-research.md, route 3.3). how = "ui" (default):
+-- C4:SendUIRequest returns the device's answer [API
+-- 22_miscellaneous/_36-SendUIRequest.md]; how = "send": C4:SendToDevice returns
+-- nothing [API 32_serial_network_device/_19-SendToDevice.md], so anything that
+-- comes back arrives at an entry point, which logs it.
+function P.ambient(id, how)
+	local device = tonumber(id)
+	if not device then
+		emit("P.ambient: give the keypad's device id")
+		return
+	end
+	if how == "send" then
+		if call("C4:SendToDevice(" .. device .. ', "GET_AMBIENT_LEVEL")', function()
+			C4:SendToDevice(device, "GET_AMBIENT_LEVEL", {})
+		end) then
+			emit("C4:SendToDevice(" .. device .. ', "GET_AMBIENT_LEVEL", {}) sent; watch for an answer')
+		end
+		return
+	end
+	show("C4:SendUIRequest(" .. device .. ', "GET_AMBIENT_LEVEL", {})', function()
+		return C4:SendUIRequest(device, "GET_AMBIENT_LEVEL", {})
+	end)
+end
+
 local HELP = {
 	"P.help()                      this list",
 	"P.led(link, on)               MATCH_LED_STATE {STATE} on a link (200, 300 or another id), COMMAND",
@@ -1057,6 +1084,7 @@ local HELP = {
 	"P.mdns(mode, qu)              K10: nil = MULTICAST then UDP; MULTICAST, UDP or UDP_MIRROR; qu = true for QU",
 	"P.vars(target)                C4:GetDeviceVariables of 5001 (default), 5002 or a device id",
 	"P.watch(target, id, ...)      listen to those variables; P.unwatch(target, id, ...) stops",
+	"P.ambient(id, how)            #207 H4: GET_AMBIENT_LEVEL to a keypad by device id; how ui (default) or send",
 	"P.dump()                      the Dump State action",
 	"P.history(n)                  the last n kept lines again (all without n)",
 }
