@@ -2105,4 +2105,255 @@ describe("fan.breezeleds", function()
 			assert.is_false(d.pending)
 		end)
 	end)
+
+	describe("#207 dark", function()
+		-- The keypad bound to the fan reads dark (docs/ambient-pause-design.md AP-D6 to AP-D8; the cases are
+		-- docs/edge-cases-led-dimming.md DM16 to DM24): the animation leaves active with no ending wipe, every held
+		-- pixel settled once; while dark nothing animates; lit again with Breeze still blowing starts as Breeze
+		-- starting does: dark first, then the first gust (BL-D19).
+		local function dark(r, on)
+			r.b:configure({ dark = on })
+		end
+
+		-- Paused: idle, nothing held, nothing armed.
+		local function paused(r)
+			assert.is_nil(pending(r))
+			assert.same({ false, false, false, false }, held_list(r, HOUSE))
+			local d = r.b:debug()
+			assert.equal("idle", d.phase)
+			assert.is_false(d.active)
+			assert.is_true(d.dark)
+		end
+
+		it("is false at first, reported by debug, and kept by a configure without it", function()
+			assert.is_false(breezeleds.new({}):debug().dark)
+			local r = rig()
+			start(r)
+			assert.is_false(r.b:debug().dark)
+			dark(r, true)
+			assert.is_true(r.b:debug().dark)
+			r.b:configure({ step = STEP })
+			r.b:configure({})
+			assert.is_true(r.b:debug().dark)
+			dark(r, false)
+			assert.is_false(r.b:debug().dark)
+			r.b:configure({ dark = "yes" }) -- only true pauses: anything else runs as today (fail-open, AP-D3)
+			assert.is_false(r.b:debug().dark)
+		end)
+
+		-- The first gust right after the dark-first is the way in (BL-D19 replaced the rising wipe with it).
+		for _, at in ipairs({ 0, 2, 3 }) do
+			it(string.format("pauses %d tick(s) into the first gust: every pixel settled once, no wipe (DM16)", at),
+				function()
+					local r = rig()
+					assert.same(darks(HOUSE), start(r))
+					ticks(r, at)
+					take(r)
+					local timer = pending(r)
+					r.stamps = {}
+					dark(r, true)
+					assert.same(settles(HOUSE), take(r)) -- no head, no black, no dark state (AP-D8)
+					assert.equal(8, #r.stamps)
+					assert.is_true(timer.cancelled)
+					assert.equal("~~~~", look(r, HOUSE))
+					paused(r)
+				end)
+		end
+
+		it("pauses mid-gust: the head and the tail settled at once, then silence (DM16)", function()
+			local r = rig()
+			start(r)
+			ticks(r, 7)
+			assert.equal(".iW.", look(r, HOUSE))
+			take(r)
+			dark(r, true)
+			assert.same(settles(HOUSE), take(r))
+			assert.equal("~~~~", look(r, HOUSE))
+			paused(r)
+			dark(r, true) -- the same dark again: nothing
+			assert.same({}, take(r))
+			assert.is_nil(pending(r))
+		end)
+
+		it("pauses during a rest: every pixel settled, the rest's timer cancelled (DM18)", function()
+			local r = rig()
+			to_rest(r)
+			local resting = pending(r)
+			dark(r, true)
+			assert.same(settles(HOUSE), take(r))
+			assert.is_true(resting.cancelled)
+			paused(r)
+		end)
+
+		it("pauses during the ending wipe: what it still holds settled at once, and lit replays nothing (DM17)",
+			function()
+				local r = rig()
+				to_rest(r)
+				r.b:update({ breeze = false, strength = 2, online = true })
+				tick(r) -- 305 settled, the head on 304
+				take(r)
+				local wiping = pending(r)
+				dark(r, true)
+				assert.same(settles({ 302, 303, 304 }), take(r)) -- no more head
+				assert.is_true(wiping.cancelled)
+				paused(r)
+				local armed = #r.timers
+				dark(r, false)
+				assert.same({}, take(r))
+				assert.equal(armed, #r.timers)
+				assert.equal("idle", r.b:debug().phase)
+			end)
+
+		it("plays no wipe when Breeze ends while dark, neither then nor when lit (DM21)", function()
+			local r = rig()
+			to_rest(r)
+			dark(r, true)
+			take(r)
+			local armed = #r.timers
+			r.b:update({ breeze = false, strength = 2, online = true })
+			assert.same({}, take(r))
+			paused(r)
+			dark(r, false)
+			assert.same({}, take(r))
+			assert.equal(armed, #r.timers)
+			assert.equal("idle", r.b:debug().phase)
+			assert.same({ false, false, false, false }, held_list(r, HOUSE))
+		end)
+
+		it("starts again when lit while Breeze blows: dark first, then the first gust (DM19, AP-D7)", function()
+			local r = rig()
+			to_rest(r)
+			dark(r, true)
+			take(r)
+			r.clock = r.clock + 30000
+			dark(r, false)
+			assert.same(darks(HOUSE), take(r))
+			assert.same({ true, true, true, true }, held_list(r, HOUSE))
+			local d = r.b:debug()
+			assert.equal("gust", d.phase)
+			assert.is_true(d.active)
+			assert.is_false(d.dark)
+			assert.equal("....", look(r, HOUSE))
+			assert.same(HOUSE_GUST, run_gust(r, HOUSE)) -- the gust Breeze starting plays, from its start
+			assert.equal("rest", r.b:debug().phase)
+		end)
+
+		it("starts nothing when Breeze starts while dark; lit, dark first and the gusts (DM20)", function()
+			local r = rig()
+			r.b:configure({ enabled = true, per_speed = true, bottom = 1, step = STEP, dark = true })
+			r.b:set_pixels(HOUSE)
+			r.b:update({ breeze = true, strength = 2, online = true })
+			assert.same({}, take(r))
+			assert.same({}, r.timers)
+			paused(r)
+			dark(r, false)
+			assert.same(darks(HOUSE), take(r))
+			assert.equal("gust", r.b:debug().phase)
+			assert.same({}, tick(r))
+			assert.same({ { "paint", 302, HEAD, false, true }, { "light", 302, true } }, tick(r))
+		end)
+
+		-- Dark or lit while something else keeps the animation out of active sends nothing; it starts once both
+		-- allow it, and not before (DM22 to DM24).
+		for _, missing in ipairs({ "enabled", "per_speed", "online", "breeze", "pixels" }) do
+			it("without " .. missing .. ": dark and lit send nothing; dark first once both allow (DM22 to DM24)",
+				function()
+					local r = rig()
+					r.b:configure({ enabled = missing ~= "enabled", per_speed = missing ~= "per_speed", bottom = 1,
+						step = STEP })
+					if missing ~= "pixels" then
+						r.b:set_pixels(HOUSE)
+					end
+					r.b:update({ breeze = missing ~= "breeze", strength = 2, online = missing ~= "online" })
+					dark(r, true)
+					dark(r, false)
+					dark(r, true)
+					assert.same({}, take(r))
+					assert.same({}, r.timers)
+					if missing == "pixels" then
+						r.b:set_pixels(HOUSE)
+					elseif missing == "breeze" or missing == "online" then
+						r.b:update({ [missing] = true })
+					else
+						r.b:configure({ [missing] = true })
+					end
+					assert.same({}, take(r), "still dark: nothing")
+					paused(r)
+					dark(r, false)
+					assert.same(darks(HOUSE), take(r))
+				end)
+		end
+
+		it("settles at once in the new order when the dark and a bottom change come in one configure", function()
+			local r = rig()
+			start(r)
+			ticks(r, 5)
+			take(r)
+			r.b:configure({ dark = true, bottom = 6 })
+			assert.same(settles(reversed(HOUSE)), take(r))
+			paused(r)
+		end)
+
+		it("resumes at the night brightness it had: the dark leaves BL-D28 alone", function()
+			local r = rig()
+			r.b:configure({ night = true, night_percent = 50 })
+			to_rest(r)
+			dark(r, true)
+			take(r)
+			local d = r.b:debug()
+			assert.is_true(d.night)
+			assert.equal(50, d.night_percent)
+			dark(r, false)
+			assert.same(darks(HOUSE), take(r))
+			tick(r)
+			assert.same({ { "paint", 302, HALF[HEAD], false, true }, { "light", 302, true } }, tick(r))
+		end)
+
+		it("sends nothing in ten minutes of dark, whatever Breeze does, and starts again after (AP-D6)", function()
+			local r = rig()
+			start(r)
+			ticks(r, 9) -- mid-gust
+			take(r)
+			dark(r, true)
+			assert.same(settles(HOUSE), take(r)) -- the pause's one settle a pixel
+			r.stamps = {}
+			local armed, from, breeze = #r.timers, r.clock, true
+			for s = 1, 600 do
+				r.clock = from + s * 1000
+				assert.is_nil(pending(r), "nothing armed in the dark")
+				if s % 20 == 0 then
+					breeze = not breeze -- Breeze on and off from any source, ending with it on
+					r.b:update({ breeze = breeze, strength = 1 + s % 3, online = true,
+						direction = s % 40 == 0 and "down" or "up" })
+				end
+				if s % 90 == 0 then
+					r.b:set_pixels(s % 180 == 0 and HOUSE or LISTS[6])
+				end
+				if s % 150 == 0 then
+					r.b:configure({ step = 100 + s % 200 })
+				end
+				assert.is_false(r.b:repaint(302))
+			end
+			assert.same({}, take(r))
+			assert.equal(0, #r.stamps)
+			assert.equal(armed, #r.timers)
+			paused(r)
+			dark(r, false)
+			assert.same(darks(HOUSE), take(r))
+			assert.equal("gust", r.b:debug().phase)
+			assert.is_true(r.b:debug().active)
+		end)
+
+		it("stops while dark with nothing to send; final as ever", function()
+			local r = rig()
+			to_rest(r)
+			dark(r, true)
+			take(r)
+			r.b:stop()
+			dark(r, false)
+			assert.same({}, take(r))
+			assert.is_nil(pending(r))
+			assert.is_true(r.b:debug().stopped)
+		end)
+	end)
 end)

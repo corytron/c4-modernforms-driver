@@ -1207,21 +1207,33 @@ local function link_label(name)
 	return label
 end
 
--- Keypad Links items (section 7.3): "5 of 13 links bound", then one per
--- bound keypad, "Fan Speed 3: Example Keypad (456)". `rows` is one record per
--- link and keypad, { link_name, keypad_name, device_id } (or that order as an
--- array), in the order to show; several keypads on one link are several rows
--- and one bound link. A keypad the driver cannot name shows as "device 456".
--- `total` defaults to texts.LINK_COUNT.
 -- The note after Keypad Links' first row (keypad-leds-visibility-design KL-D7);
 -- no comma, since the row is one item of a list.
-function texts.keypad_leds_note(shown)
+--
+-- `dark` (ambient-pause-design AP-D10, #207): true while the keypad bound to
+-- Ambient Light Level (Follower) is dark and the LED animations are paused.
+-- Only `true` counts, so a call without it reads as before. While the rows
+-- are shown, the pause takes the place of "LED settings shown" rather than
+-- following it: the rows are shown whenever it is said, and both together
+-- (83 characters with "13 of 13") would pass the 75 Composer clips at, so
+-- that the row would lose its end. While they are hidden no speed link is
+-- bound, nothing animates and nothing can be paused: the binding hint stays.
+function texts.keypad_leds_note(shown, dark)
+	if shown and dark == true then
+		return "; LED animations paused: the keypad is dark"
+	end
 	if shown then
 		return "; LED settings shown"
 	end
 	return "; LED settings hidden: bind a button to a Fan Speed link"
 end
 
+-- Keypad Links items (section 7.3): "5 of 13 links bound", then one per
+-- bound keypad, "Fan Speed 3: Example Keypad (456)". `rows` is one record per
+-- link and keypad, { link_name, keypad_name, device_id } (or that order as an
+-- array), in the order to show; several keypads on one link are several rows
+-- and one bound link. A keypad the driver cannot name shows as "device 456".
+-- `total` defaults to texts.LINK_COUNT.
 function texts.keypad_links(rows, total)
 	local items, seen, bound = {}, {}, 0
 	for _, row in ipairs(type(rows) == "table" and rows or {}) do

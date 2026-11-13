@@ -178,13 +178,18 @@ describe("Modern Forms Fan driver", function()
 			assert.same({ "5001:FAN", "5002:LIGHT_V2", "200:BUTTON_LINK", "201:BUTTON_LINK", "202:BUTTON_LINK",
 				"300:BUTTON_LINK", "301:BUTTON_LINK", "302:BUTTON_LINK", "303:BUTTON_LINK", "304:BUTTON_LINK",
 				"305:BUTTON_LINK", "306:BUTTON_LINK", "307:BUTTON_LINK", "308:BUTTON_LINK", "311:BUTTON_LINK",
-				"400:MODERNFORMS_BREEZE" }, ids)
+				"400:MODERNFORMS_BREEZE", "500:AMBIENT_LEVEL" }, ids)
 			assert.is_nil(bare:find("<connection proxybindingid", 1, true), "no link carries proxybindingid (K4)")
 			for body in bare:gmatch("<connection>(.-)</connection>") do
 				if field(body, "id") == "400" then
 					assert.equal("Breeze Switch", field(body, "connectionname"))
 					assert.equal("1", field(body, "type"))
 					assert.equal("False", field(body, "consumer"))
+				end
+				if field(body, "id") == "500" then -- #207 AP-D1
+					assert.equal("Ambient Light Level (Follower)", field(body, "connectionname"))
+					assert.equal("1", field(body, "type"))
+					assert.equal("True", field(body, "consumer"))
 				end
 			end
 		end)
@@ -215,7 +220,8 @@ describe("Modern Forms Fan driver", function()
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
 					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
-					"Speed LED Animation", "Speed LED Rest (s)", "Debug Mode", "Dev Server", "Dev State" }, names)
+					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations Below", "Debug Mode", "Dev Server",
+					"Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
 				assert.truthy(block:find("<name>Dev State</name>", 1, true))
@@ -1574,7 +1580,7 @@ describe("Modern Forms Fan driver", function()
 			return out
 		end
 
-		it("hides the 20 rows of a fan with no keypad 8 s after late init, with no Last Action, values kept"
+		it("hides the 21 rows of a fan with no keypad 8 s after late init, with no Last Action, values kept"
 			.. " (KL-D1, KL-D4, KL-D5)", function()
 				local env, c4 = rows_driver()
 				local before = values(env)
@@ -1588,6 +1594,32 @@ describe("Modern Forms Fan driver", function()
 				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings hidden: bind a button to a Fan Speed link",
 					1, true))
 				assert.is_nil(env.Properties["Keypad Links"]:find(",", 1, true))
+			end)
+
+		it("says the LED animations are paused while the keypad bound to Ambient Light Level reads dark"
+			.. " (#207 AP-D4, AP-D10)", function()
+				local env, c4 = rows_driver()
+				run(c4, 11000)
+				fake.link_keypad(env, 303, 456, 12)
+				run(c4, 2000)
+				env.OnBindingChanged(500, "AMBIENT_LEVEL", true, 1155, 400)
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "0", TARGET = "1" })
+				run(c4, 1000)
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "the bind's 0 is no reading")
+				run(c4, 5000)
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "3", TARGET = "3" })
+				run(c4, 100)
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad is dark", 1, true))
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "40", TARGET = "5" })
+				run(c4, 5000)
+				assert.truthy(env.Properties["Keypad Links"]:find("paused", 1, true), "still paused inside the 10 s hold")
+				run(c4, 6000)
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "resumed after the hold")
+				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "3", TARGET = "3" })
+				run(c4, 100)
+				env.OnBindingChanged(500, "AMBIENT_LEVEL", false, 1155, 400)
+				run(c4, 100)
+				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "unbound runs as today")
 			end)
 
 		it("shows them at once when a button is bound to Fan Speed 3 (L44) and hides them 8 s after it is"

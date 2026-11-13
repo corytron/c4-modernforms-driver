@@ -11,6 +11,10 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- The speed chase and the Breeze animation can pause while the keypad's LEDs are dark, so they stop sending frames over Zigbee that nobody can see. Bind a keypad's Ambient Light Level (Source) output to the fan's new Ambient Light Level (Follower) input in Composer's Connections. Set that keypad's Status LED Min Brightness to 0 and the new `Pause LED Animations Below` to its Dark Room value (10 by default). While the keypad reads darker than that, nothing animates. The selected speed's LED still follows the fan. When the room has been light for 10 s, a new chase starts. With nothing bound, nothing changes. The keypad sends its reading only when it changes. The connection is not in Control4's driver documentation; it was measured on a Control4 keypad dimmer on OS 3.4. No controller reboot (#207).
+
 ## 1.8 "Carryall", build 207 (2026-11-13)
 
 ### Added

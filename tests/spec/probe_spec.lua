@@ -232,6 +232,7 @@ describe("MF Probe", function()
 				{ id = "5002", class = "LIGHT_V2", type = "2" },
 				{ id = "200", proxy = "5002", class = "BUTTON_LINK", type = "1" },
 				{ id = "300", class = "BUTTON_LINK", type = "1" },
+				{ id = "500", class = "AMBIENT_LEVEL", type = "1" },
 			}, connections)
 		end)
 
@@ -266,6 +267,7 @@ describe("MF Probe", function()
 			NetDisconnect = "32_serial_network_device/_24-NetDisconnect.md",
 			NetPortOptions = "32_serial_network_device/_25-NetPortOptions.md",
 			RegisterVariableListener = "36_variable/_10-RegisterVariableListener.md",
+			SendUIRequest = "22_miscellaneous/_36-SendUIRequest.md",
 			SendToDevice = "32_serial_network_device/_19-SendToDevice.md",
 			SendToNetwork = "32_serial_network_device/_20-SendToNetwork.md",
 			SendToProxy = "25_proxy/_6-SendToProxy.md",

@@ -217,5 +217,24 @@
 				</class>
 			</classes>
 		</connection>
+		<!-- #207 H5: a consumer of the keypads' "Ambient Light Level (Source)"
+		     output (class AMBIENT_LEVEL, a control connection). The class and its
+		     messages are in no SDK file (docs/keypad-led-dimming-sdk-research.md,
+		     route 3.4); the probe logs whatever arrives on it. -->
+		<connection>
+			<id>500</id>
+			<facing>6</facing>
+			<connectionname>Ambient Light Level (Follower)</connectionname>
+			<type>1</type>
+			<consumer>True</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>AMBIENT_LEVEL</classname>
+				</class>
+			</classes>
+		</connection>
 	</connections>
 </devicedata>
