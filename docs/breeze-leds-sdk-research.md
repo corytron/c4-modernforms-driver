@@ -1,5 +1,25 @@
 # Breeze LED animation: what the SDK allows
 
+> **Status (2026-11-13, #213).** Approach B was built in 1.4 (#137) by
+> [`breeze-leds-design.md`](breeze-leds-design.md). The SDK findings stand.
+> The house probes of 2026-11-09 (that contract's section 1a) answered H1,
+> H4 and H12, and H2 in part: `BUTTON_COLORS` with `CURRENT_COLOR` repaints a lit button
+> at once, and without it leaves a dark button dark (a colour can be
+> preloaded); about 40 messages a second over four buttons stayed even; pure
+> blue `0000ff` vanished at night, so the keypad does scale link colours.
+> Off does not join the animation (BL-D2), so the house has four pixels,
+> Low to High, not the five of section 3; and the house keypad has Low at
+> the top, the reverse of the order section 3 assumed (BL-D4,
+> `Breeze LED Bottom` = `Highest speed`). The active and inactive
+> brightness of summary item 9 and section 8 does not exist: the Composer
+> read of 2026-11-12 found one status LED curve over the ambient reading
+> ([`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md)
+> section 1.4). The keypad also has an Ambient Light Level (Source)
+> output, and since 1.9 (#207) the driver takes the keypad's reading from it
+> through a consumer of class `AMBIENT_LEVEL`, an undocumented route
+> measured on the house ([`ambient-pause-design.md`](ambient-pause-design.md)
+> section 0).
+
 Research for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137),
 written 2026-11-08. The owner wants the keypad buttons bound to the fan to
 play a bottom-to-top animation in blues, teals and whites while Breeze
@@ -358,6 +378,13 @@ its own for the life of the system, so it needs the edge-case pass first
   (SILENT).
 
 ## 8. LED brightness and ambient light
+
+> Since 2026-11-12 (#198): the keypad has no "active" and "inactive" LED
+> level, only one status LED curve over the ambient reading, and its
+> Ambient Light Level connections include a (Source) output besides the
+> input read here; see
+> [`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md)
+> section 1.4.
 
 **What the SDK says: nothing (SILENT).** No API, FUND, KPD, LV2, PP or XML
 file mentions ambient light, a light sensor, LED or backlight brightness,

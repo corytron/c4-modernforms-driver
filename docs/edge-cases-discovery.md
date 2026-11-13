@@ -1,5 +1,21 @@
 # Edge cases and lifecycle policy: finding fans by itself
 
+> **Status (2026-11-13, #213).** Built in 1.2 (#102) by
+> [`auto-discovery-design.md`](auto-discovery-design.md), which wins where
+> it and this note differ. The owner's answers: question 1, **only at
+> load** (AD4: a pinned device whose fan answers does not search hourly);
+> question 3, **yes** (AD3: a pick takes the fan at once, except a pick of
+> a different fan on a pinned device, which waits for Use Selected Fan,
+> L32); question 2 stayed no (AD8). Also changed by the contract: the first
+> row is a summary of the last search (its section 3.1), not `Pick a fan`;
+> S2 reads `Not set up: pick a fan in Found Fans, or enter Fan Address`,
+> and S15 and S16 were not added; L21 ends `; searching again`; rows come
+> this device's fan first, then by instance, the instance cut at its start
+> to 25 characters, up to 16 item rows; and the load window waits for the
+> device's slot at `DIT_ADDING` too. Built as recommended: one list fed by
+> every window, three missed windows, no Last Action, no read of a listed
+> fan, no alias. The code line numbers are those of build 97.
+
 > **Research (2026-11-07) for [issue #102](https://github.com/corytron/c4-modernforms-driver/issues/102)**,
 > read-only: nothing here was tried on the house fan or the controller. The
 > owner asked that fan discovery run by itself at driver load and

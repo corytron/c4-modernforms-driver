@@ -1,5 +1,18 @@
 # Renaming the driver's own items: lifecycle cases and rules
 
+> **Status (2026-11-13, #213).** Built for 1.0 (#37) by
+> [`fan-name-design.md`](fan-name-design.md) (N1 to N9), which took the
+> recommended answers to Q1 to Q5: the guard (N4), no rename at L1 (N6), the
+> house's own items kept (N8), a replacement's names following while they
+> are the driver's (`mf_names`), and the light item named on a fan without
+> a kit (N7). The texts L22 to L29, the action Name Items After Fan and
+> `Dev Names Plan` were built as proposed here. Since 1.2 (#102) the Find
+> Fans action of RC2 is gone, and a pick in `Found Fans` takes the fan
+> through Use Selected Fan's path, guarded rename included
+> ([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions), AD3):
+> a pick is now one more click that can rename. The migration is done and
+> the stock driver is gone from the house ([`status.md`](status.md)).
+
 > Research (2026-11-04) for [issue #37](https://github.com/corytron/c4-modernforms-driver/issues/37),
 > read-only: nothing here was tried on the house. The owner asked (2026-11-04)
 > that the fan's marketing name, worked out from its model information, be

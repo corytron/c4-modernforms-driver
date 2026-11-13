@@ -101,7 +101,7 @@ next release's entry carries what they changed.
 ### Changed
 
 - Picking a fan in Found Fans and clicking Set takes that fan at once, with the same result as Use Selected Fan: Fan Address is filled in and the items are named after the fan as before. A different fan picked on a device that already has its fan waits for Use Selected Fan (#102).
-- The Find Fans action is gone: five actions remain, Use Selected Fan first. Status on a device without a fan reads `Not set up: pick a fan in Found Fans, or enter Fan Address`. Programming and connections are unchanged, and the update needs no controller reboot (#102).
+- The Find Fans action is gone: six actions remain, Use Selected Fan first. Status on a device without a fan reads `Not set up: pick a fan in Found Fans, or enter Fan Address`. Programming and connections are unchanged, and the update needs no controller reboot (#102).
 
 ## 1.1 "Jamis", build 97 (2026-11-05)
 

@@ -46,7 +46,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <p>Breeze is the mode in which a Modern Forms fan speeds up and slows down by itself, like a breeze, at one of three strengths. Control4's fan tile has no place for a mode like that, so the Modern Forms Fan driver puts Breeze on the Navigators (touch screens, remotes, the Control4 app) as <b>a second fan device</b>, named after the fan, for example <b>Aviator 5 Breeze</b>. It is listed with the room's fans and has three speeds: <b>Breeze 1</b>, <b>Breeze 2</b> and <b>Breeze 3</b>. Choosing one starts Breeze at that strength; turning the Breeze fan off ends Breeze.</p>
 
 <ul>
-<li><b>It only passes messages.</b> The Breeze fan never talks to the fan. It is bound to the fan's Modern Forms Fan device, which sends the fan every command, decides what a tap means from what the fan is doing, and tells the Breeze fan what the fan does.</li>
+<li><b>It only passes messages.</b> The Breeze fan never talks to the fan. It is bound to the fan's Modern Forms Fan device (its input <b>Modern Forms Fan</b> on the fan device's output <b>Breeze Switch</b>, binding 400), which sends the fan every command, decides what a tap means from what the fan is doing, and tells the Breeze fan what the fan does.</li>
 <li><b>It shows what the fan confirms.</b> The Breeze fan shows a Breeze speed only once the fan reports Breeze at that strength, and shows off only once the fan reports Breeze ended. A change made with the remote, the wall control or the Modern Forms app shows up as soon as the fan driver sees it (within its poll, 15 seconds by default).</li>
 <li><b>It has no light</b> and no direction: Breeze is one thing the motor does, nothing more.</li>
 </ul>
@@ -65,15 +65,17 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td>Running in <b>Breeze mode</b>, at Breeze strength 1, 2 or 3</td><td>Off (its speeds mean nothing in Breeze)</td><td>On, at Breeze 1, 2 or 3</td></tr>
 </table>
 
-<p><b>Never both.</b> Choosing a Breeze speed ends fan mode; choosing a fan speed on the main fan ends Breeze. So while Breeze blows, the main fan shows off even though the blades turn, and the fan buttons of a keypad bound to the main fan are dark (the Off button too, because Off would stop the motor). That is intended: each device shows its own mode.</p>
+<p><b>Never both.</b> Choosing a Breeze speed ends fan mode; choosing a fan speed on the main fan ends Breeze. So while Breeze blows, the main fan shows off even though the blades turn. That is intended: each device shows its own mode.</p>
+
+<p><b>The keypad while Breeze blows.</b> A keypad's buttons on the main fan's links show the same: the speed, Toggle and Cycle buttons are dark, and so is the Off button, because Off would stop the motor. A button on the main fan's <b>Fan Breeze</b> link is lit. With the main fan's <b>Breeze LED Animation</b> set to <code>Gusts</code>, the speed buttons play gusts instead of staying dark, and the gusts pause while a keypad connected to the main fan's <b>Ambient Light Level (Follower)</b> input is dark (the main fan's Documentation tab, in its chapter on keypad buttons).</p>
 
 <!-- ================================================================ -->
 <h2 id="ch3">3. Adding the Breeze fan</h2>
 
-<p>The Breeze fan needs the Modern Forms Fan driver of the same release, with the fan set up, on a fan that has Breeze (its <b>Fan Model</b> row ends in <code>, Breeze</code>). Install this driver file, <code>modernforms_breeze_fan.c4z</code>, together with the fan driver; it is part of every release.</p>
+<p>The Breeze fan needs the Modern Forms Fan driver of the same release, with the fan set up, on a fan that has Breeze (its <b>Fan Model</b> row ends in <code>, Breeze</code>). Install this driver file, <code>modernforms_breeze_fan.c4z</code>, together with the fan driver; it is part of every release since 1.3.</p>
 
 <ol>
-<li>Select the fan item (the Modern Forms Fan) and click its action <b>Add Breeze Fan</b>. The fan driver adds a Modern Forms Breeze Fan device to the fan item's room, names it after the fan item plus <code>Breeze</code>, binds it to the fan, and says so in the fan item's <b>Last Action</b>, for example <code>Breeze fan added: Aviator 5 Breeze</code>.</li>
+<li>Select the fan item (the Modern Forms Fan) and click its action <b>Add Breeze Fan</b>. The fan driver adds a Modern Forms Breeze Fan device to the fan item's room, names it after the fan item plus <code>Breeze</code>, binds it to the fan (binding 400, <b>Breeze Switch</b>), and says so in the fan item's <b>Last Action</b>, for example <code>Breeze fan added: Aviator 5 Breeze</code>.</li>
 <li>In the room's Navigator order in Composer, move <b>Aviator 5 Breeze</b> right after <b>Aviator 5</b>, so the two sit together on the touch screens and in the app. Control4 has no way for a driver to place it there itself.</li>
 <li>Choose File &#9656; Refresh Navigators, so the touch screens and the app show the new device.</li>
 </ol>
@@ -81,6 +83,8 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <p><b>By hand:</b> add the Modern Forms Breeze Fan driver to a room yourself, then in Connections bind its <b>Modern Forms Fan</b> input to the fan device's <b>Breeze Switch</b> output, and refresh the Navigators. Two Breeze fans bound to one fan both work and always agree.</p>
 
 <p>The fan driver adds a Breeze fan only when you click, never by itself. It refuses with a line in the fan item's <b>Last Action</b> when the fan is not set up (<code>No Breeze fan added: set up the fan first</code>), when the fan has no Breeze (<code>No Breeze fan added: this fan reports no Breeze</code>), when a Breeze fan is already bound (<code>A Breeze fan is already connected: Aviator 5 Breeze</code>), and when Composer could not add it (<code>No Breeze fan added: install modernforms_breeze_fan.c4z first</code>).</p>
+
+<p>The Breeze fan's name and room are yours: rename it or move it to another room at any time; neither driver ever renames or moves it. Deleting it is safe too: the fan forgets it, and <b>Add Breeze Fan</b> adds a new one whenever you want. Its own programming goes with it, which is one more reason to program Breeze on the fan item (chapter 5).</p>
 
 <h3>Replacing the Breeze switch of release 1.2</h3>
 
@@ -91,15 +95,13 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <li>Click <b>Add Breeze Fan</b>, place the new device after the fan and refresh the Navigators, as above.</li>
 </ol>
 
-<p>The Breeze fan's name and room are yours: rename it or move it to another room at any time; neither driver ever renames or moves it. Deleting it is safe too: the fan forgets it, and <b>Add Breeze Fan</b> adds a new one whenever you want. Its own programming goes with it, which is one more reason to program Breeze on the fan item.</p>
-
 <!-- ================================================================ -->
 <h2 id="ch4">4. Using it</h2>
 
 <table>
 <tr><th>You do on the Breeze fan</th><th>The fan does</th></tr>
 <tr><td>Choose <b>Breeze 1</b>, <b>2</b> or <b>3</b></td><td>Breeze at that strength. From fan mode the fan switches to Breeze (the main fan goes off); a stopped fan starts straight in Breeze.</td></tr>
-<tr><td>Turn it <b>on</b></td><td>Breeze at the strength the fan used last. Nothing changes while Breeze already blows.</td></tr>
+<tr><td>Turn it <b>on</b></td><td>Breeze at the strength the fan used last, from fan mode or from a stop. Nothing changes while Breeze already blows.</td></tr>
 <tr><td>Turn it <b>off</b> while Breeze blows</td><td><b>The fan stops.</b> Breeze ends with it, so the next start from anywhere is plain fan mode. To go back to fan mode without stopping, choose a speed on the main fan instead.</td></tr>
 <tr><td>Turn it <b>off</b> while it already shows off</td><td>A stopped fan forgets a Breeze it kept set (the remote can leave one). A fan running in fan mode is left alone: the Breeze fan never stops a fan in fan mode.</td></tr>
 <tr><td><b>Toggle</b></td><td>On or off as above, decided by the fan driver from what the fan is doing, so two quick taps end where they should.</td></tr>
@@ -108,7 +110,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 
 <p>The Breeze fan changes when the fan confirms, usually within two seconds of a tap. If it does not change, or springs back, the fan did not do it: the fan item's <b>Last Action</b> says why.</p>
 
-<p>On the main fan, everything works as before, in fan mode: a speed or a keypad speed button ends Breeze and runs the fan at that speed, On and Toggle end it and run the fan at its preset speed, and Off stops the fan and ends Breeze.</p>
+<p>On the main fan, everything works in fan mode: a speed or a keypad speed button ends Breeze and runs the fan at that speed, On and Toggle end it and run the fan at its preset speed, and Off stops the fan and ends Breeze.</p>
 
 <p><b>When the fan is away</b> (offline, for example after a wall switch cut its power, or not set up), a fan tile cannot be greyed out, so the Breeze fan keeps showing what it showed last and its <b>Status</b> reads <code>Waiting for Aviator 5</code>. It comes back by itself when the fan does. A fan without Breeze shows off, and a Breeze fan that is not bound to a fan shows off and does nothing.</p>
 
@@ -120,9 +122,9 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <ul>
 <li><b>Program Breeze on the fan item.</b> It has the commands <b>Breeze On</b>, <b>Breeze Off</b>, <b>Toggle Breeze</b> and <b>Set Breeze Strength</b>, the events <b>Breeze Started</b> and <b>Breeze Stopped</b>, the condition <b>Breeze is on</b> and the <b>Breeze</b> variable (the fan item's Documentation tab). Those lines stay when the Breeze fan is deleted and added again; lines written on the Breeze fan go with it. <b>Breeze Off</b> follows the Breeze fan's off: it stops the fan while Breeze blows.</li>
 <li>The Breeze fan also has the events, conditions and commands of any Control4 fan (turned on, turned off, speed changed, "Set speed Breeze 2" and so on), and its speed changed fires when the strength changes. They are fine for a quick line; keep lasting programming on the fan item.</li>
-<li><b>Lines on the main fan's events now also run when Breeze starts</b>, because the main fan turns off then (for example "when the fan turns off, turn its light off"). Add the condition <b>Breeze is on</b> (set to false) to such a line, or use Breeze Started and Breeze Stopped.</li>
+<li><b>Lines on the main fan's events also run when Breeze starts</b>, because the main fan turns off then (for example "when the fan turns off, turn its light off"). Add the condition <b>Breeze is on</b> (set to false) to such a line, or use Breeze Started and Breeze Stopped.</li>
 <li>Do not write lines that answer each other across the two devices ("when the Breeze fan turns off, set the fan to Level 2" and "when the fan turns off, choose Breeze 1"): each start turns the other off, and they run at the fan's pace, forever.</li>
-<li><b>Keypads:</b> the Breeze fan has no Button Links. A keypad button for Breeze is bound to the fan item's <b>Fan Breeze Button Link</b> (it lights while Breeze blows), or programmed with the Breeze fan's Set speed or the fan item's <b>Set Breeze Strength</b>.</li>
+<li><b>Keypads:</b> the Breeze fan has no Button Links. A keypad button for Breeze is bound to the fan item's <b>Fan Breeze Button Link</b> (it lights while Breeze blows), or programmed with the Breeze fan's Set speed or the fan item's <b>Set Breeze Strength</b>. The buttons on the fan item's speed links can show Breeze as gusts (chapter 2).</li>
 <li><b>"All fans on" starts Breeze too:</b> it turns on both devices, which ask for opposite modes, and the fan ends up in whichever arrived last. Keep the Breeze fan out of "all fans on" groups and scenes that turn fans on. "All fans off" is fine: it stops the fan and ends Breeze.</li>
 <li>A voice assistant sees a fan named <b>Aviator 5 Breeze</b>; "turn on the fans" is the same case as "all fans on" above.</li>
 </ul>
@@ -134,7 +136,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><th>Row</th><th>What it shows</th></tr>
 <tr><td><b>Driver Version</b></td><td>The build number of this driver; the same as the fan driver's when both come from one release.</td></tr>
 <tr><td><b>Status</b></td><td>One of the lines below; the fan's name is the fan item's name.</td></tr>
-<tr><td><b>Debug Mode</b></td><td><code>On</code> writes a line to the Lua tab for every message to and from the fan device and to the Breeze fan's tile. Turn it Off again afterwards.</td></tr>
+<tr><td><b>Debug Mode</b></td><td><code>On</code> writes a line to the Lua tab for every message to and from the fan device and to and from the Breeze fan's tile. Turn it Off again afterwards.</td></tr>
 </table>
 
 <table>
@@ -143,7 +145,7 @@ code { font-family: Consolas, "Courier New", monospace; font-size: 13px; backgro
 <tr><td><code>Breeze on Aviator 5</code></td><td>The fan is in Breeze mode, but the fan device did not say the strength (a fan driver older than this one); the Breeze fan keeps the speed it showed.</td></tr>
 <tr><td><code>Breeze off on Aviator 5</code></td><td>The fan is stopped or in fan mode; the Breeze fan shows off and is ready.</td></tr>
 <tr><td><code>Aviator 5 has no Breeze</code></td><td>The fan reports no Breeze, for example after another fan was set up on the fan item. The Breeze fan shows off.</td></tr>
-<tr><td><code>Waiting for Aviator 5</code></td><td>Bound, but the fan device cannot act now (the fan is offline or not set up), or has not answered yet after a start. The Breeze fan keeps what it showed last.</td></tr>
+<tr><td><code>Waiting for Aviator 5</code></td><td>Bound, but the fan device cannot act now (the fan is offline or not set up), or has not answered yet after a start (then it reads <code>Waiting for the fan</code>, since the fan device has not said its name yet). The Breeze fan keeps what it showed last.</td></tr>
 <tr><td><code>Not connected to a Modern Forms Fan</code></td><td>Nothing is bound to the Breeze fan's <b>Modern Forms Fan</b> input, or that fan device was deleted. A tap does nothing and the Breeze fan shows off. Bind it again in Connections, or delete it and use <b>Add Breeze Fan</b>.</td></tr>
 </table>
 

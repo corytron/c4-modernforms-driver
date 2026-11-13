@@ -1,5 +1,11 @@
 # Finding fans by itself (#102)
 
+> **Status (2026-11-13, #213).** Shipped in 1.2 "Thumper" and unchanged
+> since: the code follows this contract. One count changed in the same
+> release: 1.2 also added the action Add Breeze Switch (#111, renamed Add
+> Breeze Fan in 1.3), so the Actions tab has six actions, not the five of
+> check H1 (section 9).
+
 The contract for issue [#102](https://github.com/corytron/c4-modernforms-driver/issues/102):
 the owner asked (2026-11-07) that fan discovery run by itself at driver load
 and periodically, as the Hue driver's bridge detection does, and that the

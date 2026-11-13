@@ -1,5 +1,16 @@
 # Fan marketing names from the model data
 
+> **Status (2026-11-13, #213).** Built for 1.0 (#37) by
+> [`fan-name-design.md`](fan-name-design.md) (N1 to N9): the exact-match
+> table of `fan/names.lua`, seeded from Appendix B; `Aviator 5` and
+> `Aviator 5 Light` (question 1); the `Fan Model` text of section 7. The
+> contract widened section 7 item 5: Use Selected Fan renames while both
+> items carry the shipped names **or the names the driver last wrote**, not
+> only the defaults and not only once (N4), and a new action, Name Items
+> After Fan, renames them whatever they are called (N5). The house keeps
+> its own item names (N8). The findings on `fanType`, the families and the
+> light kits stand. The code line numbers are those of 2026-11-04.
+
 Research for [issue #37](https://github.com/corytron/c4-modernforms-driver/issues/37),
 written 2026-11-04. Desk research on public web pages only: no fan, controller
 or other device on the house network was contacted, no login was used, no

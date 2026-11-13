@@ -1,5 +1,23 @@
 # Breeze on the keypad LEDs: hardware, Zigbee and the eye
 
+> **Status (2026-11-13, #213).** Built in 1.4 (#137) by
+> [`breeze-leds-design.md`](breeze-leds-design.md), whose revision after the
+> house round of 2026-11-09 (its section 1a) replaced several
+> recommendations here: only buttons on the speed links animate (Off does
+> not join, so the house column is four buttons, not five); every button is
+> dark between gusts instead of a resting blue column; the palette is white
+> with ice, teal and sky, never pure blue, because `0000ff` vanished at
+> night (BL-D20); the step is `Breeze LED Step (ms)`, 60 to 400, default
+> 120, not 300; the house kept about 40 messages a second clean, and the
+> engine allows 30 (BL-D24), well above this note's planning figure of
+> about 10; and the gusts run the way the fan blows (BL-D30). The Composer
+> read of 2026-11-12 answered Q1a and H4: one status LED curve over the
+> ambient reading, no separate level for lit and dark buttons
+> ([`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md)
+> section 1.2). Since 1.9 (#207) the animation pauses while the bound
+> keypad reads dark ([`ambient-pause-design.md`](ambient-pause-design.md)).
+> The hardware, Zigbee and perception findings stand.
+
 Research for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137), written
 2026-11-08: everything outside the DriverWorks SDK that decides whether the keypad buttons bound to
 the fan can play a rising blue, teal and white "breeze" while Breeze blows, and how fast. The SDK

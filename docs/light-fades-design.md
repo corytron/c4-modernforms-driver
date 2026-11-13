@@ -1,5 +1,20 @@
 # Simulated light fades (#141)
 
+> **Status (2026-11-13, #213).** Shipped in 1.5 "Shadout Mapes" (build 165)
+> with section 11's fixes and the constants of section 2 as written
+> (`FADE_GAP_MS` 100, `FIRST_STEP_MS` 400, `LEDS_FOLLOW` `"target"`, Click
+> Rates and the built-in Default Brightness Rate as LF-D3 and LF-D4 say):
+> the owner had it shipped without the probes of section 7, and FP0 to FP7
+> and H1 to H5 have still not run, so those values were never measured (H6
+> and H7, the Click Rates in Composer, were answered in Discussions #160 and
+> #199). The controller has been
+> rebooted since (Click Rates keep 3 s, 2026-11-12), so the tap fades and
+> the second-tap stop are live. Since 1.8 `Light Min On (%)` maps
+> Control4's levels to the fan's before any step is sent
+> ([`min-on-design.md`](min-on-design.md), #195; MO-D6, MO-D7), with fade
+> and tap times unchanged. [`status.md`](status.md) has the house's
+> settings.
+
 The contract for [issue #141](https://github.com/corytron/c4-modernforms-driver/issues/141).
 Every agent builds against this text. The research behind it:
 

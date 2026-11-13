@@ -24,9 +24,9 @@
 	<config>
 		<script jit="1" file="driver.lua"/>
 		<documentation file="www/documentation.html"/>
-		<!-- Section 2.5: the properties in this order, never reordered. Rows 20 to 27
-		     of the section (a colour per speed, V27) are not in this build: the
-		     owner has not said yes (#14). -->
+		<!-- Section 2.5: the properties in this order, never reordered. Later
+		     releases added rows in place (the per-speed colours V27, #31; the LED
+		     animations, Min On and the dark pause), each in its contract. -->
 		<properties>
 			<property>
 				<name>Driver Version</name>
@@ -468,7 +468,7 @@
 		</commands>
 	</config>
 	<!-- Section 2.2: the fan is declared first and primary (the first-declared
-	     proxy is the parent item, K2 and K4), the light second. No images (V24). -->
+	     proxy is the parent item, K2 and K4), the light second. Their icons since #78 (V24 had none). -->
 	<proxies>
 		<proxy proxybindingid="5001" name="Modern Forms Fan" primary="True" image_source="c4z" small_image="images/devices_sm/modernforms_fan_16.png" large_image="images/devices_lg/modernforms_fan_32.png">fan</proxy>
 		<proxy proxybindingid="5002" name="Modern Forms Fan Light" image_source="c4z" small_image="images/devices_sm/modernforms_light_16.png" large_image="images/devices_lg/modernforms_light_32.png">light_v2</proxy>

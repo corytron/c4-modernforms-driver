@@ -1,5 +1,13 @@
 # CI/CD and GitOps (contract)
 
+> **Status (2026-11-13, #213).** In use and current: the tools and
+> workflows follow it. Two things have moved on since it was written: the
+> releases carry two packages, `modernforms_fan` and
+> `modernforms_breeze_fan` (in 1.2 the second was `modernforms_breeze`), and
+> `deploy/house.yaml` has named a release since the first install (today
+> `v1.9`, build 220); section 6's example and section 10 show the start
+> state.
+
 How a change reaches `main`, how a release is cut and how the house is
 brought to the release it should run. The scaffold contract
 ([`scaffold-design.md`](scaffold-design.md)) names the pieces; this document
@@ -51,7 +59,9 @@ commit SHA with its version in a trailing comment, every job with
 `timeout-minutes` and the least `permissions:` it needs. Dates and build
 numbers in documents are absolute. Nothing names a package by hand: the
 packages are the directories `src/<name>/` that hold a `driver.xml` (one
-today, `modernforms_fan`), and every tool and workflow takes the list from
+when this was written, `modernforms_fan`; two since 1.2, the second
+`modernforms_breeze` in 1.2 and `modernforms_breeze_fan` since 1.3), and
+every tool and workflow takes the list from
 there or from the manifest.
 
 ## 3. One script runs the checks: `tools/check.sh`
@@ -156,7 +166,9 @@ checks those with `gh api`.
 - The version's X.Y must have a codename in `.github/codenames.json`, which
   starts empty: the first step refuses a version it does not name, before
   anything is built ([`changelog-design.md`](changelog-design.md),
-  section 1).
+  section 1). Since #192 it also refuses one whose codename has no meaning
+  in `.github/codename-meanings.json`
+  ([`codename-meanings-design.md`](codename-meanings-design.md) CM-D5).
 
 ### 5.2 `build/manifest.json`
 

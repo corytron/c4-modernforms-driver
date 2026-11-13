@@ -1,5 +1,11 @@
 # The fan's product name and naming the items after it (#37)
 
+> **Status (2026-11-13, #213).** Shipped in 1.0-beta.3 and holds today. N8
+> and section 5 are past: the owner clicked Name Items After Fan on
+> 2026-11-05 and the items were renamed, and the device that replaced the
+> house's that evening (added from 1.1 for the icons, #91) was named by Use
+> Selected Fan: "Aviator 5" and "Aviator 5 Light" ([`status.md`](status.md)).
+
 The contract for issue [#37](https://github.com/corytron/c4-modernforms-driver/issues/37):
 the owner asked (2026-11-04) that the driver work out the fan's marketing name
 from its model information, show it in Properties, and use it to rename the

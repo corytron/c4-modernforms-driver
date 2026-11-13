@@ -1,5 +1,18 @@
 # Modern Forms fan: the local API, and how the driver should use it
 
+> **Status (2026-11-13, #213).** The interface findings stand, and the v1
+> contract [`v1-design.md`](v1-design.md) built on them. The house's
+> read-only answers of 2026-10-27 (M0) settled Q1 and Q2: a Gen 3 fan,
+> firmware 02.00.0052, `fanType` 1811-5-54, with Breeze. Where v1 differs
+> from section 11: polls every `Poll Interval (s)`, 10 to 120, **default 15**
+> (not 10), backing off 10, 20, 40, then 60 s (V7); the minimum OS is 3.3.0,
+> since v1 does not use the fan proxy's 3.4.2 speed links (V2, V3); no WAC
+> licence (V15). Writing `fanDirection` proved safe on the house fan (K11).
+> Later releases overturned three recommendations: the driver finds and
+> follows fans by its own multicast DNS question (1.0 and 1.2, #39 and #102,
+> section 7), switches Breeze (1.2, #111) and fades the light by stepping
+> its level (1.5, #141, section 9).
+
 Research for [issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2),
 written 2026-10-27. Desk research only: no fan, controller or other device on
 the house network was contacted. It answers the "Transport" questions of

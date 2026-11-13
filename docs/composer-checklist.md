@@ -5,37 +5,37 @@ as steps for the owner; each step is also a brief for the Windows session
 ([`composer-remote.md`](composer-remote.md)). Every step ends in a **Done**
 line. It reads **Done: open** until the step has been run on the house; then
 it says when and what the step showed, in the words of that day. What runs on
-the house and what is open overall is [`status.md`](status.md); the
-engineering record behind each result is [`design.md`](design.md). The names
-and exact texts a step quotes are those of the contract
-([`v1-design.md`](v1-design.md), sections 2.5 to 2.7 and 7) and of the
-driver's Documentation tab.
+the house and what is open overall is [`status.md`](status.md); how the
+driver is built is [`design.md`](design.md). The names and exact texts a
+step quotes are those of today's `driver.xml` and `fan/texts.lua`, as the
+contract ([`v1-design.md`](v1-design.md), sections 2.5 to 2.7 and 7) and the
+driver's Documentation tab give them.
 
-**This version is written for the first full-featured test build** (the
-build of the M3 split, [`v1-design.md`](v1-design.md#13-m3-build-split)). No
-build of this driver has been checked on the house yet, so every step is open.
-Since #45 (2026-11-04) it has no migration steps: the Migration Report they
-read is gone from the driver, and the house's cutover from the stock driver
-is recorded in [`migration-design.md`](migration-design.md). Since #102
-(2026-11-07) the driver finds fans by itself and the Find Fans action is
-gone: steps 1, 4 to 6, 9, 43 and 45 read `Found Fans` instead of clicking,
-and step 5 carries the house checks H1 to H3 of
-[`auto-discovery-design.md`](auto-discovery-design.md). Since #111
-(2026-11-07) the release carries two packages and the driver has Breeze:
-steps 1, 5, 8, 9, 11, 17, 18 and 24 count the Fan Breeze link and the
-action Add Breeze Switch, and section J (steps 49 to 56) installs the
-Breeze switch and checks it. Since #121 (2026-11-07, 1.3 "Ornithopter")
-the fan runs in fan mode or in Breeze mode, never both, the Breeze switch
-gives way to the Breeze fan (`modernforms_breeze_fan.c4z`) and the action
-is Add Breeze Fan: steps 1, 5, 9 and 17 say so, and steps 57 to 63 of
-section J delete the old switch, add the Breeze fan and check it. Since
-#137 (2026-11-09) the speed buttons can play gusts on their LEDs while the
-fan blows in Breeze: steps 64 to 70 of section J.3 carry the contract's
-hardware checks HB1 to HB7, on a `--dev` build through the dev loop. Since
-#141 (2026-11-09) the light fades: steps 72 to 83 of section K check the
-Click Rates, the Default Brightness Rate, taps, stops, holds, programming and
-the keypad LEDs, and steps 25 to 28 carry the changes to the light links
-that fades bring ([`light-fades-design.md`](light-fades-design.md)).
+**How this list grew.** Sections A to I were written for the first
+full-featured test build (the build of the M3 split,
+[`v1-design.md`](v1-design.md#13-m3-build-split)); each later release added
+its own section. Step numbers never change, because other documents cite
+them, so a step a later release made obsolete stays, marked
+**Superseded**. The house has not run sections A to I step by step: the
+owner tested beta.3 his own way on 2026-11-05 and every test passed
+(presses, the LEDs in their per-speed colours, the double taps on Low and
+High, the light's Up and Down; #58), and the install rounds of each release
+read back what their Done lines say. Steps marked **Done: open** are still
+worth running on a new house or a new controller OS.
+
+| Release | What changed here | Steps |
+| --- | --- | --- |
+| 1.0 (#26, #31, #37, #39) | the whole driver | 1 to 48 |
+| 1.0 (#45) | no migration steps: the Migration Report is gone; the house's cutover is recorded in [`migration-design.md`](migration-design.md) | none |
+| 1.2 (#102) | the driver finds fans by itself and the Find Fans action is gone: `Found Fans` is read instead of clicked; step 5 carries the house checks H1 to H3 of [`auto-discovery-design.md`](auto-discovery-design.md) | 1, 4 to 6, 9, 43, 45 |
+| 1.2 (#111) | Breeze and a second package; the Fan Breeze link and the 1.2 Breeze switch | 1, 5, 8, 9, 11, 17, 18, 24; section J, 49 to 56 (**superseded** by 1.3 where marked) |
+| 1.3 (#121) | fan mode or Breeze mode, never both; the Breeze fan (`modernforms_breeze_fan.c4z`) replaces the switch; the action is Add Breeze Fan | 1, 5, 9, 17; section J.2, 57 to 63 |
+| 1.4 (#137) | Breeze on the keypad LEDs (HB1 to HB7, on a `--dev` build through the dev loop) | section J.3, 64 to 71 |
+| 1.5 (#141) | the light fades ([`light-fades-design.md`](light-fades-design.md)) | 25 to 28; section K, 72 to 83 |
+| 1.6, 1.7 (#159, #177) | the speed chase | section L, 84 to 87 |
+| 1.7 (#178, #185) | the keypad LED rows only while a speed link is bound | 8; section M, 88 to 90 |
+| 1.8 (#195) | `Light Min On (%)` | 8; section N, 91 and 92 |
+| 1.9 (#207) | the pause in the dark: `Pause LED Animations Below` and the Ambient Light Level (Follower) input | 8, 17; section O, 93 to 95 |
 
 ## Before you start
 
@@ -52,12 +52,13 @@ that fades bring ([`light-fades-design.md`](light-fades-design.md)).
   of [`composer-remote.md`](composer-remote.md#rules-for-the-windows-session)
   (rule 8) and names the hard-to-undo steps inside it: installs, bindings and
   Disconnects, a Set on a property, a rename of an item or the delete of a
-  throw-away device (steps 7 and 48), the throw-away programming scripts
-  of step 35, the Breeze switch that Add Breeze Switch adds (step 51), the
-  throw-away If line of step 55, the delete of the old Breeze switch (step
-  59), the Breeze fan that Add Breeze Fan adds (step 60), the Sets on the
-  Click Rates and the Default Brightness Rate (steps 72 and 73) and the
-  throw-away programming line of step 79.
+  throw-away device (steps 7, 48 and 88 to 90), the throw-away programming
+  scripts of step 35, the Breeze switch that Add Breeze Switch adds (step
+  51, 1.2 only), the throw-away If line of step 55, the delete of the old
+  Breeze switch (step 59), the Breeze fan that Add Breeze Fan adds (step
+  60), the Sets on the Click Rates and the Default Brightness Rate (steps 72
+  and 73), the throw-away programming line of step 79, the Sets of sections
+  L to O and the ambient binding and unbinding of section O.
 - **The test buttons.** Since the cutover (2026-11-04) the house keypad's
   fan and light buttons are bound to this driver's links
   ([`status.md`](status.md)), so the steps press those buttons themselves:
@@ -82,9 +83,12 @@ that fades bring ([`light-fades-design.md`](light-fades-design.md)).
   device keeps its old capabilities until you reboot the controller from
   System Manager (Tools > System Manager; it runs elevated, so only you can
   operate it). Then choose File » Refresh Navigators. Builds that change only
-  Lua or connections take effect at once. Composer has no "Restart
-  Director" command of its own. A new device is expected to take its
-  capabilities with no reboot; step 1 is where that is seen.
+  Lua, properties or connections take effect at once. Composer has no
+  "Restart Director" command of its own. A new device is expected to take
+  its capabilities with no reboot; step 1 is where that is seen. Seen with
+  1.5 (Discussions #160 and #199): the new settings rows can show before the
+  reboot, holding Composer's defaults, while a value set in them snaps back
+  until the reboot.
 - **Logs.** A device's Lua output is in its **Lua** tab in Composer. When a
   step asks for it, set that device's `Debug Mode` to On first and back to
   Off afterwards. Composer shows only the lines that arrive while the tab is
@@ -95,62 +99,78 @@ that fades bring ([`light-fades-design.md`](light-fades-design.md)).
   [`scaffold-design.md`](scaffold-design.md#2-placeholders-the-repository-is-public):
   fan `10.0.2.151`, second fan `10.0.2.152`, client id `MF_00005E005301`,
   "Example Room".
-- **Put everything back.** At the end the settings these steps change read
-  as they did: Default On Brightness 100, the fan item's Preset Level
-  Level 3, every `Speed N Link Also Lit At` at `No other speed`, `Follow
-  Address Changes` On, `Fan Address` the fan's address, the test
-  buttons restored, `Debug Mode` Off, the two items' names as they were
-  before step 6 (the driver changes them in steps 6 and 7; they are put back
-  by hand in step 48), the fan's Breeze as it was (steps 56, 63 and 70),
-  and the three Breeze LED rows as section J.3 leaves them.
-  The Breeze switch of step 51 stays until step 59 deletes it; the Breeze
-  fan of step 60 stays.
+- **Put everything back.** At the end every setting these steps change
+  reads as it did before them; on the house that is the list under
+  "Settings" in [`status.md`](status.md#settings) (among them Default On
+  Brightness 100, the Preset Level Level 3, `Speed 2 Link Also Lit At`
+  Speed 1 and `Speed 5 Link Also Lit At` Speed 6 with the others at `No
+  other speed`, `Light Min On (%)` 10, `Speed LED Animation` Speeds 2 to 5,
+  `Pause LED Animations Below` 10, `Follow Address Changes` On and `Debug
+  Mode` Off), `Fan Address` the fan's address, the test buttons and the
+  ambient binding as they were, the two items' names as they were before
+  step 6 (the driver changes them in steps 6 and 7; they are put back by
+  hand in step 48), the fan's Breeze as it was (steps 56, 63 and 70), and
+  the Breeze LED rows as section J.3 leaves them. The Breeze switch of step
+  51 stayed until step 59 deleted it; the Breeze fan of step 60 stays.
 
-The house this version was written for (2026-11-04, before the first
+The house sections A to I were written for (2026-11-04, before the first
 install): one Modern Forms fan on the stock driver
 `wac_mf_fan_and_light_controller(v4).c4z`, a keypad driven by programming
 (button scripts that set the speeds, LED scripts, a one-second settle Timer
 agent) with no spare button, the throw-away M1 probe still in a test room,
 and nothing of this driver installed. The same day v1.0-beta.1 was
 installed, the keypad moved to its links and the stock device was deleted
-(deploy issue #30); the house as it is now is [`status.md`](status.md).
+(deploy issue #30). Since 2026-11-05 (#91) the house's items are **Aviator
+5** and **Aviator 5 Light**, named by the driver; the house as it is now is
+[`status.md`](status.md).
 
 ## A. Install and update
 
 1. **Install and add the device.** Driver » "Add or Update Driver or Agent…",
-   select the packages of the build (since #111 two: `modernforms_fan.c4z`
-   and, since #121, `modernforms_breeze_fan.c4z`, before it
-   `modernforms_breeze.c4z`), Open. Then add **Modern Forms
+   select both packages of the release, `modernforms_fan.c4z` and
+   `modernforms_breeze_fan.c4z` (1.2 carried `modernforms_breeze.c4z` in its
+   place, 1.0 and 1.1 the first alone), Open. Then add **Modern Forms
    Fan** to a room (the fan's room, as
    [`migration-design.md`](migration-design.md#3-phases) Phase 1 has it).
-   - **Expect:** "Update Succeeded: Drivers or agents were successfully
-     updated: modernforms_fan.c4z" (the text Composer Pro 3.4.2 shows for the
-     Hue drivers; since #111 it names the Breeze package too) and
-     **no** "Restart Director?". No Breeze switch or Breeze fan is added by the install. Two tree items: **Modern
-     Forms Fan** (the fan, the parent) and **Modern Forms Fan Light** under
-     it, with Control4's standard fan and light icons. On the fan item:
-     `Driver Version` the build number, `Debug Mode` Off, `Poll Interval (s)`
-     15, `Status` `Not set up: pick a fan in Found Fans, or enter Fan
-     Address`. Within about 30 seconds, with no click, `Found Fans` reads
-     `1 fan found: pick it and click Set to use it` and lists `MF_Fan_005301
-     at 10.0.2.151` (`2 fans found: …` if another fan is awake); `Last
-     Action` stays empty. File » Refresh Navigators.
+   - **Expect:** "Driver or agent was successfully added: …" for a package
+     the project did not have yet, then "Update Succeeded: Drivers or agents
+     were successfully updated: modernforms_fan.c4z,
+     modernforms_breeze_fan.c4z" (the texts Composer Pro 3.4.2 showed on the
+     house), and **no** "Restart Director?". No Breeze fan is added by the
+     install. Two tree items: **Modern Forms Fan** (the fan, the parent) and
+     **Modern Forms Fan Light** under it, with the driver's own icons (a
+     five-blade fan and a drum-shaded light; since 1.1, #78). On the fan
+     item: `Driver Version` the build number, `Debug Mode` Off, `Poll
+     Interval (s)` 15, `Status` `Not set up: pick a fan in Found Fans, or
+     enter Fan Address`. Within about 30 seconds, with no click, `Found
+     Fans` reads `1 fan found: pick it and click Set to use it` and lists
+     `MF_Fan_005301 at 10.0.2.151` (`2 fans found: pick one and click Set to
+     use it` if another fan is awake); `Last Action` stays empty. With
+     nothing bound, the 21 keypad LED rows hide by themselves within about
+     20 seconds and `Keypad Links` reads `0 of 13 links bound; LED settings
+     hidden: bind a button to a Fan Speed link` (section M). File » Refresh
+     Navigators.
    - **Done:** open.
 2. **The update is in place.** Run this one last, when a second build exists.
    Install it over the first the same way; never delete and re-add the
    device: a re-added device has a new device id and an empty store, and its
    connections and every programming line that names it are gone.
    - **Expect:** `Driver Version` shows the new build; `Fan Address`, `Poll
-     Interval (s)`, every `Speed N Link Also Lit At`, `Follow Address
-     Changes`, `Fan ID`, `Debug Mode`, the preset speed and the light's
-     Default On Brightness read as before (an update from a build without
-     `Follow Address Changes` shows the new row as `On`);
-     `Status` reads `Online: …` again within a minute; `Keypad Links` still
-     lists every binding and the Navigators still show both tiles.
+     Interval (s)`, `Light Min On (%)`, every `Speed N Link Also Lit At`,
+     the LED colour and animation rows, `Pause LED Animations Below`,
+     `Follow Address Changes`, `Fan ID`, `Debug Mode`, the preset speed and
+     the light's settings read as before (an update from a build without a
+     row shows the new row at its default); `Status` reads `Online: …`
+     again within a minute; `Keypad Links` still lists every binding, every
+     connection (the Breeze fan's and the ambient binding included) is
+     still there, and the Navigators still show every tile.
    - **If Composer asked "Restart Director?"**: reboot the controller as
      described under "Before you start", wait until Composer has Director
      again, choose File » Refresh Navigators, then check this step again.
-   - **Done:** open.
+   - **Done:** every release install since 1.0 has been an update in place,
+     with the settings and bindings kept (the rounds are listed in
+     [`status.md`](status.md#release-history)); the newest, 1.9 build 220 on
+     the night of 2026-11-12 (deploy issue #211).
 
 ## B. Adding the fan
 
@@ -181,20 +201,24 @@ installed, the keypad moved to its links and the stock device was deleted
    items' names in the System Design tree (step 6 needs them), then pick the
    item of the house fan in `Found Fans` and click the row's **Set**; read
    `Last Action` and `Found Fans` after about 3 seconds.
-   - **Expect:** (H1) five actions, `Use Selected Fan` first, no `Find
-     Fans` (step 9; six since #111, `Add Breeze Switch` last, `Add Breeze
-     Fan` since #121). (H2) The value and first item `This device's fan
-     answered; no other fan found` (`2 fans found; this device's fan is
-     listed first` if another fan is awake), then the item `MF_Fan_005301 at
-     10.0.2.151 (this device: Aviator 5)`, the instance name ending in the
-     last six digits of the MAC; `Last Action` is unchanged by the search.
-     (H3) `Already using fan MF_00005E005301 at 10.0.2.151`, about 2 seconds
-     later the same line with an ending (`; names kept` on the house), the
-     row back on the first item, nothing else changed. If the first item
-     says `No search possible on this controller: enter Fan Address` or `No
-     fan answered the last search`, record the exact text and the
-     controller's OS.
-   - **Done:** open.
+   - **Expect:** (H1) six actions, `Use Selected Fan` first and `Add Breeze
+     Fan` last, no `Find Fans` (step 9). (H2) The value and first item `This
+     device's fan answered; no other fan found` (`2 fans found; this
+     device's fan is listed first` if another fan is awake), then the item
+     `MF_Fan_005301 at 10.0.2.151 (this device: Aviator 5)`, the instance
+     name ending in the last six digits of the MAC; `Last Action` is
+     unchanged by the search. (H3) `Already using fan MF_00005E005301 at
+     10.0.2.151`, about 2 seconds later the same line again, with no ending
+     on the house (its items already carry the fan's name; `; names kept`
+     when an item carries a name someone typed), the row back on the first
+     item, nothing else changed. If the first item says `No search possible
+     on this controller: enter Fan Address` or `No fan answered the last
+     search`, record the exact text and the controller's OS.
+   - **Done:** (H1, H2) 2026-11-07, build 115 (deploy issue #117,
+     Discussion #119): Find Fans gone, exactly six actions (then `Add Breeze
+     Switch` last), `Found Fans` `This device's fan answered; no other fan
+     found`, filled by itself; read again with 1.3, build 124 (Discussion
+     #132). (H3) open.
 6. **Use Selected Fan.** The two items' names noted are those of step 5,
    before its pick. Pick the entry marked as this device's fan in `Found
    Fans` and click the row's **Set** (the pick acts at once, as **Use
@@ -207,9 +231,11 @@ installed, the keypad moved to its links and the stock device was deleted
      line with one ending. `…; items renamed` when both items still had the names a new
      device is created with (**Modern Forms Fan** and **Modern Forms Fan
      Light**): the tree now shows **Aviator 5** and **Aviator 5 Light**.
-     `…; names kept` when either item has another name (the house's own
+     `…; names kept` when either item has another name (the house's first
      device, after the cutover: **Fan** and **Fan Light**): neither changed.
-     Not `…; not renamed`: the model `1811-5-54` has a name. The click with
+     No ending when both already carry the fan's name (the house's device
+     since #91: **Aviator 5** and **Aviator 5 Light**). Not `…; not
+     renamed`: the model `1811-5-54` has a name. The click with
      nothing picked checks `Fan Address`: `Already using …` again, with the
      same ending, or none once the items carry the fan's name. Then `Nothing to
      use: pick a fan in Found Fans, or enter Fan Address` (no ending: nothing
@@ -217,16 +243,18 @@ installed, the keypad moved to its links and the stock device was deleted
      this click renamed the items, record what step 7 asks under (b) as well.
    - **Done:** open.
 7. **Name Items After Fan, and the guard.** On the device of step 6. On the
-   house's own device this renames the items the family knows as **Fan** and
-   **Fan Light** until step 48 puts them back; the brief says whether the
-   owner agrees, and if not the step runs on a second device added to a test
-   room and deleted afterwards (step 6 is repeated on it first). (a) If step
-   6 ended in `; items renamed`, rename the fan item by hand to `Fan (new)`
-   (the name a cutover gives it) and click **Use Selected Fan** again; if
-   step 6 ended in `; names kept`, skip (a). (b) Click **Name Items After
-   Fan** and read `Last Action` and the tree once a second for 10 seconds.
-   (c) Click it again. *By hand, optional, blocking nothing:* the fan's tile
-   name on the phone before and after File » Refresh Navigators.
+   house's own device the items already carry the fan's name (**Aviator 5**
+   and **Aviator 5 Light**, since #91), so (b) only answers `Items already
+   named …`; to see a rename, the step runs on a second device added to a
+   test room and deleted afterwards (step 6 is repeated on it first). (Before
+   #91 it would have renamed the house's **Fan** and **Fan Light** until
+   step 48 put them back.) (a) If step 6 ended in `; items renamed`, rename
+   the fan item by hand to `Fan (new)` (the name a cutover gives it) and
+   click **Use Selected Fan** again; if step 6 ended in `; names kept` or
+   with no ending, skip (a). (b) Click **Name Items After Fan** and read
+   `Last Action` and the tree once a second for 10 seconds. (c) Click it
+   again. *By hand, optional, blocking nothing:* the fan's tile name on the
+   phone before and after File » Refresh Navigators.
    - **Expect:** (a) `Already using fan MF_00005E005301 at 10.0.2.151`, and
      about 2 seconds later the same line ending `; names kept`; neither item
      changed, the light's included (both or neither). (b) Within about 3
@@ -242,33 +270,51 @@ installed, the keypad moved to its links and the stock device was deleted
 
 ## C. Properties, the Documentation tab and the Navigators
 
-8. **The rows.** Read the fan item's whole **Properties** tab, in order.
+8. **The rows.** Read the fan item's whole **Properties** tab, in order,
+   once with a button bound to a Fan Speed link (37 rows on a release build)
+   and once on a device with none (16 rows: the 21 keypad LED rows hidden,
+   section M).
    - **Expect:** `Driver Version` the build, `Status` `Online: …`, `Last
      Action`, `Fan Address` the address, `Found Fans` (its first item a
      summary such as `This device's fan answered; no other fan found`,
-     #102), `Follow Address
-     Changes` `On` (a list of `On` and `Off`; #39), `Fan ID`, `Fan Model`
-     (for example `Gen 3, Aviator 5 (1811-5-54), light kit F4IN-120V-R1-30,
-     Breeze`: the product name of the model number the fan reports; a model
-     the driver has no name for would read `Gen 3, fan <model>, light kit
-     …`), `Firmware` (`<version> (motor <version>) since <date>`), `Last Seen`
-     (`<date time>, answered in <s> s`, moving on every 10 seconds at most),
-     `Last Change By` empty until the fan changes from outside, `Fan
-     Automations` (`None` or `Active: …`), `Poll Interval (s)` 15, `Keypad
-     Links` (`0 of 13 links bound`; `of 12` before #111), `Speed 1 Link Also Lit At` to `Speed 6
-     Link Also Lit At` all `No other speed`, `Speed LED Colors` `Keypad's
-     own`, `Speed 1 LED Color` to `Speed 6 LED Color` `0,0,255` and `Speed LED
-     Off Color` `0,0,0` (V27, #31), `Debug Mode` Off, and a release build has
-     no `Dev Server` or `Dev State` row. No `Migration` or `Stock Device` row
-     (gone since #45).
-   - **Done:** open.
+     #102), `Follow Address Changes` `On` (a list of `On` and `Off`; #39),
+     `Fan ID`, `Fan Model` (for example `Gen 3, Aviator 5 (1811-5-54), light
+     kit F4IN-120V-R1-30, Breeze`: the product name of the model number the
+     fan reports; a model the driver has no name for would read `Gen 3, fan
+     <model>, light kit …`), `Firmware` (`<version> (motor <version>) since
+     <date>`), `Last Seen` (`<date time>, answered in <s> s`, moving on every
+     10 seconds at most), `Last Change By` empty until the fan changes from
+     outside, `Fan Automations` (`None` or `Active: …`), `Poll Interval (s)`
+     15, `Light Min On (%)` 0 (0 to 99; 1.8, #195), `Keypad Links` (`0 of 13
+     links bound; LED settings hidden: bind a button to a Fan Speed link`
+     with nothing bound, `<n> of 13 links bound; LED settings shown` with a
+     speed link bound; `of 12` before #111). Then the 21 keypad LED rows, in
+     this order and with these defaults: `Speed 1 Link Also Lit At` to
+     `Speed 6 Link Also Lit At` all `No other speed`; `Speed LED Colors`
+     `Keypad's own`; `Speed 1 LED Color` to `Speed 6 LED Color` `0,0,255` and
+     `Speed LED Off Color` `0,0,0` (V27, #31); `Breeze LED Animation` `Off`,
+     `Breeze LED Bottom` `Lowest speed`, `Breeze LED Step (ms)` 120 (60 to
+     400), `Breeze LED Night Brightness (%)` 50 (10 to 100) (#137); `Speed
+     LED Animation` `Off` (`Off`, `Speeds 2 to 5`, `Speeds 1 to 6`), `Speed
+     LED Rest (s)` 5 (5 to 60) (#159, #177); `Pause LED Animations Below` 10
+     (0 to 255; #207). Last `Debug Mode` Off. A release build has no `Dev
+     Server` or `Dev State` row; there is no `Migration` or `Stock Device`
+     row (gone since #45). On a fan without Breeze, `Breeze LED Animation`,
+     `Breeze LED Step (ms)` and `Breeze LED Night Brightness (%)` stay hidden
+     even with a speed link bound.
+   - **Done:** 2026-11-10, build 193 (Discussion #184): all 35 rows of that
+     build with the house keypad bound, and 15 on a scratch device with
+     nothing bound (the 20 LED rows of 1.7 hidden). 1.8 and 1.9 added
+     `Light Min On (%)` and `Pause LED Animations Below`; the whole list has
+     not been read in order since.
 9. **The Actions tab.**
    - **Expect:** six actions in this order: `Use Selected Fan`, `Name Items
      After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive
      Learning`, `Add Breeze Fan` (no `Migration Report` since #45, no
      `Find Fans` since #102; `Add Breeze Switch` since #111, renamed `Add
-     Breeze Fan` by #121).
-   - **Done:** open.
+     Breeze Fan` by #121). The Breeze fan has no actions.
+   - **Done:** 2026-11-08, build 124 (Discussion #132): exactly six
+     actions, `Add Breeze Fan` last.
 10. **The Documentation tab.** Open the fan item's **Documentation** tab,
     scroll to the end.
     - **Expect:** the manual renders (headings, tables, readable text); a
@@ -284,7 +330,10 @@ installed, the keypad moved to its links and the stock device was deleted
       Breeze commands, the events `Breeze Started` and `Breeze Stopped`, the
       condition "Breeze is on" and the variable `Breeze` (step 50). The
       light item lists its own light events.
-    - **Done:** open.
+    - **Done:** 2026-11-07, build 115 (Discussion #119): the commands Breeze
+      On, Breeze Off, Toggle Breeze and Set Breeze Strength; the events Fan
+      Offline, Fan Online, Breeze Started and Breeze Stopped; the variables
+      Breeze and Online; the conditions "Fan is online" and "Breeze is on".
 12. **The fan on a Navigator.** *By hand*, after File » Refresh Navigators:
     open the fan on a Navigator or in the Control4 app. Tap each of Level 1
     to Level 6, then off.
@@ -312,7 +361,9 @@ installed, the keypad moved to its links and the stock device was deleted
     off and on; drag the slider from 40 to 70 and let go; tap off; set the
     Default On Brightness back to 100.
     - **Expect:** the first tap turns the light on at the Default On
-      Brightness (100 on this house); after the change it comes on at 50
+      Brightness (100 on this house; since 1.5 it fades there over the
+      light's Default Brightness Rate, 3 s on the house, step 78); after the
+      change it comes on at 50
       (record it if a tile tap ignores the setting, which depends on the
       command Control4 sends); the slider ends at 70 within a couple of
       seconds, in a few jumps and without a fade; off turns it off and the fan
@@ -334,8 +385,11 @@ installed, the keypad moved to its links and the stock device was deleted
       **Fan Breeze Button Link** (Fan Breeze since #111); the three light
       links **Light Top**, **Light Bottom** and **Light Toggle Button
       Link**; and **Breeze Switch**, the output a Breeze switch (#111) and,
-      since #121, the Breeze fan is connected to (the name stays). The light item lists the same thirteen links in this
-      per-item view. In the lower list of a keypad's
+      since #121, the Breeze fan is connected to (the name stays); and, as
+      an input, **Ambient Light Level (Follower)**, which a keypad's Ambient
+      Light Level (Source) binds to (since 1.9, #207; section O). The light
+      item lists the same thirteen links in this per-item view. In the lower
+      list of a keypad's
       Connections they appear under the fan item only (seen with the probe
       on 2026-10-27).
     - **Done:** open.
@@ -346,8 +400,11 @@ installed, the keypad moved to its links and the stock device was deleted
     read both lists afterwards).
     - **Expect:** both lists show the binding; the button's LED Behavior
       reads Follow Connection (the binding sets it, seen with the probe on
-      2026-10-27); `Keypad Links` reads `1 of 13 links bound` and `Fan Speed
-      3: <keypad> (<id>)`; the LED is already right for the fan's state.
+      2026-10-27); `Keypad Links` reads `1 of 13 links bound; LED settings
+      shown` and `Fan Speed 3: <keypad> (<id>)`, and the 21 keypad LED rows
+      show (section M); the LED is already right for the fan's state. On the
+      house, whose keypad is bound already, the count reads `7 of 13 links
+      bound; LED settings shown` and the binding step is skipped.
     - **Done:** open.
 19. **A press.** Press the bound button once (with the fan at another speed).
     - **Expect:** the LED lights at once, before the fan moves; the fan runs
@@ -376,12 +433,16 @@ installed, the keypad moved to its links and the stock device was deleted
     press it seven times.
     - **Expect:** Toggle: off goes on at the preset speed (Level 3), on goes
       off. Cycle: Level 1 to Level 6 on the first six presses, still Level 6
-      on the seventh (#77); both LEDs lit while the fan is on.
+      on the seventh (#77); both LEDs lit while the fan runs in fan mode
+      (dark while Breeze blows, since 1.3).
     - **Done:** open.
 24. **Disconnect.** Right-click the binding of each link used so far and
     choose Disconnect; read both lists.
     - **Expect:** the prompt names the two devices; both lists show the link
-      unbound; `Keypad Links` reads `0 of 13 links bound`; set the button's LED
+      unbound; `Keypad Links` reads `0 of 13 links bound; LED settings
+      hidden: bind a button to a Fan Speed link` once no speed link is left
+      bound, and the 21 keypad LED rows hide about 8 seconds later (section
+      M); set the button's LED
       Behavior back to Programmed (a Disconnect does not restore it) when the
       button is borrowed (R-K).
     - **Done:** open.
@@ -433,7 +494,9 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** at Level 3 only the Level 3 button is lit; pressing Level 5
       darkens it and lights the other at once, with no settle delay and no
       programming; the LEDs follow a change from the Modern Forms app, the
-      remote or the wall control the same way (section G).
+      remote or the wall control the same way (section G). With `Speed LED
+      Animation` on, as on the house, a chase follows 2.5 seconds after a
+      speed in its range is selected (section L).
     - **Done:** open.
 31. **Speed N Link Also Lit At.** With the test button on **Fan Speed 4**,
     press it, set `Speed 4 Link Also Lit At` to `Speed 5` and click **Set**,
@@ -472,7 +535,9 @@ installed, the keypad moved to its links and the stock device was deleted
       Double Tap event fires on a bound button is still open
       ([`migration-design.md`](migration-design.md#8-open-items), item 5):
       the cutover sitting pressed nothing, so record it here.
-    - **Done:** open.
+    - **Done:** 2026-11-05, build 51 (#58): the owner's double taps on Low
+      and High passed; their Double Tap programming set Level 1 and Level 6,
+      so the keypad's own Double Tap event fires on a bound button.
 
 ## G. Changes made elsewhere
 
@@ -648,17 +713,22 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** Programming shows nothing of them; every other script is as
       before the first binding (Copy All equal to the files saved then).
     - **Done:** open.
-48. **Put the settings back.** Default On Brightness 100, the fan item's
-    Preset Level Level 3, every `Speed N Link Also Lit At` at `No other
-    speed`, `Follow Address Changes` On, `Fan Address` the fan's address
-    (after step 45 (a), the address it was followed to is right), `Debug
-    Mode` Off; the restore check R-K on any borrowed button
-    that is still open; the two items' names back to what step 6 noted, by
-    hand in Composer (**Fan** and **Fan Light** on the house; a throw-away
-    device from step 7 is deleted instead), then File » Refresh Navigators.
-    Then read the fan item's properties once more.
-    - **Expect:** the rows read as in step 8; the item names are as before
-      step 6; the keypad is as before step 18.
+48. **Put the settings back.** Every setting as it was before step 3: on
+    the house the values under "Settings" in
+    [`status.md`](status.md#settings) (Default On Brightness 100, the fan
+    item's Preset Level Level 3, `Speed 2 Link Also Lit At` Speed 1 and
+    `Speed 5 Link Also Lit At` Speed 6 with the others at `No other speed`,
+    `Follow Address Changes` On, `Debug Mode` Off, and the rest), `Fan
+    Address` the fan's address (after step 45 (a), the address it was
+    followed to is right); the restore check R-K on any borrowed button that
+    is still open; the two items' names back to what step 6 noted, by hand
+    in Composer (**Aviator 5** and **Aviator 5 Light** on the house, which
+    steps 6 and 7 leave as they are; a throw-away device from step 7 is
+    deleted instead), then File » Refresh Navigators. Then read the fan
+    item's properties once more.
+    - **Expect:** the rows read as before step 3 (a new device: as in step
+      8); the item names are as before step 6; the keypad is as before step
+      18.
     - **Done:** open.
 
 ## J. Breeze (#111)
@@ -675,9 +745,13 @@ LED. When this was written the house's fan item was taken to be named
 **Fan**, so the steps below expected the switch **Fan Breeze**; the
 house's items are **Aviator 5** and **Aviator 5 Light** since the device
 was re-created on 2026-11-05 (#91), so the switch is **Aviator 5 Breeze**,
-as on any device named after the fan. Since #121 (1.3) the switch is
-deleted and replaced by the Breeze fan: steps 57 to 63 below; steps 53, 54
-and 56 give way to them.
+as on any device named after the fan.
+
+**Since 1.3 (#121) this section is the record of 1.2.** The switch is
+deleted and replaced by the Breeze fan (section J.2, steps 57 to 63), and
+1.3 no longer makes the switch's package. Steps 49, 51 to 54 and 56 are
+superseded; steps 50 and 55 still apply, since Breeze's programming items
+stayed on the fan item.
 
 49. **Install both packages in place.** Driver » "Add or Update Driver or
     Agent…", select both files of the release, `modernforms_fan.c4z` and
@@ -693,7 +767,12 @@ and 56 give way to them.
       had, `Debug Mode` Off; the Actions tab as step 9; in Connections the
       fan item lists **Fan Breeze Button Link** and **Breeze Switch**, both
       unbound. No `[ERROR]` line in the Lua tab.
-    - **Done:** open.
+    - **Done:** 2026-11-07, build 115 (deploy issue #117, Discussion #119):
+      "Driver or agent was successfully added: modernforms_breeze.c4z", then
+      "Drivers or agents were successfully updated: modernforms_fan.c4z,
+      modernforms_breeze.c4z"; no "Restart Director?"; `Keypad Links` `7 of
+      13 links bound` with the seven bindings unchanged; no `[ERROR]` or
+      `[WARN]` line. **Superseded** by step 58 since 1.3.
 50. **Programming, read only (BN1).** Open Programming and select the fan
     item; read its commands, events, conditions and variables; add nothing.
     - **Expect:** the device-specific commands `Breeze On` ("Turn Breeze on
@@ -704,7 +783,8 @@ and 56 give way to them.
       condition "Breeze is on" (True, False) beside "Fan is online"; the
       variable `Breeze` (0 or 1, read-only) after `Online`. Record any list
       that differs.
-    - **Done:** open.
+    - **Done:** 2026-11-07, build 115 (Discussion #119), as step 11 says;
+      still true since 1.3.
 51. **Add Breeze Switch (BN2).** On the fan item's Actions tab click **Add
     Breeze Switch** once; read `Last Action`, the System Design tree, the
     fan item's `Breeze Switch` output in Connections and the new item's
@@ -717,15 +797,16 @@ and 56 give way to them.
       Mode` Off; no "Restart Director?". The second click: `A Breeze switch
       is already connected: Aviator 5 Breeze`, and nothing is added. Record
       the seconds until the item showed.
-    - **Done:** 2026-11-07, build 115 (deploy issue #117, Discussion #119,
-      as [`status.md`](status.md) records it): **Aviator 5 Breeze** added
+    - **Done:** **Superseded** by step 60 since 1.3; the text `Breeze switch
+      added: …` is no longer in the driver. 2026-11-07, build 115 (deploy
+      issue #117, Discussion #119, as [`status.md`](status.md) records it): **Aviator 5 Breeze** added
       in the fan's room and bound to the fan's `Breeze Switch` output, its
       `Status` `Breeze off on Aviator 5`. The second click and the seconds
       were not recorded.
 52. **Refresh Navigators (BN2).** File » Refresh Navigators.
     - **Expect:** it completes with no error.
     - **Done:** 2026-11-07, build 115 (deploy issue #117): the Navigators
-      were refreshed.
+      were refreshed. **Superseded** by step 61 since 1.3.
 53. **The switch on the phone (BN3).** *By hand, under a minute*: open the
     fan's room in the Control4 app, then on one touch screen; find **Fan
     Breeze** among the lights; tap it on, wait until it lights, tap it off.
@@ -773,9 +854,12 @@ Breeze 1 to 3. An installed device cannot change from a light to a fan, so
 the 1.2 switch of step 51 is deleted and the Breeze fan added in its place;
 everything that names the switch goes with it. No controller reboot. The
 house keypad has no button on Fan Breeze, so while Breeze blows every fan
-LED on it is dark (BF93); lighting one is the owner's choice. The brief
-carries the standing-approval sentence and names the delete of step 59 and
-the new device of step 60.
+LED on it is dark (BF93; since 1.4, with `Breeze LED Animation` = Gusts,
+the speed buttons play the gusts instead, section J.3); lighting one is the
+owner's choice. The brief carries the standing-approval sentence and names
+the delete of step 59 and the new device of step 60. The house ran it on
+2026-11-08 with 1.3, build 124 (deploy issue #126, Discussion #132); a
+project that never had the 1.2 switch skips steps 57 and 59.
 
 57. **What names the old switch (BF12, BF74, BF89).** Read only, before the
     install: in Programming, every line on the events of **Aviator 5
@@ -790,7 +874,10 @@ the new device of step 60.
       rebuilt on the fan item in step 63; a line on the fan's turned-off or
       speed-changed event now also runs when Breeze starts; a line that
       used Breeze Off to leave the fan turning now stops it.
-    - **Done:** open.
+    - **Done:** 2026-11-08 (Discussion #132), read from a local project backup
+      that never left the Windows machine: only the fan's `Breeze Switch`
+      binding, the switch's own link to its light proxy and the room's
+      Navigator lists named it; no programming, scene or agent.
 58. **Install both packages (BF-D12).** Driver » "Add or Update Driver or
     Agent…", select both files of the release, `modernforms_fan.c4z` and
     `modernforms_breeze_fan.c4z`, Open (the install brief of
@@ -805,14 +892,20 @@ the new device of step 60.
       switch keeps `Driver Version` 115 and still works. The click answers
       `Delete the old Breeze switch first: Aviator 5 Breeze` in `Last
       Action`, and nothing is added. No `[ERROR]` line in the Lua tab.
-    - **Done:** open.
+    - **Done:** 2026-11-08, build 124: "Driver or agent was successfully added:
+      modernforms_breeze_fan.c4z", then "Drivers or agents were successfully
+      updated: modernforms_fan.c4z, modernforms_breeze_fan.c4z"; no "Restart
+      Director?"; the fan went from 115 to 124 with every other row
+      unchanged; the click answered `Delete the old Breeze switch first:
+      Aviator 5 Breeze` and added nothing.
 59. **Delete the old switch (BF13, BF14).** Delete **Aviator 5 Breeze**
     (driver Modern Forms Breeze) in Composer and confirm the prompt; read
     the prompt's text back. Covered by the owner's standing approval.
     - **Expect:** the item gone from the tree and from the room; the fan
       item's `Breeze Switch` output unbound; no `[ERROR]` line in the fan
       item's Lua tab. Record the prompt's text.
-    - **Done:** open.
+    - **Done:** 2026-11-08: deleted with Composer's own confirmation, only that
+      device. The prompt's text was not recorded.
 60. **Add Breeze Fan (BF-D10, BF-D12, BF3).** On the fan item's Actions tab
     click **Add Breeze Fan** once; read `Last Action`, the System Design
     tree, the new item's Properties and settings page, the fan item's
@@ -830,7 +923,14 @@ the new device of step 60.
       is already connected: Aviator 5 Breeze`, and nothing is added. If the
       new item is not a fan, stop and record it. Record the seconds until
       the item showed.
-    - **Done:** open.
+    - **Done:** 2026-11-08, build 124: `Breeze fan added: Aviator 5 Breeze`; the
+      new device has driver Modern Forms Breeze Fan, proxy file `fan.c4i`,
+      `Driver Version` 124, `Debug Mode` Off and `Status` `Breeze off on
+      Aviator 5` (for a moment at creation `Not connected to a Modern Forms
+      Fan`); its input "Modern Forms Fan" is connected to the fan's `Breeze
+      Switch` output; Programming offers Set Speed with Off, Breeze 1,
+      Breeze 2 and Breeze 3 (direction greyed out). The second click and the
+      seconds were not recorded.
 61. **Its place on the Navigators, then Refresh (BF22, BF36).** Read the
     room's Navigator settings in Composer (its lists, such as Comfort and
     Lights) for **Aviator 5** and **Aviator 5 Breeze**. Where Composer lets
@@ -839,7 +939,8 @@ the new device of step 60.
     - **Expect:** both listed as fans, in one list. Record whether Composer
       offers an order and what was moved; the refresh completes with no
       error.
-    - **Done:** open.
+    - **Done:** 2026-11-08: the room's Lights list already showed the Breeze fan
+      directly after the fan, so nothing was moved; the refresh completed.
 62. **On the phone (BF-D12, the owner's checks).** *By hand, under a
     minute*, in the Control4 app, in the fan's room: is **Aviator 5
     Breeze** listed by the fan? With the fan running at a speed, tap
@@ -857,7 +958,9 @@ the new device of step 60.
       turning throughout. Off on the Breeze fan in Breeze mode stops the
       fan: `Online: fan off, light …`, both tiles off, the keypad's Off LED
       lit. Record what the owner saw, in his words.
-    - **Done:** open.
+    - **Done:** 2026-11-08 (#121): on the phone the owner confirmed Breeze 1, 2, 3
+      and off, with the main fan showing off while Breeze runs. The other
+      readings were not recorded.
 63. **Back as it was.** The fan as it was before step 62 (a speed on the
     main fan, or off); the lines worth keeping from step 57 rebuilt on the
     fan item's Breeze commands and events, not on the Breeze fan; the
@@ -865,7 +968,8 @@ the new device of step 60.
     - **Expect:** the fan's `Status` as before step 62; **Aviator 5
       Breeze** off, in the fan's room and connected; Copy All of every
       other script as before step 57.
-    - **Done:** open.
+    - **Done:** 2026-11-08: nothing to rebuild (step 57 found no lines); the
+      Breeze fan stays.
 
 ### J.3 Breeze on the keypad LEDs (#137)
 
@@ -881,14 +985,19 @@ the contract, BL-D26 and BL-D27 for the tail), and a
 ending wipe once, the other way, when it ends (BL-D30: the gusts run the way
 the fan blows, down while it blows down). On the house that is Low, Medium, Med-High and High (links 302 to
 305); Off, Up and Down never animate, and `Speed LED Colors` is already
-`Per speed`, which the animation needs. The steps run on a `--dev` build
-of the feature branch through the dev loop ([`dev-loop.md`](dev-loop.md)),
-installed in place as step 1 has it: the coordinator sends the dev-loop
-messages and reads the log on the VM, the Windows session reads and sets
-the rows and taps the Breeze fan, and your part is to watch the keypad
-and, where a step says so, press a button or use the Modern Forms app. The
-build adds property rows only, so no controller reboot. The brief carries
-the standing-approval sentence and names the Sets on the three new rows.
+`Per speed`, which the animation needs. The steps were written for a
+`--dev` build of the feature branch through the dev loop
+([`dev-loop.md`](dev-loop.md)), installed in place as step 1 has it: the
+coordinator sends the dev-loop messages and reads the log on the VM, the
+Windows session reads and sets the rows and taps the Breeze fan, and your
+part is to watch the keypad and, where a step says so, press a button or use
+the Modern Forms app. Since 1.4 is released, steps 66 to 71 run on a release
+build too, with the Windows session setting the rows; only step 65 needs the
+dev command `Dev Link`. The build adds property rows only, so no controller
+reboot. The brief carries the standing-approval sentence and names the Sets
+on the Breeze LED rows. Since 1.9 (#207) the gusts also pause while the
+keypad bound to Ambient Light Level (Follower) is dark (section O): run
+these steps with the room lit, or with that binding absent.
 
 64. **The keypad's button order (HB1).** Read only. The Windows session
     reads where the house keypad's buttons sit in Composer, where it shows
@@ -930,11 +1039,16 @@ the standing-approval sentence and names the Sets on the three new rows.
     - **Expect:** no `Breeze LEDs need Speed LED Colors set to Per speed`
       in `Last Action`; the four speed buttons go dark at once and stay
       dark between gusts; a gust follows every 2 to 5 seconds; Off stays
-      dark and Up and Down unchanged. In the dark the whole animation dims
+      dark and Up and Down unchanged. In a dim room the whole animation dims
       with the keypad's other LEDs, and white, ice, teal and sky blue stay
-      visible. Record, in the owner's words, how each colour looked
-      both times, and whether the animation ran upward (step 64).
-    - **Done:** open.
+      visible; below the keypad's Dark Room (on the house since #198) every
+      LED of the keypad is dark, the gusts included, and since 1.9 the
+      gusts pause there (section O). Record, in the owner's words, how each
+      colour looked both times, and whether the gusts ran the way the fan
+      blows (step 64, BL-D30).
+    - **Done:** in part, 2026-11-09, at night through the dev loop (#137):
+      the redesigned gusts "Looks good", and the half-strength colours
+      visible at night. The daylight look was not recorded.
 67. **The step time (HB4).** The Windows session taps Breeze 3 on the
     Breeze fan (a gust every 1 to 3 seconds). *By hand*: watch two
     gusts at `Breeze LED Step (ms)` 120; the coordinator sets it to 80
@@ -1013,22 +1127,35 @@ or the release; the house's light is the one on the keypad's Up and Down
 buttons (Light Top and Light Bottom). Your part is to watch the light
 and press buttons or use the Modern Forms app where a step says **By hand**.
 The brief carries the standing-approval sentence and names the Sets on the
-Click Rates and the Default Brightness Rate.
+Click Rates and the Default Brightness Rate. On the house the reboot has
+happened and the Click Rates and the Default Brightness Rate are 3 s
+([`status.md`](status.md#settings)), so steps 74 to 83 can run on the
+release build. Since 1.8 (#195), with `Light Min On (%)` above 1 (10 on the
+house), the fade lines name the fan's level beside Control4's (`100 % (fan
+level 100)`), `Status` shows both (`light 40 % (fan 45)`), and the times
+stay those of Control4's range; a hold from off starts at Control4's 1 %,
+which is the fan's Min On level.
 
 72. **Click Rates, after the reboot (H6).** After the release install
     (step 2's in-place update) Composer asks **Restart Director?**: answer
     Yes (it does not load the change), then the owner reboots the controller
     from System Manager (the Windows session cannot). Once Composer has
     Director again, the Windows session opens the light's settings page.
-    - **Expect:** before the reboot no Click Rates rows; after it, **Click
-      Rates Ramp Up** and **Click Rates Ramp Down** at `3.000` s each on the
-      light item (Composer takes `3000` ms and accepts a value up to 24
+    - **Expect:** before the reboot the Click Rates rows may already show,
+      at Composer's defaults (0.250 and 0.750 s), but a value typed into
+      them snaps back (seen with 1.5); after it, **Click Rates Ramp Up** and
+      **Click Rates Ramp Down** keep `3.000` s each on the light item (Composer takes `3000` ms and accepts a value up to 24
       hours), with Default On Brightness and the Hold Ramp Rates as before.
       A rate of `0` is accepted; a Set of `3.000` returns it unchanged. The
       fan item's `Status` reads `Online: …` again, `Keypad Links` still counts
       every binding, and `Driver Version` shows the release. Record how long
       the reboot took and any text Composer showed.
-    - **Done:** open.
+    - **Done:** 2026-11-09 to 2026-11-12, build 165 (Discussions #160 and
+      #199): after the install, with no reboot, the rows showed at 0.250 and
+      0.750 s, and 3.000 typed into them snapped back. After a controller
+      reboot (between 2026-11-09 and 2026-11-12) the same typing sent
+      `SET_CLICK_RATE_UP RATE=3000` and `SET_CLICK_RATE_DOWN RATE=3000`, and
+      both rows keep 3.000 s. How long the reboot took was not recorded.
 73. **The Default Brightness Rate (H1).** With `Debug Mode` On, the Windows
     session reads the light item's **Default Brightness Rate**, then sets it
     to `3.000` s and presses Enter (one Set).
@@ -1038,7 +1165,9 @@ Click Rates and the Default Brightness Rate.
       `3000`; no error in the Lua tab and nothing else in the log. The row
       reads `3.000` again after re-selecting the item. `Debug Mode` goes Off
       again at the end of step 83.
-    - **Done:** open.
+    - **Done:** in part, 2026-11-09 (Discussion #160): the row read 0.750 s,
+      was set to 3.000 s and kept it after re-selecting the item. The Lua tab
+      was not read, so the value the proxy sends (H1) is not confirmed.
 74. **A tap fades up and down.** *By hand*, the light off: tap **Up** and
     watch; when it has finished, tap **Down** and watch; then with the light
     at about 50 %, tap **Up** again. The Windows session reads the Lua tab
@@ -1047,7 +1176,8 @@ Click Rates and the Default Brightness Rate.
       the Default On Brightness (100) in about 3 seconds, in visible small
       steps; **Down** fades it to off in about 3 seconds; **Up** from 50 %
       takes about 1.5 seconds. The Lua tab has one line each, for example
-      `light fade 0 → 100 over 3.0 s: 11 steps, ended at 3.2 s`. Record, in
+      `light fade off → 100 % over 3.0 s: 11 steps, ended at 3.2 s` (with
+      Debug Mode On). Record, in
       the owner's words, how each fade looked (smooth enough, or a staircase;
       the contract expects about 7 to 18 steps over 3 seconds, so the count
       in the line is the fact), the time of the end by stopwatch, and the
@@ -1083,8 +1213,8 @@ Click Rates and the Default Brightness Rate.
     off), hold **Down**.
     - **Expect:** a hold brightens (or dims) at the hold rate, 5 seconds for
       the whole range unless changed, in finer steps than the old twice a
-      second, and stops where you let go, with a fade summary line of kind
-      hold in the Lua tab. From off the light comes on at 1 % and brightens
+      second, and stops where you let go, with a fade start and summary line for
+      the hold in the Lua tab. From off the light comes on at 1 % and brightens
       from there after about 0.6 seconds. A hold during a fade stops that
       fade and goes on from the stopped level. A tap within a second of
       letting go is ignored. Record how it looked compared with step 28's
@@ -1151,7 +1281,7 @@ Click Rates and the Default Brightness Rate.
 83. **The Debug Mode summary and what to record.** With `Debug Mode` On
     through steps 74 to 82, the Windows session reads the Lua tab; then
     sets it Off.
-    - **Expect:** one summary line per fade, for example `light fade 0 → 100
+    - **Expect:** one summary line per fade, for example `light fade off → 100 %
       over 3.0 s: 11 steps, ended at 3.2 s`; the per-step requests and
       answers, and the parameters of every rate command, only with Debug
       Mode On; at most one warning per fade; no application key, address or
@@ -1161,6 +1291,185 @@ Click Rates and the Default Brightness Rate.
       owner's word for how it looked, and whether the fan ever froze or
       answered slowly during a run of fades (the contract's pacing and gap
       settings depend on it).
+    - **Done:** open.
+
+## L. The speed chase (#159, #177)
+
+Written 2026-11-13 from the hardware checks of
+[`speed-leds-design.md`](speed-leds-design.md#6-hardware-checks-on-the-house-owner-watching-each-under-a-minute)
+(section 6) and what the owner sees (section 4), with the 1.7 change of
+#177. With `Speed LED Colors` = `Per speed` and `Speed LED Animation` on, a
+dot in the selected speed's colour runs across the buttons bound to the
+speed links (301 to 306) in the direction the fan blows, one button every
+0.5 s at speed 1 down to 0.1 s at speed 6; between chases, for `Speed LED
+Rest (s)` at every speed, the selected speed's LED is lit as before. A
+run's first chase comes 2.5 s after a speed is selected, from any source.
+It needs at least two bound speed buttons, fan mode, the fan online and a
+speed in the chosen range; Breeze, Off, the fan going offline or `Keypad's
+own` stop it at once. On the house: Low to High (links 302 to 305), all
+purple, `Breeze LED Bottom` `Highest speed`, `Speed LED Animation` `Speeds
+2 to 5`, `Speed LED Rest (s)` 5. A release build is enough; no controller
+reboot. The brief names the Sets on `Speed LED Animation` and `Speed LED
+Rest (s)`.
+
+84. **The chase at speed 3 (check 1).** With `Speed LED Animation` =
+    `Speeds 2 to 5`, set the fan to Level 3 from a Navigator. *By hand*:
+    watch the keypad for 15 seconds.
+    - **Expect:** Medium lights purple at once; 2.5 seconds later it goes
+      dark, a purple dot runs across the four speed buttons the way the fan
+      blows (top to bottom while it blows down), one button every 0.3 s, and
+      Medium lights again when the dot has passed; the next chase comes 5
+      seconds after (`Speed LED Rest (s)`). The selected button does not
+      blink twice at the start or end of a chase (#172).
+    - **Done:** 2026-11-10, builds 176 and 182 (#159, #172): the owner found
+      the chase at speed 3 right; the double blink at the edge speeds seen in
+      build 176 is gone in build 182.
+85. **The pace at speeds 5 and 2 (check 2).** Set Level 5, then Level 2.
+    - **Expect:** at speed 5 the dot runs in under half a second, at speed 2
+      it takes about 1.6 seconds; the rest between chases stays the same.
+    - **Done:** 2026-11-10 (#159): the pace looked good to the owner.
+86. **Reversed (check 3).** Reverse the fan from a Navigator, watch one
+    chase, then set it forward again.
+    - **Expect:** the dot runs the other way (bottom to top).
+    - **Done:** 2026-11-10 (#159): it runs the other way.
+87. **Breeze between chases, and the ways to stop it (check 4).** During a
+    rest, tap Breeze 2 on the Breeze fan; then press a speed button; then
+    set `Speed LED Colors` to `Keypad's own` (Set) and back to `Per speed`;
+    then set `Speed LED Animation` to `Off` and back.
+    - **Expect:** Breeze starts the gusts as section J.3 has them, with no
+      chase frame left on a button; the speed press plays the ending wipe,
+      then the new speed's LED, and a chase 2.5 seconds later. `Keypad's
+      own` stops the chase at once and `Last Action` reads `LED chase needs
+      Speed LED Colors set to Per speed`; `Off` stops it at once and leaves
+      the steady LEDs as they were.
+    - **Done:** open (not watched; the driver spec covers it, #159).
+
+## M. Keypad LED rows only with a keypad (#178, #185)
+
+Written 2026-11-13 from the checks of
+[`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md#4-hardware-checks-windows-session-no-owner-needed)
+(section 4). The 21 keypad LED rows (`Speed 1` to `Speed 6 Link Also Lit
+At`, `Speed LED Colors`, `Speed 1` to `Speed 6 LED Color`, `Speed LED Off
+Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED Rest
+(s)` and `Pause LED Animations Below`; 20 before 1.9) show only while at
+least one device is bound to a Fan Speed link (301 to 306). They show at
+once and hide when nothing has been bound for 8 seconds; hidden values are
+kept and still apply. The Windows session alone runs this section, on a
+scratch device; the brief names the device it adds and deletes.
+
+88. **A scratch device hides the rows (KH4, KH1).** Add a **Modern Forms
+    Fan** device to a test room (no address, nothing bound) and read its
+    Properties page now and 20 seconds later (re-select if needed; note
+    whether the open page redrew by itself). Read the house fan's page too.
+    - **Expect:** at first every row, and `Keypad Links` `0 of 13 links
+      bound; LED settings shown`; within about 20 seconds the 21 rows are
+      gone, 16 rows are left, and `Keypad Links` reads `0 of 13 links bound;
+      LED settings hidden: bind a button to a Fan Speed link`. The house
+      fan's rows are all still there.
+    - **Done:** 2026-11-10, build 193 (Discussion #184), with the 20 rows of
+      1.7: all 35 rows at 5 seconds, then 15 rows at 20 seconds, the page
+      redrawn by itself; the house fan kept every row.
+89. **Bind and unbind (KL-D7, #185).** Bind a keypad button of the test room
+    to the scratch device's **Fan Speed 3 Button Link**, read the page and
+    `Last Action`; then disconnect it and read them again after 15 seconds.
+    - **Expect:** at the bind the rows show at once, `Last Action` reads
+      `Keypad LED settings shown: a button is on a Fan Speed link` and
+      `Keypad Links` `1 of 13 links bound; LED settings shown`; after the
+      unbind the keypad leaves `Keypad Links`, which reads `0 of 13 links
+      bound; LED settings hidden: bind a button to a Fan Speed link`, the
+      rows hide about 6 plus 8 seconds later, and `Last Action` reads
+      `Keypad LED settings hidden: no button on a Fan Speed link`. The
+      values set while shown are kept.
+    - **Done:** open.
+90. **The same build again, then delete (KH3).** Update both packages in
+    place with the same build (Composer: "Versions are equal", overwrite
+    Yes), read both devices, then delete the scratch device.
+    - **Expect:** the scratch device's `Keypad Links` reads `shown` for about
+      8 seconds after the reload (it fails open at start), then `hidden`, and
+      its rows stay hidden; the house fan is unchanged. The delete removes
+      only the scratch device.
+    - **Done:** 2026-11-10, build 193 (Discussion #184): as expected; the
+      project was not saved.
+
+## N. Light Min On (#195)
+
+Written 2026-11-13 from the house checks of
+[`min-on-design.md`](min-on-design.md#5-house-checks-after-the-release-with-the-owner-not-blocking-it)
+(section 5). `Light Min On (%)` (0 to 99, default 0) on the fan item: for a
+light kit that stays dark at its lowest levels, Control4's 1 % becomes that
+fan level, as Min On trims a Control4 dimmer. 0 changes nothing; fade, tap
+and hold times stay the same. The house runs 10, a first setting. A release
+build is enough; no controller reboot. The brief names the Sets on the row.
+
+91. **Find the first glow.** *By hand*, with the Windows session: set `Light
+    Min On (%)` to 0 (Set), then turn the light on from a Navigator at 1 %,
+    2 %, 5 % and 10 %, one at a time, and say at which level the light first
+    glows. Then set `Light Min On (%)` a few points above that level (on the
+    house 10 unless the owner says otherwise).
+    - **Expect:** at 0 the levels are the fan's own and `Status` reads
+      `Online: …, light 5 %`; record the first level that glows. After the
+      Set, the Lua tab shows `Light Min On <n>: Control4's 1 % is the fan's
+      level <n>` (with `Debug Mode` On: it is an info line), and with the light on at a
+      level Control4 set, the light moves to its new fan level in one step
+      with no change on the Navigator.
+    - **Done:** open (the owner shipped 1.8 without it; the house runs 10).
+92. **Lit from the first moment.** With `Light Min On (%)` at the value of
+    step 91: from off, hold **Up**; then tap the light off and on from a
+    Navigator; then drag the slider to 1 %. Then set the light to 3 % in
+    the Modern Forms app.
+    - **Expect:** the hold and the Navigator's on are lit from their first
+      step, with no dark start; at 1 % the light glows; `Status` shows both
+      levels, as `light 1 % (fan 10)`. The app's 3 % (below Min On) shows in
+      Control4 as 1 % and `Status` `light 1 % (fan 3, below Min On)`; the
+      driver does not change the fan's level.
+    - **Done:** open.
+
+## O. The pause in the dark (#207)
+
+Written 2026-11-13 from [`ambient-pause-design.md`](ambient-pause-design.md)
+(section 5, and the decisions AP-D1 to AP-D11). A keypad's **Ambient Light
+Level (Source)** output, bound to the fan's **Ambient Light Level
+(Follower)** input, sends the keypad's reading (0 to 255) whenever it
+changes. While it reads below `Pause LED Animations Below` (0 to 255,
+default 10; 0 never pauses), the speed chase and the Breeze gusts send
+nothing; the steady LEDs still follow the fan, and a new run starts after
+10 seconds of light. Unbound, nothing changes. Set it to the keypad's
+profile's Dark Room value, with that profile's Status LED Min Brightness at
+0 (the house: Dark Room below 10, Min 0 since #198). The connection is
+measured, not documented (the contract's section 0). A release build is
+enough; no controller reboot. The brief names the binding and the Set.
+
+93. **Bind the keypad's ambient output.** In Connections, bind the house
+    keypad dimmer's **Ambient Light Level (Source)** to the fan item's
+    **Ambient Light Level (Follower)**; read the keypad's Sensing, its LED
+    curve and the fan's `Pause LED Animations Below`.
+    - **Expect:** both lists show the binding; the keypad's Sensing reads
+      "Source" and its LED curve is unchanged; `Pause LED Animations Below`
+      reads 10. Nothing on the keypad changes at the bind (the first report
+      after a bind is ignored, AP3).
+    - **Done:** the night of 2026-11-12, build 220 (#207): bound, Sensing
+      "Source", the curve unchanged, `Pause LED Animations Below` 10.
+94. **Dark pauses, light resumes.** With the chase running (section L), make
+    the room dark (the lights off, or a hand over the keypad's sensor) for a
+    minute, then light it (a lamp on) and watch for 20 seconds. With `Debug
+    Mode` On, the Windows session reads the fan's Lua tab and `Keypad Links`
+    throughout, then sets `Debug Mode` Off.
+    - **Expect:** once the keypad reports a reading below 10, `Keypad Links`
+      ends `; LED animations paused: the keypad is dark` and the chase stops
+      sending (the debug log says so); a speed picked meanwhile still lights
+      its button. About 10 seconds after the keypad reports light, the note
+      is back to `; LED settings shown` and a new chase starts. The keypad
+      sends only when its reading changes, so a steady room may send nothing
+      for minutes: record each reading the log shows and when.
+    - **Done:** open. On the night of 2026-11-12 `Keypad Links` did not show
+      the pause in the 3¾ minutes after the bind; whether the keypad sent
+      any reading is being read from the debug log (#207, `status.md`).
+95. **Unbind.** Disconnect the binding of step 93 (only on a test, never on
+    the house without the owner's word), read `Keypad Links` and the
+    keypad's Sensing, then bind it again.
+    - **Expect:** after the unbind the animations run as without the
+      feature (state unknown), `Keypad Links` drops the pause note, and the
+      keypad's Sensing reads "Independent" again; after the bind, as step 93.
     - **Done:** open.
 
 ## What to paste back

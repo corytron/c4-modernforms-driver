@@ -80,32 +80,37 @@ optional.
   features, no C modules, no `require` of anything that is not packaged in
   the driver. Only documented DriverWorks APIs; when a call's behaviour is
   uncertain, say in the PR what you verified on a controller and what you
-  assumed, naming the documentation file.
+  assumed, naming the documentation file. A departure is written down in
+  the feature's contract with what was measured on hardware, as the
+  Ambient Light Level connection of 1.9 is
+  (`docs/ambient-pause-design.md`).
 - **The fan's interface.** Only fields and commands with a source: a public
   open-source client of the interface (file and version) or a read-only
-  query of a fan (date, model, firmware). The design notes
+  query of a fan (date, model, firmware). The API research
+  (`docs/modernforms-api-research.md`) and the design notes
   (`docs/design.md`) mark each claim verified or assumed; never invent a
   field.
 - **Style.** Tabs for indentation, lines of at most 120 characters,
   `luacheck src tests tools` clean (the rules are in `.luacheckrc`,
-  including the list of DriverWorks entry points the driver defines).
+  including the list of DriverWorks entry points the drivers define).
 - **Tests.** `busted` specs in `tests/spec/*_spec.lua`, in the style of the
-  existing ones, run the driver against the fake DriverWorks runtime in
-  `tests/helpers/fake_c4.lua` (add a method there when the driver starts
-  using a new documented API, mirroring the real colon-call signature) and,
-  once the research has recorded them, the fan's answers with every
-  identifier replaced by a placeholder under `tests/fixtures/`. Every change
-  of behaviour comes with a spec; `busted tests` stays green.
+  existing ones, run the drivers against the fake DriverWorks runtime in
+  `tests/helpers/fake_c4.lua` (add a method there when a driver starts
+  using a new documented API, mirroring the real colon-call signature) and
+  against the fan's recorded answers and multicast DNS announcements under
+  `tests/fixtures/`, with every identifier replaced by a placeholder. Every
+  change of behaviour comes with a spec; `busted tests` stays green.
 - **One build for every package.** `tools/build.sh` builds one package per
-  `src/*/driver.xml` (one today, `modernforms_fan.c4z`), stages
-  `src/common/` into each as `common/` (release builds without the
-  development modules) and stamps every package with the same build number
-  (the commit count), so a change to a shared module is a change to every
-  package.
-- **Texts users read.** Property texts and the driver's results are part of
-  the contract: the manual (`src/modernforms_fan/www/documentation.html`)
-  quotes them. A change to one changes the manual too, and
-  `docs/status.md` records what now runs.
+  `src/*/driver.xml` (two today, `modernforms_fan.c4z` and
+  `modernforms_breeze_fan.c4z`), stages `src/common/` into each as
+  `common/` (release builds without the development modules) and stamps
+  every package with the same build number (the commit count), so a change
+  to a shared module is a change to every package.
+- **Texts users read.** Property texts and the drivers' results are part of
+  the contract: the fan driver's are in `src/modernforms_fan/fan/texts.lua`,
+  the Breeze fan's in its `driver.lua`, and the manuals (each driver's
+  `www/documentation.html`, its Documentation tab) quote them. A change to
+  one changes the manual too, and `docs/status.md` records what now runs.
 - **Automation needs a contract first.** Anything that acts on its own over
   the life of the system (finding a fan, following its address, syncing
   names or rooms, creating or removing devices, moving a house from the
@@ -118,8 +123,12 @@ optional.
   does, and any remedy for a vendor-side automation is offered, reversible
   and needs a click.
 - **Tooling.** Python under `tools/` is 3.12 or newer, standard library
-  only, `ruff` clean under `ruff.toml` (`ruff check tools` and `ruff format
-  --check tools`), with `unittest` tests under `tools/tests/`. Shell scripts
+  only (the one exception, `tools/make_icons.py`, needs Pillow, and its
+  test is skipped without it), `ruff` clean under `ruff.toml` (`ruff check
+  tools` and `ruff format --check tools`), with `unittest` tests under
+  `tools/tests/`. A new tool is written to use every core from the start,
+  with the same verdict and output as a serial run (`JOBS`, under
+  [Checks](#checks)). Shell scripts
   are bash with `set -euo pipefail` and `shellcheck -S style` clean. The
   Windows session's PowerShell under `tools/composer/` passes
   PSScriptAnalyzer at severity Error and stays ASCII only (Windows
@@ -149,17 +158,17 @@ PSScriptAnalyzer for the `powershell` check.
 
 | Check | What it runs | What it covers |
 | --- | --- | --- |
-| `lua-lint` | `luacheck src tests tools` (in parallel: `luacheck -j N` through `tools/luacheck_jobs.lua`) | the driver and the specs |
-| `lua-test` | `busted tests` (in parallel: `tools/busted_parallel.py tests`) | the specs, against the fake DriverWorks runtime |
-| `shell` | `shellcheck -S style tools/*.sh` | the shell scripts |
+| `lua-lint` | `luacheck src tests tools probes` (in parallel: `luacheck -j N` through `tools/luacheck_jobs.lua`) | the drivers, the specs, the tools' Lua and the probe |
+| `lua-test` | `busted tests` (in parallel: `tools/busted_parallel.py tests`, one process per spec file) | the specs, against the fake DriverWorks runtime |
+| `shell` | `shellcheck -S style tools/*.sh probes/*.sh` | the shell scripts |
 | `python-lint` | `ruff check --no-cache tools`, `ruff format --check --no-cache tools` | the Python tooling |
-| `python-test` | `python3 -B -m unittest discover -s tools/tests` (in parallel: `tools/unittest_parallel.py`) | the tooling's unit tests |
-| `xml` | an `xml.etree` parse | every `src/*/driver.xml` is well-formed |
+| `python-test` | `python3 -B -m unittest discover -s tools/tests` (in parallel: `tools/unittest_parallel.py`, one process per test class) | the tooling's unit tests |
+| `xml` | an `xml.etree` parse | every `src/*/driver.xml` and `probes/*/driver.xml` is well-formed |
 | `powershell` | `Invoke-ScriptAnalyzer -Path tools/composer -Recurse -Severity Error` in `pwsh` | `tools/composer/`; skipped without `pwsh` |
 | `workflows` | `actionlint`, `zizmor --min-severity medium .github/workflows` | `.github/workflows/` |
 | `secrets` | `gitleaks dir`, `gitleaks git` with `.gitleaks.toml` | the working tree, then the history: of every local branch and tag on your machine, of the commit under test in CI |
 | `house` | `python3 tools/deploy.py validate` | `deploy/house.yaml`, the house's desired state |
-| `changelog` | `python3 tools/changelog.py check` | `CHANGELOG.md`'s format |
+| `changelog` | `python3 tools/changelog.py check` | `CHANGELOG.md`'s format, and a codename and its meaning for every version (`.github/codenames.json`, `.github/codename-meanings.json`) |
 | `links` | `python3 tools/check_links.py` | every link in every Markdown file and Documentation tab resolves |
 
 The checks run at the same time, and the slow ones are parallel inside, so
@@ -189,12 +198,12 @@ and shellcheck-py in `tools/requirements-checks.txt`, which pip enforces
 - For anything bigger than a typo, an issue comes first; the pull request
   says `Closes #N`.
 - `tools/check.sh` passes (CI runs the same checks with `--strict`) and
-  `tools/build.sh` builds the package.
-- A change that changes what the driver does or what its documentation says
-  adds a line under `## Unreleased` in `CHANGELOG.md`, written for owners
-  and dealers, with the issue number.
-- The manual and `docs/status.md` are updated if behaviour or a text
-  changed.
+  `tools/build.sh` builds the packages.
+- A change that changes what the drivers do or what their documentation
+  says adds a line under `## Unreleased` in `CHANGELOG.md`, written for
+  owners and dealers, with the issue number.
+- The manuals (each driver's Documentation tab) and `docs/status.md` are
+  updated if behaviour or a text changed.
 - A new document: if visitors of the project page would find it useful, the
   README links it; a design note, contract or research note goes in
   `docs/README.md`.

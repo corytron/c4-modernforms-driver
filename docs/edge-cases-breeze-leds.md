@@ -1,5 +1,26 @@
 # Breeze on the keypad LEDs: lifecycle edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.4 (#137) by
+> [`breeze-leds-design.md`](breeze-leds-design.md), which wins where it and
+> this note differ (it says so itself). Still true: approach B, only speed
+> links with owned colours animate (Off, Toggle, Cycle and 311 never do),
+> order by speed number, off by default, nothing persisted, the timer
+> cancelled at `OnDriverDestroyed`. Changed: the properties are
+> `Breeze LED Animation` (`Off` / `Gusts`), `Breeze LED Bottom`
+> (`Lowest speed` / `Highest speed`), `Breeze LED Step (ms)` (60 to 400,
+> default 120) and `Breeze LED Night Brightness (%)`, not the
+> `Breeze LED Speed` and `Breeze LED Direction` of section 5; the
+> animation is gusts over dark buttons in white, ice, teal and sky, never
+> the wave of section 2 nor pure blue, which vanished at night (BL-D19 to
+> BL-D21). The house answered H1 (Low at the top, so `Highest speed`), H2
+> and H3 on 2026-11-09 (that contract's section 1a). At the owner's word the
+> contract also departs from BL54, BL61 and BL63: the gusts are halved between
+> sunset and sunrise at the project's location (BL-D28, BL-D29), and since
+> 1.9 (#207) both animations pause while the bound keypad reads dark, through
+> the keypad's Ambient Light Level (Source) **output**, not the input BL70
+> forbids ([`ambient-pause-design.md`](ambient-pause-design.md)). LF19's
+> active and inactive brightness does not exist (see that row).
+
 > **Research (2026-11-08) for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137)**,
 > read-only: nothing here was tried on the house. The owner asked that,
 > while the fan is in Breeze mode, the keypad buttons bound to the fan play
@@ -89,7 +110,7 @@ Keypad" (device 456), room "Example Room", fan item "Aviator 5".
 | LF16 | Commands, once released, are never removed; properties may come and go. Programming cannot call an action. | VERIFIED: ECC F2; ECB BE9, BE10 |
 | LF17 | The Breeze fan (`modernforms_breeze_fan.c4z`) has no Button Links. | VERIFIED: BFE BF24, BF62 |
 | LF18 | The house keypad's Control Inputs list an Ambient Light Level row beside its Button Link rows. Control4 added an ambient light source and follower for button backlights in OS 3.2.2 (release notes, as the Hue project read them); no SDK page documents its class, protocol or messages (a search of KP, API and FUND finds no "ambient"). | VERIFIED: house K19 (V1D 11.1); Hue `docs/motion-control4-research.md` section 3.2; the search, 2026-11-08 |
-| LF19 | The keypad dims its LEDs itself: a lit button shows its on colour at the active brightness, a dark one its off colour at the inactive brightness (which may be near zero), both set on the keypad in Composer and lowered by the ambient light where that is on. No API reads or writes them (LF4). Whether colours received over a link are dimmed exactly as the keypad's own colours, and how a dimmed low channel renders (vanishes, steps), is not documented. | The two levels: owner, 2026-11-08; the rest ASSUMED (H7) |
+| LF19 | The keypad dims its LEDs itself: a lit button shows its on colour at the active brightness, a dark one its off colour at the inactive brightness (which may be near zero), both set on the keypad in Composer and lowered by the ambient light where that is on. No API reads or writes them (LF4). Whether colours received over a link are dimmed exactly as the keypad's own colours, and how a dimmed low channel renders (vanishes, steps), is not documented. | The two levels: owner, 2026-11-08; the rest ASSUMED (H7). **Since 2026-11-12 (#198):** the Composer read found no active and inactive levels, only one status LED curve over the ambient reading; a button looks dark because its off colour is dark ([`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md) section 1.4) |
 
 ## 1. Why not Composer programming (approach A)
 

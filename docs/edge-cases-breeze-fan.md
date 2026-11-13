@@ -1,5 +1,18 @@
 # Breeze as a fan device: lifecycle edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.3 (#121) by
+> [`breeze-design.md`](breeze-design.md) section 11 (BF-D1 to BF-D15), on
+> section 9's two-device model and recommendation 1: the Breeze fan is a
+> new package, `modernforms_breeze_fan.c4z` ("Modern Forms Breeze Fan"), so
+> the stale-device check of section 2 (BF8 to BF10) was never built, and
+> the 1.2 switch's package left the release. The action Add Breeze Switch
+> became **Add Breeze Fan**; the sharper line for an old switch (BF11) is
+> L41, not a new L37. A cycle step travels as its own message,
+> `MF_BREEZE_CYCLE {STEP}`, not as a `STEP` in `MF_BREEZE_SET` (BF30,
+> recommendation 3). On the house the old switch was deleted, and the
+> Breeze fan already showed right after the fan in the room's Navigator
+> list ([`status.md`](status.md)).
+
 > **Research (2026-11-07) for [issue #121](https://github.com/corytron/c4-modernforms-driver/issues/121)**,
 > read-only: nothing here was tried on the house. Release 1.2 (build 115)
 > gave the fan's Breeze a companion device, `modernforms_breeze.c4z`, with

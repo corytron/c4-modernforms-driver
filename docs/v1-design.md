@@ -1,5 +1,28 @@
 # v1 contract: the Modern Forms Fan driver
 
+> **Status (2026-11-13, #213).** The contract 1.0 was built from, kept as
+> written, with dated notes where a later release changed it. Still true:
+> one driver with a fan proxy (six speeds, Level 1 to Level 6) and a
+> `light_v2` proxy, Gen 1 to 3 fans, minimum OS 3.3.0, the transport, the
+> state model, the report rules and the driver's own Button Links. Changed
+> since: 1.1 the Fan Cycle link stops at 6 (#77, V11) and the driver's own
+> icons (#78, V24); 1.2 the driver finds fans by itself, Find Fans gone
+> (#102, V30), and Breeze in Control4 (#111, V31); 1.3 fan mode or Breeze
+> mode and the Breeze fan (#121, V32); 1.4 the Breeze animation on the keypad
+> LEDs ([`breeze-leds-design.md`](breeze-leds-design.md), #137); 1.5 the
+> light fades and `click_rates` True ([`light-fades-design.md`](light-fades-design.md),
+> #141; V14, V19, §4.7); 1.6 the speed chase
+> ([`speed-leds-design.md`](speed-leds-design.md), #159); 1.7 the keypad LED
+> rows shown only while a speed link is bound
+> ([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md),
+> #178); 1.8 `Light Min On (%)` ([`min-on-design.md`](min-on-design.md),
+> #195); 1.9 connection 500 and `Pause LED Animations Below`
+> ([`ambient-pause-design.md`](ambient-pause-design.md), #207). So the lists
+> of §2.5 (properties), §7.2 (Last Action), §9.1 (modules) and §12 (dev
+> commands) are longer today: `driver.xml`, `fan/texts.lua` and
+> [`dev-loop.md`](dev-loop.md) hold the current ones, and
+> [`status.md`](status.md) says what runs on the house.
+
 Status: contract, 2026-10-27 (#12). Written before any driver code, from
 the owner's decisions of 2026-10-27
 ([#6](https://github.com/corytron/c4-modernforms-driver/issues/6): every
@@ -76,7 +99,7 @@ properties and the keypad) later the same day.
 | V13 | **Fan offline** (power cut at the wall, Wi-Fi gone, a stuck module): keep the last state marked not current, the `Online` variable 0, **Fan Offline** once; when it answers again, report what the fan says, **Fan Online** once, and re-send nothing. A command while offline is tried once and dropped. | #6 decision 10; ECM P1–P3, P8, Q1, Q2; ECC R7, R8, U3; LV2 `35/_15-ONLINECHANGED.md` | VERIFIED-doc for the light's `ONLINE_CHANGED`; the fan proxy has no online notion (FPR §1.4). |
 | V14 | **The light turns on at Default On Brightness** (top tap, Toggle from off, `ON`, a Navigator's on). No fades: every target is one level sent at once; a hold steps the level at most every 500 ms. "On at a new level" is the level first, then `lightOn`, never one body. **Superseded by [`light-fades-design.md`](light-fades-design.md) (#141, 2026-11-09): the light now fades by stepping its level (LF-D1 to LF-D8, LF-D19); "on at a new level" and the turn-on at Default On Brightness stand.** | #6 decision 11; LSR §1.2–§1.6, Q1; MFR §2.3, §9; ECM S3, S4; M0 (the level is kept while off) | VERIFIED: AIO's level-then-on order (MFR §2.3); M0. ASSUMED (K12): a level sent while off does not switch the light on. |
 | V15 | **WAC's API License Agreement is not entered.** Every field the driver reads or writes is verified by `aiomodernforms` / Home Assistant code (as MFR cites it) or by M0; WAC's documents are at most corroboration and nothing of them is copied. | #6 decision 12; MFR "Licensing and provenance" | — |
-| V16 | **Migration**: a house moves from the stock driver by hand, the new device beside the stock one until the stock device is deleted (the manual's chapter 11, §14); `<replaces>` is never declared. **The Migration Report was removed in #45 (2026-11-04)**, with the **Migration** and **Stock Device** properties and the module `fan/migration.lua`: the first builds carried them for the house's one cutover, which is done, and a shipped driver gathers no one-off facts about one house (the owner's rule, #45). [`migration-design.md`](migration-design.md) remains the record of the house's cutover. The report's stored verdict is deleted at late init (§8). | #6 decision 13; #45; ECC §2.1, D24; XML `15_common_xml/_33.5-replaces.md` | VERIFIED-doc: `<replaces>` deletes the named driver's devices without warning. |
+| V16 | **Migration**: a house moves from the stock driver by hand, the new device beside the stock one until the stock device is deleted (the manual's "Moving from the stock WAC driver", §14); `<replaces>` is never declared. **The Migration Report was removed in #45 (2026-11-04)**, with the **Migration** and **Stock Device** properties and the module `fan/migration.lua`: the first builds carried them for the house's one cutover, which is done, and a shipped driver gathers no one-off facts about one house (the owner's rule, #45). [`migration-design.md`](migration-design.md) remains the record of the house's cutover. The report's stored verdict is deleted at late init (§8). | #6 decision 13; #45; ECC §2.1, D24; XML `15_common_xml/_33.5-replaces.md` | VERIFIED-doc: `<replaces>` deletes the named driver's devices without warning. |
 | V17 | **1.0 codename "Arrakis"** (in `.github/codenames.json`); every 1.0 build and beta keeps it. | #6 decision 14 | — |
 | V18 | **Direction**: `can_reverse` True and `SET_DIRECTION`/`TOGGLE_DIRECTION` written as `fanDirection`, **if** K11 shows the house fan stays on Wi-Fi after a direction write; otherwise `can_reverse` False and the direction is shown only. Settled before the first install (a static capability). | MFR §8 (a field report of a model dropping off Wi-Fi on every direction write), §9; ECM S5; FAN `43_fan_capabilities/_1-canreverse.md`; K1, K3 (the stock driver declares `can_reverse` True and offers Winter Mode and Summer Mode actions) | M1?: K11, still before the first install: the stock's actions show WAC writes the direction, not that nobody's fan dropped off Wi-Fi doing it. |
 | V19 | **Light capabilities**: as the Hue Light, minus colour, with `click_rates` False (taps are immediate, as V14 needs) and `reduced_als_support` True (the light may join Advanced Lighting Scenes; a static choice that is free to keep and costs a reboot to add later). The stock driver differs: `click_rates` True (250 to 1000 ms; the house's light shows 0.25 s up, 0.75 s down) and `has_leds` False (K1, K2); so the light's settings page loses its click rates and gains LED colours. Default On Brightness keeps the house's 100 (K2). **Superseded by [`light-fades-design.md`](light-fades-design.md) (#141): `click_rates` is True from release 1.5 (LF-D3), with `click_rate_min` 0 and `click_rate_max` 86 400 000; the capability costs one controller reboot; `reduced_als_support` stands.** | LSR §1.2; LV2 `5_light_v2_capabilities/_11-CLICKRATES.md`, `22-REDUCEDALSSUPPORT.md`; LV2 `45_Light_V2_advanced_lighting_scene/_1.3-REDUCEDALSSUPPORT.md`; K1, K2 | VERIFIED-house: the Hue Light's set; the stock's `reduced_als_support` True (K1). |
@@ -117,6 +140,7 @@ F2, F26).
   naming the reason (the brightness target API) and that the tag is
   documented only as an auto-update gate.
 - No `<small>`/`<large>` and no image attributes on the proxies (V24).
+  Since 1.1 (#78) both are declared, for the driver's own icons (V24).
 - No `<replaces>`, no `<auto_update>`, no `SINGLETON_ID` (ECC D16, D23, D24).
 
 ### 2.2 Proxies
@@ -127,6 +151,9 @@ F2, F26).
 	<proxy proxybindingid="5002" name="Modern Forms Fan Light">light_v2</proxy>
 </proxies>
 ```
+
+Since 1.1 (#78) each proxy also carries `image_source="c4z"`,
+`small_image` and `large_image` (V24).
 
 The `name` attributes are the default device names (FUND
 `8_proxies_and_proxy_types/_2-MODIFYINGTHEDEFAULTNAMINGOFPROXIES.md`). The
@@ -174,7 +201,7 @@ the stock driver's block and the Hue Light's `driver.xml` (K1; HUE).
 | `proxy_fan_speed_connections` | not declared (V2) | fan | — | FAN `_4.5-proxyfanspeedconnections.md` |
 | `dimmer`, `set_level`, `ramp_level`, `on_off` | True | light | `dimmer`, `set_level` dynamic; the others deprecated | LV2 `_5-DIMMER.md`, `_2-SETLEVEL.md` |
 | `min_max` | False | light | deprecated | HUE `src/hue_light/driver.xml` |
-| `click_rates` | False | light | static (V19) | LV2 `_11-CLICKRATES.md` |
+| `click_rates` | False (True since 1.5, #141, V19) | light | static (V19) | LV2 `_11-CLICKRATES.md` |
 | `hold_rates` | True | light | static | LV2 `_14-HOLDRATES.md` |
 | `hold_rate_min` | 1000 | light | static | LV2 `_15-HOLDRATEMIN.md`; HUE |
 | `supports_default_on` | True | light | static, deprecated; the path verified on the house (HUE #59) | LV2 `_32-SUPPORTSDEFAULTON.md` |
@@ -189,7 +216,7 @@ the stock driver's block and the Hue Light's `driver.xml` (K1; HUE).
 | `hide_proxy_properties`, `hide_proxy_events` | False | light | static on 3.x | LV2 `_38-HIDEPROXYPROPERTIES.md`; HUE #59 |
 | `buttons_are_virtual` | True | light | deprecated | HUE |
 
-Not declared: `click_rate_min`/`_max`, `supports_color_stop`, any
+Not declared: `click_rate_min`/`_max` (declared since 1.5, V19), `supports_color_stop`, any
 `brightness_on_mode_*` (never together with `supports_default_on`, LV2
 `_32`), the nesting capabilities, `multi_click`, `disable_flash`.
 
@@ -207,7 +234,8 @@ Not declared: `click_rate_min`/`_max`, `supports_color_stop`, any
 | 307 | Fan Toggle Button Link | 1 | False | `BUTTON_LINK` | True | |
 | 308 | Fan Cycle Button Link | 1 | False | `BUTTON_LINK` | True | |
 | 311 | Fan Breeze Button Link | 1 | False | `BUTTON_LINK` | True | since #111 (V31): handled as 307, its LED lit while Breeze blows (§5.1) |
-| 400 | Breeze Switch | 1 | False | `MODERNFORMS_BREEZE` | True | since #111 (V31): a provider control binding, not a Button Link; a Breeze switch's consumer binding 1 is bound to it, by Add Breeze Switch or by hand (§9.15); since #121 (V32) the Breeze fan's consumer binding 1, by Add Breeze Fan or by hand, with the name and class unchanged (connections are never redefined) |
+| 400 | Breeze Switch | 1 | False | `MODERNFORMS_BREEZE` | False | since #111 (V31): a provider control binding, not a Button Link; a Breeze switch's consumer binding 1 is bound to it, by Add Breeze Switch or by hand (§9.15); since #121 (V32) the Breeze fan's consumer binding 1, by Add Breeze Fan or by hand, with the name and class unchanged (connections are never redefined) |
+| 500 | Ambient Light Level (Follower) | 1 | True | `AMBIENT_LEVEL` | False | since 1.9 (#207): a keypad's Ambient Light Level (Source) binds here ([`ambient-pause-design.md`](ambient-pause-design.md) AP-D1) |
 
 Each link is the Hue Light's pattern (`facing` 6, `audiosource` and
 `videosource` False; HUE `src/hue_light/driver.xml`): a provider control
@@ -268,9 +296,21 @@ Address` edit reaches the driver only through the row's Set button (ECC
 F29). Every property handler also runs in the late-init replay, so the
 settings of rows 6, 13 and 15–28 apply from the start.
 
+Rows added since, in `driver.xml`'s order: `Light Min On (%)` after `Poll
+Interval (s)` (1.8, #195); after `Speed LED Off Color`, `Breeze LED
+Animation`, `Breeze LED Bottom`, `Breeze LED Step (ms)`, `Breeze LED Night
+Brightness (%)` (1.4, #137), `Speed LED Animation`, `Speed LED Rest (s)`
+(1.6, #159) and `Pause LED Animations Below` (1.9, #207). Since 1.7 (#178)
+the keypad LED rows (15 to 28 here and the seven LED rows after them, 21 in
+all) show only while a button is bound to a fan speed link
+([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)).
+
 After every install the Windows session reads back `Driver Version`,
 `Debug Mode` (Off), `Poll Interval (s)` and `Status` (starting "Online:"):
 the house keys of [`scaffold-design.md`](scaffold-design.md) section 5.
+(The brief `tools/deploy.py start` writes asks for every device's `Driver
+Version` and `Debug Mode`, any dialog and any `[ERROR]` line; the
+coordinator adds other rows to a brief when a release needs them.)
 
 ### 2.6 Actions
 
@@ -486,7 +526,7 @@ and clamped; `fanSpeed` 0 with `fanOn` false means "off, speed unknown"; a
 | `IDENTITY_POLL_S` | 60 while foreign, Gen 4 or not a fan | ECM N3 |
 | `REBOOT_WINDOW_S`, `REBOOT_POLL_S` | 120, 10 | ECM P6 |
 | `INFO_REFRESH_S` | 21600 | ECM F1 (a firmware update between polls) |
-| `RAMP_STEP_MS` | 500 | ECM S4 |
+| `RAMP_STEP_MS` | 500 (gone since 1.5, #141: holds run on the fade engine, [`light-fades-design.md`](light-fades-design.md) LF-D1) | ECM S4 |
 
 The poll is one one-shot timer, re-armed after every answer or failure, so
 polls never overlap (Director skips a busy repeating timer, API
@@ -813,7 +853,9 @@ without Breeze is unchanged.
   every 500 ms wants the linear estimate (one request in flight, latest
   wins); the release freezes it, wants the estimate, and `idle` closes it.
   Hold rates are device.lua's `hold_up`/`hold_down` (default 5000 ms for the
-  whole range, VERIFIED-doc LV2 `10/_10-SET_HOLD_RATE_UP.md`).
+  whole range, VERIFIED-doc LV2 `10/_10-SET_HOLD_RATE_UP.md`). Since 1.5
+  (#141) a hold is a fade at the hold rates, not a 500 ms step
+  ([`light-fades-design.md`](light-fades-design.md) LF-D19).
 - **Advanced Lighting Scenes** (`reduced_als_support`, LV2
   `45_Light_V2_advanced_lighting_scene/_1.3-REDUCEDALSSUPPORT.md`): targets
   as above; `RAMP_SCENE_UP`/`RAMP_SCENE_DOWN {SCENE_ID}` start a ramp as a
@@ -919,6 +961,10 @@ unbind takes a keypad off a link only with its last known button; a keypad
 known only from the table (one button, which unknown) stays on an unbind and
 the link is read again 3 s later (`links.REREAD_MS`), the table believed
 then; a keypad an event bound stays while the table lags, until its unbind.
+Since 1.7 (#185) that re-read counts Director's nil as unknown once and as
+nothing bound the second time, so an unbound keypad leaves `Keypad Links`
+([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)
+KL-D11).
 Names come from `C4:GetDeviceDisplayName` (API `32/_6`). Binding a link
 turns the button's LED Behavior to Follow Connection by itself and
 disconnecting does not turn it back (VERIFIED-house, HUE
@@ -1049,7 +1095,8 @@ spec asserts them verbatim.
 
 Priority when several apply: S3/S1/S2, then S11–S13, then S10, then S7–S9,
 then S14, then S4–S6. The Status row is written only when its text changes.
-The longest, S9 with a 15-character address and a date, stays under 75.
+The longest, S9 with a 15-character address and a date, stays at or under
+75 (exactly 75 as built, §9.12).
 
 ### 7.2 Last Action
 
@@ -1111,6 +1158,14 @@ the switch as the fan item's name plus " Breeze", cut to fit. Since #121
 names the bound 1.2 switch the same way. A Breeze
 command that succeeds writes nothing, as every proxy command.
 
+L42 to L45 came with later contracts: L42 `Breeze LEDs need Speed LED
+Colors set to Per speed` ([`breeze-leds-design.md`](breeze-leds-design.md)
+section 2, 1.4), L43 `LED chase needs Speed LED Colors set to Per speed`
+([`speed-leds-design.md`](speed-leds-design.md) SL-D9, 1.6), L44 and L45, the
+keypad LED rows shown or hidden by a binding
+([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)
+KL-D7, 1.7).
+
 L32 and the new L21 are V30's ([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions),
 section 5; texts key `picked_wait`). A pick that takes a fan writes Use
 Selected Fan's L2, L3 or L4 and their rename suffix; L5 and L21 after a
@@ -1146,7 +1201,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | Last Seen | `2026-10-27 18:02:10, answered in 0.31 s`, written at most every 10 s |
 | Last Change By | `<who> at 14:05`, written on each change Control4 did not make. `<who>` from `userData`: `ble` → `Remote or wall control`; `local_wifi` → `Modern Forms app or another local client`; `cloud` → `Modern Forms cloud (app away, voice assistant)`; `sleep_timer` → `The fan's sleep timer`; `away_mode` → `The fan's away mode`; `schedule` → `A schedule in the Modern Forms app`; anything else, `none` or absent (Gen 1/2) → `Outside Control4 (source not reported)` (VERIFIED values: AIO `const.py`, MFR §2.2; what an RF remote reports is K16) |
 | Fan Automations | `None`, or `Active: ` and the items joined by `, `: `schedule`, `away mode`, `adaptive learning`, `fan timer 25 min`, `light timer 10 min` (Gen 3, minutes rounded up), `fan timer set`, `light timer set` (Gen 1/2). Written when the text changes. `schedule` counts when the field is a non-empty string (ASSUMED: empty means none; one read-only VM read of the house fan's value, while the app shows no schedule, settles it, §16) |
-| Keypad Links | items: `5 of 12 links bound` (since #111 `5 of 13 links bound`, V31), then one per bound keypad, `Fan Speed 3: Example Keypad (456)` or `Fan Breeze: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id) |
+| Keypad Links | items: `5 of 12 links bound` (since #111 `5 of 13 links bound`, V31), then one per bound keypad, `Fan Speed 3: Example Keypad (456)` or `Fan Breeze: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id). Since 1.7 (#178) the first item ends `; LED settings shown` or `; LED settings hidden: bind a button to a Fan Speed link`, and since 1.9 (#207) `; LED animations paused: the keypad is dark` while the animations pause |
 | Found Fans | since #102 (V30): the first item, and the value while no pick waits, is a summary of the searches (`Looking for Modern Forms fans on the network...`, `2 fans found: pick one and click Set to use it`, `This device's fan answered; no other fan found` and the others of the contract's section 3.1); then the items `MF_Fan_005302 at 10.0.2.152`, the pinned fan first with ` (this device: Aviator 5)`, or ` (this device's fan)` without a product name; at most 16 item rows, the 16th `... and 3 more: enter the address in Fan Address` when there are more. Until #102: the items only, with ` (this device's fan)`, at most 16, filled by Find Fans |
 | Speed N Link Also Lit At | the dealer's choice among `No other speed`, `Speed 1` … `Speed 6`; no driver text |
 | Speed LED Colors (V27) | the dealer's choice among `Keypad's own`, `Per speed`; no driver text |
@@ -1162,7 +1217,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | `mf_breeze` | since #111 (V31): whether Breeze blew, the value of the `Breeze` variable | when the variable changes | `OnDriverInit`, to seed the variable, so a restart alone fires nothing and the first contact fires an event only on a difference (ECB BC22) |
 | `mf_preset_speed` | 1–6 | `DESIGNATE_PRESET` | late init |
 | `mf_names` | `{ fan = "Aviator 5", light = "Aviator 5 Light", at = <epoch s> }`: the names the driver last wrote and Director confirmed (V28); an item is written only after the read-back matches, so one of the two may be missing | the rename job, per item | the next rename job's guard |
-| device.lua's `preset_level`, `hold_rate_up`, `hold_rate_down`, `button_<n>_<on/off>_color` | as device.lua | as device.lua | as device.lua |
+| device.lua's `preset_level`, `hold_rate_up`, `hold_rate_down`, `button_<n>_<on/off>_color` (since 1.5, #141, also `click_rate_up`, `click_rate_down` and `brightness_rate_default`) | as device.lua | as device.lua | as device.lua |
 | `mf_migration` | the Migration Report's verdict, kept by the builds before #45 (V16) | never since #45 | never: deleted at late init (`C4:PersistDeleteValue`, API `26.5_persistence/_2-PersistDeleteValue.md`) |
 
 Read with `(C4:PersistGetValue(key))` (a never-written key returns no value
@@ -1210,6 +1265,13 @@ src/modernforms_breeze_fan/   since #121 (V32): the companion Breeze fan, a fan 
 src/modernforms_breeze/   the companion Breeze switch (V31, #111) until #121, which removed it (its package stays on the v1.2 release)
 src/common/           dispatch.lua (per-binding routing), device.lua (proxy binding option), log.lua, devloop.lua
 ```
+
+Added since, each in its contract: `fan/breezeleds.lua` and `fan/sun.lua`
+(1.4, [`breeze-leds-design.md`](breeze-leds-design.md)),
+`fan/speedleds.lua` and `fan/ledhub.lua` (1.6,
+[`speed-leds-design.md`](speed-leds-design.md)), `fan/ledrows.lua` (1.7,
+[`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)) and
+`fan/ambient.lua` (1.9, [`ambient-pause-design.md`](ambient-pause-design.md)).
 
 `require("fan.x")` resolves inside the package and in the specs (`.busted`
 puts `src/modernforms_fan/` on the path; `tests/helpers/fake_c4.lua`
@@ -1976,6 +2038,14 @@ keeps its time while the Hue drivers hold their transfers (ECC H13). Parked:
 links and bindings across a reboot (FPR T9), what the proxies hold after a
 restart (ECC H12), a backup restore (§8).
 
+The fan-side checks ran from the VM on 2026-10-27 (`tools/mf_probe.py`,
+[`fan-probe.md`](fan-probe.md), #17): **K11 passed** (reverse and forward
+taken, the fan kept answering: `can_reverse` True, V18), **K12 passed** (a
+level sent while off keeps the light off and is kept, so V14's two steps
+hold), **K13 passed** (30 of 30 commands answered, median 149 and 197 ms,
+worst 1.4 s), and K15's 24 steps were all answered, its look left to the
+owner.
+
 ### 11.1 What the probe has shown so far (#17)
 
 The Windows session installed `mf_probe.c4z` in the test room on 2026-10-27
@@ -1987,7 +2057,7 @@ and Medium buttons, one after the other, with the restore check after each:
 K9, K19, K7, K4's presses, K5's press and LED, K6 and K14. Neither round
 saved the project. Its logs and screenshots stay under `build/m1/`
 (untracked: they hold the house's identifiers). The probe is still
-installed. The fan-side checks K11 to K13 and K15 are on
+installed (it and its test room were deleted later on 2026-11-04, #17). The fan-side checks K11 to K13 and K15 are on
 [#17](https://github.com/corytron/c4-modernforms-driver/issues/17).
 
 | Check | What was seen | What it settles |
@@ -2007,7 +2077,7 @@ installed. The fan-side checks K11 to K13 and K15 are on
 | K6 | Medium bound to 300, the owner at the keypad. A tap gave `DO_PUSH` and `DO_CLICK` 0.25 s later; a hold of about 3 s gave `DO_PUSH` and `DO_RELEASE` 3.0 s later and no click; a double tap gave two push and click pairs (0.10 s and 0.22 s apart) and no message of its own. LED, as the owner saw it: `MATCH_LED_STATE` true lit it, false darkened it; `BUTTON_COLORS` `ff0000` with true showed red; while lit, `BUTTON_COLORS` `0000ff` with true showed blue. Unbound and bound again: `REQUEST_BUTTON_COLORS` came 3 ms after the bind and the LED showed dark, since the probe sent nothing back. With Echo LED On Press on, the button lit at the push and went dark at the release. Binding set Medium's LED Behavior to Follow Connection by itself (its colours stayed); disconnecting did not set it back. The last step (`MATCH_LED_STATE` false after the colours) was not asked. | V27: a keypad takes colours over the link and re-applies them while lit, so only the owner's yes or no in #14 is missing; V12: a double tap is two pushes (confirmed on the link; whether the keypad's own Double Tap event fires on a linked button was not recorded); §5.1: `REQUEST_BUTTON_COLORS` must be answered |
 | K14 | Medium, bound to 300 on Follow Connection, with a Programmed line ("Use the on color for Medium") under the probe fan's `Fan Speed Changed`: with the link's LED set false, a change of the probe fan's speed lit Medium. The line was deleted afterwards. | A Programmed LED command still acts on a Follow Connection button: binding does not switch the workaround's LED lines off (the migration's H6: moved buttons may be lit or repainted by the old lines until Phase 5) |
 | R-K | Both borrowed buttons restored and read back: the probe's links disconnected, LED Behavior Programmed again, Button Behavior and colours as in M0, every event's Copy All equal to the copy saved before, the next real press as before. Beyond R-K, all seven buttons' settings and scripts, the stock Fan's `Fan Speed Changed` script and the settle timer's expiry equal the 2026-10-27 copies. | The way back of the migration works as written |
-| Not run | K8's three app taps (the owner's phone). The probe and its test room are still installed. | The owner |
+| Not run | K8's three app taps (the owner's phone). The probe and its test room are still installed (deleted later on 2026-11-04, #17; the taps never ran). | The owner |
 
 ## 12. Dev-loop actions and `tools/regress.sh`
 
@@ -2033,6 +2103,11 @@ name; `notify.*` count the notifications sent since late init; `follow` is
 the follower's `state()` of §9.14, V29: `off` with `Follow Address Changes`
 Off, `pending` while a typed `Fan Address` has not answered, `armed:N` with
 window N due or under way, else `idle`).
+
+Since then the list has grown: `Dev Search` (#102), `Dev Link` and `Dev
+Vars` (#137), `Dev Light Steps` (#141); `Dev Press` also takes 311 (#111),
+and `Dev State` lists 311 among the `leds` and has `search=` before
+`ms=`. [`dev-loop.md`](dev-loop.md#development-commands) has today's list.
 
 `tools/regress.sh --fan` (opt-in, since it moves the fan; the generic checks
 stay as they are and run first), each step waiting at most 5 s for `busy=-`,
@@ -2125,7 +2200,9 @@ text as section 7 has it:
    another speed (worked example: a button on Fan Speed 2 whose double tap
    sets Level 1: `Speed 2 Link Also Lit At` set to `Speed 1`).
 6. The light: Default On Brightness, no fades (a target is reached at once),
-   holds stepping twice a second, Advanced Lighting Scenes, the settings page.
+   holds stepping twice a second, Advanced Lighting Scenes, the settings page
+   (since 1.5 fades, taps and holds as [`light-fades-design.md`](light-fades-design.md)
+   says; since 1.8 `Light Min On (%)`, [`min-on-design.md`](min-on-design.md)).
 7. When the fan is offline: what Control4 shows, what happens when power
    returns (nothing is re-sent).
 8. A new address, a replaced or reset fan: the pinned fan followed to a new
@@ -2166,7 +2243,7 @@ text as section 7 has it:
 - `proxy_fan_speed_connections`; Cycle Down and Direction links (309, 310
   reserved); a tap/double-tap/colour machine per link; more than one extra
   lit speed per link; fan LED colours from the driver, unless K6 and the
-  owner bring V27 in.
+  owner bring V27 in (they did: V27 shipped from beta.2, #31).
 - A subnet scan, ever; following to an address nobody announced, to a
   public address, or without the read that shows the pinned fan; adopting
   or learning another fan by itself, ever (V29 follows only the pinned fan:
@@ -2186,7 +2263,9 @@ text as section 7 has it:
   an Extras page on the light, a UI Button companion, History entries, ECB
   3.3); UV-C; setting or clearing schedules and sleep timers; turning away
   mode or adaptive learning on; any destructive command (ECM §9).
-- Fades and ramp rates on targets (the light has none); colour temperature.
+- Fades and ramp rates on targets (the light has none; **in since 1.5**,
+  simulated by the driver, [`light-fades-design.md`](light-fades-design.md));
+  colour temperature.
 - A "Changed Outside Control4" event (id 3 reserved); programming commands of
   the driver's own (since #111 the four Breeze commands, V31, and no
   others); History entries (ECC U11); detecting a second device on
@@ -2215,10 +2294,10 @@ What M1 may still change:
 | --- | --- | --- |
 | `proxybindingid` on the links | none (as the stock's 12, K1) | K4: **settled**, none (§11.1) |
 | The light as a child with its settings page; `primary` agreeing with the order | as §2.2 | K4: **settled**, as §2.2 (§11.1) |
-| `can_reverse` | True | K11 |
-| Up and Down on Light Top and Bottom | yes, if they have Button Links | K19: Up has one (§11.1), Down open |
+| `can_reverse` | True | K11: **passed** 2026-10-27, True (§11) |
+| Up and Down on Light Top and Bottom | yes, if they have Button Links | K19: Up has one (§11.1), Down open; **settled** 2026-11-04, both have one (§11.1) |
 | Find Fans, `Found Fans`, `discovery.lua` | in v1 | K10: **passed**, §11.1; the action removed by #102, the list filled by itself (V30) |
-| `GAP_MS`, `RAMP_STEP_MS`, `SETTLE_MS` | 250, 500, 2500 ms | K13, K16 (Lua only) |
+| `GAP_MS`, `RAMP_STEP_MS`, `SETTLE_MS` | 250, 500, 2500 ms | K13 (passed 2026-10-27, §11), K16 (Lua only); `RAMP_STEP_MS` gone since 1.5 (#141) |
 | `Fan Automations`' schedule test | a non-empty string | one read-only VM read of `schedule` while the app shows no schedule |
 | `Speed LED Colors` and the per-speed colour rows (V27) | in the build since beta.2 (#31), default `Keypad's own` | K6 passed (§11.1); the owner asked for today's keypad to be matched |
 | device.lua's bottom light link | lit through inverted colours | K6: keypads take `BUTTON_COLORS`, so this stands |

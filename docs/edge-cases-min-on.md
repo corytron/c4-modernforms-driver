@@ -1,5 +1,17 @@
 # Min On for the fan's light: the edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.8 (#195) by
+> [`min-on-design.md`](min-on-design.md) (MO-D1 to MO-D15): M is the fan
+> item's property `Light Min On (%)`, 0 to 99, default 0 (a driver
+> property, not the proxy's Range Levels), mapped in `fan/light.lua` with
+> this note's formulas, RO1's memory and the eight checks of section 1.4;
+> MQ3 was answered with CM2, and MQ5 with the Status row of RP1. LC1's hint
+> is one log line, not a Last Action line, and LC2's is left to the manual
+> (MO-D13). The owner had it shipped without running MQ1 to MQ4, so the
+> house's first lit level was not measured; the house fan's
+> `Light Min On (%)` is 10 ([`status.md`](status.md)). The code line
+> numbers are those of 2026-11-12.
+
 > **Research (2026-11-12) for [issue #195](https://github.com/corytron/c4-modernforms-driver/issues/195)**,
 > desk research only: nothing was sent to the fan, the controller, the dev
 > server or any other device while writing it. The planned feature gives the

@@ -1,5 +1,11 @@
 # Changelog
 
+> **Status (2026-11-13, #213).** In use and current: `tools/changelog.py`,
+> the templates and the Release workflow follow it, codename meanings
+> included (#192). `CHANGELOG.md` lists 1.0 to 1.9; the lines below that
+> describe the empty start state ("as it stands today", the empty codenames
+> file) record 2026-10-27.
+
 The contract for the project's one changelog: [`CHANGELOG.md`](../CHANGELOG.md)
 lists every release, the Release workflow
 ([`release.yml`](../.github/workflows/release.yml)) writes each release's

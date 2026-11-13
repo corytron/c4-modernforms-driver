@@ -1,5 +1,22 @@
 # Light side and driver structure: research (#2)
 
+> **Status (2026-11-13, #213).** The v1 contract
+> [`v1-design.md`](v1-design.md) took option (a), the minimum OS 3.3.0
+> with a run-time check (V1, V3), Default On Brightness (Q1, V14), the
+> light item kept and shown offline on a fan without a kit (Q4), and
+> `click_rates` False for 1.0, so taps were immediate (V19). The tests ran
+> as the probe checks of its section 11: H1 to H3 as K1, K2 and K4 (the
+> stock driver's layout; `proxybindingid` buys no placement, so the links
+> carry none); H4 as K12; H6 as K13 (about four level requests a second);
+> H5 as K15, whose look the owner never recorded; H7 as K9: Composer
+> **refuses** to add a package whose minimum OS is above the controller's,
+> which settles section 3.2's open point. Since 1.5 (#141) the driver fades
+> the light itself, with `click_rates` True
+> ([`light-fades-design.md`](light-fades-design.md)), replacing the ramp of
+> section 1.5 and the 500 ms hold step; since 1.8 (#195)
+> `Light Min On (%)` remaps the low end
+> ([`min-on-design.md`](min-on-design.md)).
+
 Research for issue #2, 2026-10-27. It covers how the fan's integrated light
 becomes a Control4 light, how the driver is laid out (one driver or two), the
 minimum OS to declare, and the Lua sandbox facts the v1 contract needs. This
@@ -112,7 +129,7 @@ must do the same, and H3 shows how.
 | Arrives as | Parameters | What the driver does | Status |
 |---|---|---|---|
 | `SET_BRIGHTNESS_TARGET` | `LIGHT_BRIGHTNESS_TARGET`, `RATE` (ms) | Sends CHANGING at once, then runs the ramp of §1.5 (RATE 0 is one request). Sends CHANGED when the fan confirms, or after RATE + 1 s. | VERIFIED-doc `LV2 10/_1.5-SETBRIGHTNESSTARGET.md`; VERIFIED-house (a Navigator slider move arrives with RATE 0; HUE `docs/design.md` "Lights: verified on hardware") |
-| `ON`, `OFF`, `TOGGLE`, `SET_LEVEL` / `RAMP_TO_LEVEL` {`LEVEL`, `TIME`} | as listed | Same path. ON means 100 %; TOGGLE goes by the state shown, as on the Hue light. | VERIFIED-doc `LV2 10/_7-TOGGLE.md`; VERIFIED-house (these arrive through `SendToDevice` into the proxy) |
+| `ON`, `OFF`, `TOGGLE`, `SET_LEVEL` / `RAMP_TO_LEVEL` {`LEVEL`, `TIME`} | as listed | Same path. ON means 100 % (Q1 recommends Default On Brightness instead, and V14 chose it); TOGGLE goes by the state shown, as on the Hue light. | VERIFIED-doc `LV2 10/_7-TOGGLE.md`; VERIFIED-house (these arrive through `SendToDevice` into the proxy) |
 | `SET_BRIGHTNESS_STOP`, `STOP_SCENE_RAMP` | none / `SCENE_ID` | Freezes the ramp where it is, sends that level to the fan, then CHANGED. | VERIFIED-doc `LV2 10/_21.5`, `45/_1.3`; that `STOP_SCENE_RAMP` reaches a reduced-ALS driver is ASSUMED |
 | `RAMP_SCENE_UP`, `RAMP_SCENE_DOWN` | `SCENE_ID` | A ramp toward 100 % or 1 % at the hold rate. | VERIFIED-doc that reduced ALS requires them (`LV2 45/_1.3`, `45/_4.1`); that they are delivered is ASSUMED (the Hue light handles neither and never saw them) |
 | `BUTTON_ACTION` | `BUTTON_ID` 0 top, 1 bottom, 2 toggle; `ACTION` 1 press, 2 release as click, 0 release after hold | Echoes it back first, then feeds the press machine. | VERIFIED-doc `LV2 10/_1-BUTTONACTION.md`; VERIFIED-house (HUE `src/common/device.lua`) |
@@ -408,8 +425,8 @@ session says so.
 | # | Who | What | Settles |
 |---|---|---|---|
 | H1 | Windows session, read-only | In System Design, look at the stock fan device: how many items, their names, icons and order. Select each item and note which tabs it has (Properties, Actions, Documentation, Lua). Note whether the light item has the light_v2 settings page (Default On Brightness, click and hold rates, LED colours). Note whether the light item's menu offers a room change; read it, don't use it. | How Composer presents a two-proxy fan + light driver (option a) |
-| H2 | Windows session, read-only | In Connections, select each stock item and list its Control Inputs/Outputs: under which item the 13 Button Links appear, and how the lower "BUTTON_LINK Output Devices" list names them. | Where driver-declared links appear in a two-proxy driver, and whether `proxybindingid` matters |
-| H3 | Windows session, read-only | From the Windows VM's copy of the stock `.c4z` (a zip), read `driver.xml` and report facts only: the `<proxies>` (type, binding id, `primary`, `name`); whether one `<capabilities>` block mixes fan and light names; the 13 connections' ids, classes and any `proxybindingid`; `<minimum_os_version>`; and the `jit` attribute. Copy nothing into the repository; it is WAC's file. This is the same look as the fan research's T1 (`docs/fan-proxy-research.md` §8), so one read answers both. | How a working fan + light driver declares itself on this OS; whether its light really is light_v2 |
+| H2 | Windows session, read-only | In Connections, select each stock item and list its Control Inputs/Outputs: under which item the 12 Button Links appear, and how the lower "BUTTON_LINK Output Devices" list names them. | Where driver-declared links appear in a two-proxy driver, and whether `proxybindingid` matters |
+| H3 | Windows session, read-only | From the Windows VM's copy of the stock `.c4z` (a zip), read `driver.xml` and report facts only: the `<proxies>` (type, binding id, `primary`, `name`); whether one `<capabilities>` block mixes fan and light names; the 12 link connections' ids, classes and any `proxybindingid`; `<minimum_os_version>`; and the `jit` attribute. Copy nothing into the repository; it is WAC's file. This is the same look as the fan research's T1 (`docs/fan-proxy-research.md` §8), so one read answers both. | How a working fan + light driver declares itself on this OS; whether its light really is light_v2 |
 | H4 | VM (curl), within the API research's tests | Light only: on, off, levels 1, 50 and 100, and "on" without a level; record each reply body. | Whether "on" restores the previous level (Q1); whether a reply is the full state, i.e. the confirmation path |
 | H5 | Owner's eyes, 30 s | The VM steps the light from 1 % to 100 % in 12 requests over 3 s, then back down. Does it look like a dim or a staircase? | Whether the driver's ramp is acceptable; whether the fixture fades between steps |
 | H6 | VM | 20 level requests back to back, one in flight at a time: latency per request, errors or lost values, and the final state. | The request gap; `click_rates` True or False |

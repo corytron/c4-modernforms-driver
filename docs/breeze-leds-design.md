@@ -1,5 +1,18 @@
 # Breeze on the keypad LEDs: the contract (#137)
 
+> **Status (2026-11-13, #213).** Shipped in 1.4 "Sietch Tabr". Section 1a
+> (BL-D19 to BL-D30) replaced BL-D5, BL-D6, BL-D7, BL-D12 and BL-D14 after
+> the first hardware round; sections 4 and 6 still describe the first
+> build. What runs today is section 1 as section 1a changed it, plus: 1.6
+> added the speed chase as a second engine beside this one, with an arbiter
+> ([`speed-leds-design.md`](speed-leds-design.md), #159) and fixed the
+> preload flag of BL-D23 (#164); since 1.7 the four Breeze LED rows show
+> only while a button is bound to a speed link, the three Breeze-only ones
+> also only on a fan with Breeze
+> ([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md),
+> #178); since 1.9 the animation pauses while the keypad is dark
+> ([`ambient-pause-design.md`](ambient-pause-design.md), #207).
+
 The owner's request (2026-11-08) and decisions (2026-11-08 and 2026-11-09):
 while the fan is in Breeze mode, the keypad buttons bound to the fan's speed
 links play an animation in blues, teals and whites, rising from the bottom
@@ -113,6 +126,9 @@ sun.night(lat, lon, epoch) -> is_night, next_change_epoch | nil  -- nil next: po
 | `Breeze LED Bottom` | LIST | `Lowest speed`, `Highest speed` | `Lowest speed` |
 | `Breeze LED Step (ms)` | RANGED_INTEGER | 60 to 400 (BL-D21) | 120 |
 
+BL-D28 adds a fourth row after these, `Breeze LED Night Brightness (%)`,
+RANGED_INTEGER 10 to 100, default 50 (section 1a's interface changes).
+
 Text **L42**, written to Last Action when `Breeze LED Animation` is set to
 `Gusts` while `Speed LED Colors` is not `Per speed` (and when `Speed LED
 Colors` leaves `Per speed` while it is `Gusts`): `Breeze LEDs need Speed LED
@@ -214,6 +230,12 @@ links:pixels_list()     -- the bound speed links (301 to 306 with a known
 
 ## 4. What the owner sees (house, four pixels, defaults)
 
+This is the first build. Since section 1a the column goes dark when Breeze
+starts and stays dark between gusts (BL-D19), each gust is a white head with
+a twinkling tail in ice, teal and sky, never azure (BL-D20, BL-D26), it runs
+the way the fan blows and the ending wipe the other way (BL-D30), and the
+colours are halved between sunset and sunrise (BL-D28).
+
 - Breeze starts (any source): the head climbs Low → High in four steps,
   leaving the column azure; 311 lights; Off and the speed LEDs' normal
   state are gone until Breeze ends.
@@ -251,6 +273,10 @@ links:pixels_list()     -- the bound speed links (301 to 306 with a known
 ## 6. Hardware checks on the house (owner watching; each under a minute)
 
 Run with a `--dev` build through the dev loop, the owner at the keypad.
+The first hardware round of 2026-11-09 (section 1a) settled HB1 (`Highest
+speed` on the house, BL-D4) and HB2 (`RECOLOUR_NEEDS_STATE` false, BL-D23),
+and replaced HB3's palette and HB4's step with BL-D20 and BL-D21; HB3 to
+HB7 on a release build are still open ([`status.md`](status.md)).
 
 | # | Check | Settles |
 | --- | --- | --- |

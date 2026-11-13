@@ -1,5 +1,21 @@
 # Keypad LED dimming by ambient light: what a driver can see and do
 
+> **Status (2026-11-13, #213).** Sections 1 and 2 stand. Decision 1 was
+> taken the same day, wider than (a): at the owner's word the keypad dimmer
+> **and both switches** got Status LED Min Brightness 0, with Max 255, Dark
+> Room below 10 and Bright Room above 50 ([`status.md`](status.md), #198).
+> The house probe of 2026-11-12 then answered H4 and H5
+> ([`ambient-pause-design.md`](ambient-pause-design.md) section 0, #207):
+> `GET_AMBIENT_LEVEL` sent by a driver is answered to Composer only (route
+> 3.3 fails), while a consumer connection of class `AMBIENT_LEVEL` bound to
+> the keypad's Ambient Light Level (Source) output receives the reading in
+> `ExecuteCommand` as `AMBIENT_LIGHT_LEVEL` (`GROUP`, `LEVEL`, `TARGET`), on
+> change only (route 3.4 works; still undocumented, measured on OS 3.4.3).
+> So summary item 4's "no documented route" stays true, but an
+> undocumented one exists. 1.9 built decision 2 on it: `Pause LED
+> Animations Below` (default 10) pauses both animations while the bound
+> keypad reads dark. BL-D28's night halving stays (decision 5).
+
 Research for [issue #198](https://github.com/corytron/c4-modernforms-driver/issues/198), written
 2026-11-12. The owner saw the speed chase ([`speed-leds-design.md`](speed-leds-design.md), #159)
 still lit at night while the LEDs of the switches beside the keypad had gone "totally dark", and

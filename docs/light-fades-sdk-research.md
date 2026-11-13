@@ -1,5 +1,20 @@
 # Simulated light fades: what Control4 expects
 
+> **Status (2026-11-13, #213).** Built in 1.5 (#141) by
+> [`light-fades-design.md`](light-fades-design.md) (LF-D1 to LF-D24), with
+> the recommended answers to Q1 to Q5, Q7 and Q8: `click_rates` True with
+> `click_rate_min` 0 and `click_rate_max` 86 400 000 (one controller
+> reboot); Click Rates of 3000 ms over the whole range; the Default
+> Brightness Rate for commands without a time (750 ms until the proxy sends
+> one, LF-D4); the slider jumps; the Hue tap machine; the deprecated
+> capabilities kept. Q6 went the other way by default: the keypad LEDs
+> follow the fade's **target** from the tap (`light.LEDS_FOLLOW` =
+> `"target"`, LF-D18), and H4 is to decide. The owner had it shipped
+> without the checks of section 7; after the controller reboot the Windows
+> session saw the light's Click Rates keep 3 s (2026-11-12,
+> [`status.md`](status.md)), which is what H6 asks. "Today" in this note is
+> the code of 2026-11-09.
+
 Research for [issue #141](https://github.com/corytron/c4-modernforms-driver/issues/141),
 written 2026-11-09 by a read-only research agent. The fan's light has no
 fade of its own: its local API has no transition time, and its level runs
@@ -453,7 +468,7 @@ More that follows from the same rules:
   Rate commands are from 3.3.2, and the Brightness Stop link worked from
   3.3.3 (VERIFIED-doc: LV2 new `_10-WHATSNEWIN332.md`; caps `_29`). On
   3.3.0 and 3.3.1 a fade still works; it simply never hears those commands.
-  The house runs 3.4.2.
+  The house runs 3.4.3.
 
 ## 5. Recommendation
 

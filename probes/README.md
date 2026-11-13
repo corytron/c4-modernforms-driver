@@ -1,20 +1,33 @@
-# MF Probe: the throwaway driver of M1
+# MF Probe: the throwaway hardware probe
 
-**MF Probe (delete after M1)** is a test driver for the hardware checks K4
-to K10 and K14 of
-[`v1-design.md`, section 11](../docs/v1-design.md#11-hardware-checks-before-the-first-install)
-(issue #17). It declares what the v1 driver will declare, controls nothing,
-and logs every call Director makes into it, so the Windows session can read
-in Composer's Lua tab what the proxies, the keypads and Composer really do.
-It is never the house's driver and never a release. It goes into a test room
-beside the stock device for M1 and is deleted afterwards.
+**MF Probe (delete after M1)** is a throwaway test driver for hardware
+checks. It controls nothing and logs every call Director makes into it, so
+the Windows session can read in Composer's Lua tab what the proxies, the
+keypads and Composer really do. It is never the house's driver and never a
+release, and each round installs it, runs its checks and deletes it again.
+It has served two rounds:
+
+- **M1 (#17), 2026-10-27 and 2026-11-04:** the checks K4 to K10 and K14 of
+  [`v1-design.md`, section 11](../docs/v1-design.md#11-hardware-checks-before-the-first-install),
+  in a test room beside the stock device. For them it declares what the v1
+  driver was to declare. The results are in
+  [`v1-design.md`, section 11.1](../docs/v1-design.md#111-what-the-probe-has-shown-so-far-17).
+- **#207, 2026-11-12:** the checks H4 and H5 of
+  [`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md),
+  whether a driver can get a keypad's ambient light reading, in an empty
+  room (Discussion #208). For them it gained the input **Ambient Light
+  Level (Follower)** on 500 and the helper `P.ambient`. The results are
+  section 0 of [`ambient-pause-design.md`](../docs/ambient-pause-design.md):
+  H5's input works and is what 1.9 ships; H4's request does not reach a
+  driver.
 
 - **Its own identity.** The file is `mf_probe.c4z`, the driver name
-  "MF Probe (delete after M1)", the model "MF Probe (M1 hardware checks)",
-  and the items are "MF Probe Fan" and "MF Probe Light". None of these is
-  the real driver's (`modernforms_fan`, ECC D27). It lives here, outside
-  `src/`, so `tools/build.sh`, `build/manifest.json` and the Release
-  workflow never see it.
+  "MF Probe (delete after M1)" (from M1, kept for later rounds), the model
+  "MF Probe (M1 hardware checks)", and the items are "MF Probe Fan" and
+  "MF Probe Light". None of these is a release driver's
+  (`modernforms_fan`, `modernforms_breeze_fan`; ECC D27). It lives here,
+  outside `src/`, so `tools/build.sh`, `build/manifest.json` and the
+  Release workflow never see it.
 - **What it declares** ([`mf_probe/driver.xml`](mf_probe/driver.xml)):
   - Proxies: the fan proxy `fan` on 5001, declared first and primary, and
     `light_v2` on 5002.
@@ -23,6 +36,10 @@ beside the stock device for M1 and is deleted afterwards.
   - Links: "Light Top Button Link" on 200 *with* `proxybindingid="5002"`,
     and "Fan Off Button Link" on 300 *without* it. Both are `BUTTON_LINK`
     providers.
+  - The input "Ambient Light Level (Follower)" on 500 (#207, H5): a
+    control connection (type 1), consumer, class `AMBIENT_LEVEL`, for a
+    keypad's "Ambient Light Level (Source)" output. The class and its
+    messages are in no SDK file; the probe logs whatever arrives.
   - One property, **Echo LED On Press** (Off/On), and two actions, **Run
     mDNS Probe** and **Dump State**.
   - No network connection in XML: K10 makes bindings 6001 to 6003 at run
@@ -37,9 +54,9 @@ beside the stock device for M1 and is deleted afterwards.
   "Level 1, Level 2, Level 3, Level 4, Level 5, Level 6"; the capability
   names are spelt as the stock driver spells them. K2 found that the
   first-declared proxy becomes the parent item, which carries the driver's
-  properties, actions and Documentation tab. So **MF Probe Fan** should be
-  the parent here, with Echo LED On Press, the actions and, presumably, the
-  Lua tab; K4 confirms.
+  properties, actions and Documentation tab. K4 confirmed it for the probe
+  (2026-10-27): **MF Probe Fan** is the parent, with Echo LED On Press, the
+  actions and the Lua tab.
 
 ## Building
 
@@ -80,9 +97,10 @@ The route is that of a feature-branch test build
 3. In Composer, Driver ▸ "Add or Update Driver or Agent…" adds the new
    driver. Then the session adds one device to the **test room** from the
    Items pane (search "MF Probe").
-4. **The test room** is a room the session creates for M1, **"MF Probe
-   Test"**, and deletes with the probe. If a new room is unwelcome, the fan's
-   own room serves; reports call it "Example Room"
+4. **The test room** is a room of the probe's own: for M1 one the session
+   created, **"MF Probe Test"**, and deleted with the probe; for #207 an
+   empty room. If a new room is unwelcome, the fan's own room serves;
+   reports call it "Example Room"
    ([placeholders](../docs/scaffold-design.md#2-placeholders-the-repository-is-public)).
    A room of its own keeps the probe's fan and light off the family's room
    in the Navigators, and the owner finds them easily in the app for K8.
@@ -92,7 +110,7 @@ The route is that of a feature-branch test build
    changes `<capabilities>` makes Composer ask "Restart Director?". Yes does
    not load them: **the owner must reboot the controller from System
    Manager** ([rule 10](../docs/composer-remote.md#rules-for-the-windows-session)).
-   So the probe's capabilities stay as they are for all of M1.
+   So the probe's capabilities stay as they are for a whole round.
 6. **Recording.** Whether the install is recorded with
    `tools/deploy.py record` is the coordinator's call. The probe is not the
    project's driver.
@@ -117,9 +135,10 @@ of order; the numbers restore the order.
   quoted, so their type shows (`SPEED="4"` is a string, `SPEED=4` a
   number).
 - **Bindings are named.** 5001 is "fan proxy", 5002 "light proxy", 200
-  "light link, proxybindingid 5002", 300 "fan link", and 6001 to 6003
-  "mDNS …". Any other id reads "not declared by the probe", which is how a
-  link the fan proxy made itself (K5) would show.
+  "light link, proxybindingid 5002", 300 "fan link", 500 "ambient
+  follower, #207 H5", and 6001 to 6003 "mDNS …". Any other id reads "not
+  declared by the probe", which is how a link the fan proxy made itself
+  (K5) would show.
 - **Only live lines show** in Composer's Lua output pane, those that arrive
   while the device's Lua tab is open
   ([rule 13](../docs/composer-remote.md#rules-for-the-windows-session)).
@@ -155,13 +174,14 @@ it could not.
 | `P.mdns(mode, qu)` | K10: no mode runs MULTICAST, then UDP; `"MULTICAST"`, `"UDP"` or `"UDP_MIRROR"` runs one way; `qu = true` sets the question's unicast-response bit |
 | `P.vars(target)` | `C4:GetDeviceVariables` of the fan proxy (`5001`, the default), the light proxy (`5002`) or any device id |
 | `P.watch(target, id, …)` / `P.unwatch(…)` | listen to those variables; each change is logged as `OnWatchedVariableChanged` |
+| `P.ambient(id, how)` | #207 H4: `GET_AMBIENT_LEVEL` to a keypad by its device id. `how` is `"ui"` (the default: `C4:SendUIRequest`, whose return is logged) or `"send"` (`C4:SendToDevice`, which returns nothing, so an answer could only arrive at an entry point, which logs it) |
 | `P.dump()` | the Dump State action: driver, Director and Lua versions, Echo LED On Press, the proxies' ids, what is bound to 5001, 5002, 200 and 300, `C4:GetBindingsByDevice` for the device and each proxy, the K10 bindings' addresses, and how often each entry point was called |
 | `P.history(n)` | the last `n` kept lines again (all 400 without `n`) |
 
 Every Director call is documented in the SDK; the page of each is cited in
 `driver.lua`, and the spec fails on any call outside that list.
 
-## The checks
+## Briefs for the Windows session
 
 **Every brief carries this sentence**, from
 [`composer-remote.md`](../docs/composer-remote.md#rules-for-the-windows-session),
@@ -176,8 +196,8 @@ rule 8:
 > controller reboot from System Manager is his, by hand.
 
 It also carries the reminder of rule 10: a build that changes the probe's
-`<capabilities>` needs the owner's controller reboot from System Manager. M1
-does not change them. The rules of
+`<capabilities>` needs the owner's controller reboot from System Manager. No
+round changes them. The rules of
 [`composer-remote.md`](../docs/composer-remote.md#rules-for-the-windows-session)
 hold throughout: every click and drag checked, the Set button after a
 property edit, no mouse wheel over a property page. Bindings are made by
@@ -185,6 +205,8 @@ dragging from the keypad's row in the top pane
 ([Learned 2026-10-27](../docs/composer-remote.md#learned-2026-10-27-connections-and-programming-by-synthetic-drag)),
 and each drag is read back. Steps that are hard to undo are named in each
 check below.
+
+## The M1 checks (K4 to K10 and K14)
 
 **The keypad button.** The fan's keypad has 7 buttons, all in use, so it has
 no spare (M0). Each check that binds a button uses one of these two:
@@ -393,16 +415,59 @@ This shows how much V3's run-time check has to carry.
    reports the texts. If a device was created, the session deletes it at
    once (hard to undo; named here).
 
-## Deleting it after M1
+## The #207 checks (H4 and H5)
 
-1. **Disconnect** every binding to the probe's links in Connections.
-   Restore a borrowed Up or Down button as described above, or set the
-   other keypad's button's LED Behavior back to what it was.
+Can a driver get a keypad's ambient light reading? These are checks H4 and
+H5 of
+[`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md)
+(its H labels are its own, not those of the M1 references below), run on
+2026-11-12 with the probe in an empty room and a keypad dimmer whose Device
+ID is read from the tree's tooltip (rule 11). No fan device and no keypad
+setting is changed.
+
+### H5: what arrives on an Ambient Light Level input
+
+1. In Connections, bind the keypad's output **Ambient Light Level
+   (Source)** to the probe's input **Ambient Light Level (Follower)** (500),
+   dragging as for a button link, and read the binding back (a Connections
+   change, named here). Read the `OnBindingChanged binding=500 (ambient
+   follower, #207 H5) …` line and the keypad's Sensing in Composer.
+2. With the probe's Lua tab open for a few minutes while the room's light
+   changes (a lamp the **owner** switches on and off gives changes on
+   demand), read every line that arrives: its entry point (`ExecuteCommand`
+   or `ReceivedFromProxy`), command, parameters and `+seconds` column.
+3. Disconnect the binding, read the `OnBindingChanged` line, and check that
+   the keypad's Sensing reads **Independent** again.
+
+### H4: a driver asking for the reading
+
+1. Type `P.ambient(<keypad Device ID>)`: `C4:SendUIRequest` with
+   `GET_AMBIENT_LEVEL`, the request Composer's profile editor uses. The log
+   shows what it returned.
+2. Type `P.ambient(<keypad Device ID>, "send")`: the same over
+   `C4:SendToDevice`, which returns nothing. Watch the log for anything
+   arriving afterwards.
+
+**What they showed** (section 0 of
+[`ambient-pause-design.md`](../docs/ambient-pause-design.md), Discussion
+#208): H5 works. The keypad's reading arrives in `ExecuteCommand` as
+`AMBIENT_LIGHT_LEVEL` with `GROUP`, `LEVEL` and `TARGET`, on change only;
+the first message after the bind is not a reading; while bound the keypad's
+Sensing reads Source. H4 does not: the answer goes to Composer, never to
+the driver. Release 1.9 builds on H5.
+
+## Deleting it after a round
+
+1. **Disconnect** every binding to the probe's links and to its Ambient
+   Light Level input in Connections. Restore a borrowed Up or Down button
+   as described above, or set the other keypad's button's LED Behavior back
+   to what it was. A keypad that was bound to the Ambient Light Level input
+   reads Sensing **Independent** again.
 2. **Delete** any K14 script line still there, the "MF Probe Fan" device
    (with its light), and the K9 device if one is left. These deletes are
    hard to undo and are named here. The probe's dynamic network bindings go
    with the device.
-3. **Delete the room** "MF Probe Test" if it was created for M1.
+3. **Delete the room** "MF Probe Test" if it was created for the round.
 4. **Remove the files** `mf_probe.c4z` and `mf_probe_k9.c4z` from
    `C:\c4-mf\drivers\probe\` and from Composer's driver store
    (`Documents\Control4\Drivers`).
@@ -413,7 +478,7 @@ This shows how much V3's run-time check has to carry.
 ## References
 
 - [`v1-design.md` §11](../docs/v1-design.md#11-hardware-checks-before-the-first-install):
-  the checks.
+  the M1 checks.
 - [§16](../docs/v1-design.md#16-what-m0-and-m1-may-still-change): what
   their results may change.
 - [`fan-proxy-research.md` §8](../docs/fan-proxy-research.md#8-hardware-tests):
@@ -422,3 +487,6 @@ This shows how much V3's run-time check has to carry.
   tests H1, H2, H7 and H8.
 - [`edge-cases-control4.md` §7](../docs/edge-cases-control4.md#7-probes-in-order):
   probes H1 to H7.
+- [`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md)
+  and [`ambient-pause-design.md`](../docs/ambient-pause-design.md): the #207
+  checks H4 and H5 and what they showed.

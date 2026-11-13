@@ -4,10 +4,20 @@
 > (2026-11-09). Every piece of the feature is built against this text. The
 > research behind it: [`edge-cases-speed-leds.md`](edge-cases-speed-leds.md)
 > (rows SL1 onward), [`speed-leds-c4-guidelines.md`](speed-leds-c4-guidelines.md)
-> (SG1 to SG11) and [`speed-leds-engine-options.md`](speed-leds-engine-options.md).
+> (SG1 to SG14) and [`speed-leds-engine-options.md`](speed-leds-engine-options.md).
 > The Breeze animation it sits beside: [`breeze-leds-design.md`](breeze-leds-design.md)
 > (BL-D1 to BL-D30) and `src/modernforms_fan/fan/breezeleds.lua`.
 > Placeholders only: fan 10.0.2.151, controller 10.0.2.10.
+
+> **Status (2026-11-13, #213).** Shipped in 1.6 "Crysknife" (#159; SL-D18,
+> #172, in build 182). 1.7 "Stillsuit" changed SL-D6, SL-D10, SL-D11 and
+> added SL-D19 (#177: the rest defaults to 5 s, a new run's first chase
+> comes 2.5 s after a speed is selected), and since 1.7 the two rows show
+> only while a button is bound to a speed link
+> ([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md),
+> #178). Since 1.9 the chase pauses while the keypad is dark
+> ([`ambient-pause-design.md`](ambient-pause-design.md), #207). Everything
+> else here holds.
 
 The owner asked: at a fixed speed of 2, 3, 4 or 5, a simple animation runs
 across the keypad's speed LEDs, one after the other, in the direction the fan
@@ -48,7 +58,8 @@ same, and its colour is the one set for that speed in the driver.
 | `Speed LED Rest (s)` | RANGED_INTEGER | 5 to 60 | 5 |
 
 Both sit with the Breeze LED rows and, like them, are always shown and take
-effect only under `Per speed`. The chase also reads `Breeze LED Bottom`; its description in
+effect only under `Per speed` (since 1.7, #178, all of them show only while
+a button is bound to a speed link). The chase also reads `Breeze LED Bottom`; its description in
 the documentation says so.
 
 ## 3. Interfaces
@@ -148,8 +159,8 @@ the chase at once and leave the keypad as it is today.
 - `tests/spec/ledhub_spec.lua`: delegation, update order, repaint routing,
   and `both` empty through Breeze start, Breeze leave wipe and chase
   sequences played with stub engines.
-- `tests/spec/fan_driver_spec.lua` (coordinator): the two rows exist and are
-  hidden with the Breeze rows; a full chase at speed 3 on the house keypad
+- `tests/spec/fan_driver_spec.lua` (coordinator): the two rows exist and sit
+  with the Breeze rows (section 2); a full chase at speed 3 on the house keypad
   model, then the rest, then the next chase; a Breeze press mid-chase.
 
 ## 6. Hardware checks on the house (owner watching; each under a minute)
@@ -173,7 +184,7 @@ and button link protocols (`62_keypad_button_link_bindings`), summarised in
 | --- | --- |
 | The LED follows the bound device, from every source | Met at rest (the links, unchanged). **Departs during each chase**, when the selected LED is dark and the others light in turn: the owner's design. Kept short (under 2 s), off by default. |
 | Only the driver's own buttons | Met: bound speed links under `Per speed` only. |
-| No periodic updates that flood the keypad's network | **Departs in kind** (a chase every rest, for hours) and is met in rate: 13 messages per chase for four buttons (11 at the edge speeds, SL-D18), about 1.2 a second on average at the default rest, peaks well under the 30-a-second window, rest floor 5 s. |
+| No periodic updates that flood the keypad's network | **Departs in kind** (a chase every rest, for hours) and is met in rate: 13 messages per chase for four buttons (11 at the edge speeds, SL-D18), about 2 a second on average at the default rest of 5 s (about 1.2 at 10 s, the default before 1.7), peaks well under the 30-a-second window, rest floor 5 s. |
 | Transitions instead of emulated steps | **Departs, forced:** a button link has no effect or transition message. |
 | Back-to-back changes coalesce | Met: the newest state wins, a change ends the chase, no queue. |
 | Buttons without LEDs | Met as far as possible: off by default. |

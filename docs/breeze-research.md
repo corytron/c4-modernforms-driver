@@ -1,5 +1,19 @@
 # Breeze: the fan side
 
+> **Status (2026-11-13, #213).** The house checks BR0 to BR8 never ran: the
+> owner chose to take best guesses instead (BZ5 in
+> [`breeze-design.md`](breeze-design.md)), and 1.2 (#111) was built on
+> them. The fields, the bodies and the field reports here stand. In 1.3
+> (#121) the owner reported what his fan does: it runs **either in fan mode
+> or in Breeze mode, never both**, and Breeze's three strengths are
+> unrelated to the six fan speeds (as the field reports of section 2
+> said). So a fan-mode command ends Breeze, the driver's Off stops the fan
+> and clears a stored Breeze, and Breeze from a stopped fan sets `wind`
+> before the fan starts ([`breeze-design.md`](breeze-design.md) section 11,
+> BF-D1 to BF-D6). The file and line citations of this repository's code
+> are those of the `feat/breeze-111` branch on 2026-11-07; the code has
+> moved since.
+
 Research for [issue #111](https://github.com/corytron/c4-modernforms-driver/issues/111),
 written 2026-11-07: what a Modern Forms fan's Breeze mode is, which fields
 carry it, what the fan does and reports, how other integrations expose it,

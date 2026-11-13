@@ -1,24 +1,31 @@
 # Release checklist: what a build must pass before it is called good
 
-Written 2026-10-27 with the scaffold (#1), from the Hue project's release
-checklist ([corytron/c4-hue-driver](https://github.com/corytron/c4-hue-driver),
-`docs/release-checklist.md`), adapted to one Modern Forms fan driver. The
-owner's rule: after any code change that is more than a text, test for
+The owner's rule: after any code change that is more than a text, test for
 functional regressions on the dev loop **and** on the real system before the
-code is called good. Three passes, in this order (and section 4 once after
-each controller OS upgrade); every line is a check with its expected result.
-Results go into the build's issue (hardware findings as comments), and
-[`status.md`](status.md) sums them up.
+code is called good. The passes, in this order: section 0 on the VM,
+section 1 on the dev loop when the change is tried on the house before its
+release, section 2 when the release is installed, section 3 with the owner,
+and section 4 once after each controller OS upgrade. Every line is a check
+with its expected result. Results go into the build's issue (hardware
+findings as comments), and [`status.md`](status.md) sums them up. The
+exact property names, actions and texts are in
+[`composer-checklist.md`](composer-checklist.md), section by section; this
+page says which of them a release needs.
 
-Section 0, the release ("Naming"), the install ("Deploy to the house") and
-the prerelease are the tooling the scaffold shipped. Sections 1 to 4 name
-what must be checked on the hardware (the fan, its light, the keypad links
-and their LEDs, changes made with the Modern Forms app, the remote and the
-wall control); the property names, actions and exact texts are in
-[`composer-checklist.md`](composer-checklist.md). 1.0 was released on
-2026-11-05 after the owner's own test of beta.3 on the house (#58); the
-owner released the two fixes that followed (#59, #49) untested on the
-hardware.
+The page was written on 2026-10-27 with the scaffold (#1), from the Hue
+project's release checklist
+([corytron/c4-hue-driver](https://github.com/corytron/c4-hue-driver),
+`docs/release-checklist.md`), and has followed every release since. The
+house's own record is short: 1.0 was released on 2026-11-05 after the
+owner's own test of beta.3 on the house (#58), and the owner released the
+two fixes that followed (#59, #49) untested on the hardware. Since then
+several features shipped at the owner's word before their hardware checks
+ran (1.2's Breeze, 1.4's night brightness, 1.5's fades, 1.8's Min On);
+what is still unchecked is listed under "Open" in [`status.md`](status.md#open).
+
+The page then covers the release itself: how it is named ("Naming"), cut
+("How a release is cut"), brought to the house ("Deploy to the house") and
+put in a tester's hands first ("Prerelease").
 
 ## 0. On this VM
 
@@ -31,22 +38,21 @@ hardware.
   every local ref (branches, tags, stashes, remote-tracking refs: on the VM
   the check reads `git log --all`, so a stale ref holding old history fails
   it until it is removed), `deploy/house.yaml` valid, `CHANGELOG.md` valid
-  and every link resolving. `tools/setup-checks.sh` first if a tool is
-  missing.
+  (with a meaning for every codename) and every link resolving.
+  `tools/setup-checks.sh` first if a tool is missing.
 - `tools/build.sh` (release) and `tools/build.sh --dev`: no release package
-  holds `common/devloop.lua` or `common/devkey.lua`, and no release
-  `driver.xml` a `DEV-ONLY` block (`tools/build.sh` refuses to package a
-  release stage that still has one). Each dev package has the dev loop,
-  carries the dev key as `common/devkey.lua` and is written 0600. The v1
-  contract adds the number of actions each build shows (`unzip -p
-  build/modernforms_fan.c4z driver.xml | grep -c '<action>'`: 6 since #111,
-  the last Add Breeze Switch until #121 and Add Breeze Fan since; the
-  Breeze companion's package has none). Since #111 every build makes two
-  packages (one per `src/*/driver.xml`), and the manifest names both:
-  `modernforms_fan.c4z` and, since #121, `modernforms_breeze_fan.c4z` (from
-  #111 to #121 `modernforms_breeze.c4z`, which no later build makes).
-  `build/manifest.json` names the build, the commit, `"dev": false` or
-  `true`, and each package's checksum and size.
+  holds `common/devloop.lua`, `common/devkey.lua` or `fan/devcmds.lua`, and
+  no release `driver.xml` a `DEV-ONLY` block (`tools/build.sh` refuses to
+  package a release stage that still has one). Each dev package has the dev
+  loop, carries the dev key as `common/devkey.lua` and is written 0600.
+- Every build makes two packages, one per `src/*/driver.xml`:
+  `modernforms_fan.c4z` and `modernforms_breeze_fan.c4z` (1.2 made
+  `modernforms_breeze.c4z` in the second's place, 1.0 and 1.1 the first
+  alone). `build/manifest.json` names the build, the commit, `"dev": false`
+  or `true`, and each package's checksum and size.
+- The fan package shows six actions (`unzip -p build/modernforms_fan.c4z
+  driver.xml | grep -c '<action>'` is 6, `Add Breeze Fan` last; 1.2's sixth
+  was `Add Breeze Switch`); the Breeze fan's package has none.
 - `unzip -l build/<driver>.c4z` lists `LICENSE` and `NOTICE` in every package
   (Apache 2.0 §4), and `unzip -p build/<driver>.c4z www/documentation.html |
   grep -c '<!-- CHANGELOG -->'` is 0: the Documentation tab ends with the
@@ -62,74 +68,91 @@ hardware.
 
 ## 1. Dev loop on the house (a dev build)
 
-Build the `--dev` packages with `tools/build.sh --dev` from the commit under
-test and install them through the Windows session the way `CLAUDE.md`
-(Deploy) describes for a dev build: served from `build/release/` on port 8091
+When a change is tried on the house before its release (most features
+since 1.4 were: Breeze on the LEDs, the fades, the speed chase), build the
+`--dev` packages with `tools/build.sh --dev` from the commit under test and
+install them through the Windows session the way `CLAUDE.md` (Deploy)
+describes for a dev build: served from `build/release/` on port 8091
 (`python3 -I -m http.server 8091 --bind 0.0.0.0 --directory build/release`),
 briefed with their sha256, recorded afterwards with `python3 tools/deploy.py
 record ... --no-manifest` ("Deploy to the house" below), and the HTTP server
 stopped once the install is done. `tools/devserver.py` running (port 8081),
-the driver's dev-server property set to the `host:port` it prints, and
+the fan item's `Dev Server` row set to the `host:port` it prints, and
 `tools/devctl.py status` showing the driver polling
-([`dev-loop.md`](dev-loop.md)). Then, through `tools/devctl.py run`, with
-the shipped log as the evidence:
+([`dev-loop.md`](dev-loop.md)). Then:
 
-1. Startup: the driver reaches the fan and reads its state; with `Debug
-   Mode` On the log shows each request. The v1 contract names the lines.
-2. Fan round trip: from Control4, each speed, off and on (and the direction
-   where the fan has one) → one request to the fan each, and the fan's
-   answer in the fan proxy's state. A change made with the Modern Forms app,
-   the remote or the wall control → the same state in Control4 promptly,
-   never as a late or out-of-order report (the v1 contract sets how
-   promptly).
-3. Light round trip: on, off and a level → one request each; a change made
-   elsewhere → the light_v2 state follows.
-4. Connection: the fan without power (its wall switch off) → the driver
-   reports it offline, and it recovers on its own when the power returns; a
-   new address of the same fan is followed, not taken for a new fan (the v1
-   contract says how it is found).
-5. No error line in the log through the whole session.
+1. `tools/regress.sh`: the dev loop itself (the server answers, one device
+   polls with the right key and runs the local tree), a property read-back
+   through a signed command, and no error, traceback, refusal or failed
+   reload in the last 400 lines of the shipped log.
+2. `tools/regress.sh --fan` moves the fan and its light, so it is opt-in:
+   the fan's own pass F1 to F9 of
+   [`v1-design.md`](v1-design.md#12-dev-loop-actions-and-toolsregresssh)
+   (section 12), through the signed development commands: every speed,
+   off, the toggle and cycle links, the light's targets and its top button,
+   then the fan and the light as F1 found them. Each request reaches the fan
+   once and its answer reaches the proxies.
+3. A change made with the Modern Forms app, the remote or the wall control
+   reaches Control4 within the poll interval (15 s, 2 s for 20 s after a
+   change), never as a late or out-of-order report.
+4. The fan without power (its wall switch off): the driver reports it
+   offline after about 45 s and recovers on its own when the power returns;
+   a new address of the same fan is followed, not taken for a new fan
+   ([`composer-checklist.md`](composer-checklist.md), steps 39 to 45).
+5. The feature's own hardware checks, from its contract and its section of
+   the Composer checklist.
+6. No error line in the log through the whole session.
 
-Longer runs (an hour idle, a night) are not part of this checklist: nothing
-that needs more than about a minute of waiting blocks a build, and questions
-only time answers are parked for the next major release (`CLAUDE.md`, "No
-long test waits").
+A release install ends the dev loop. Longer runs (an hour idle, a night) are
+not part of this checklist: nothing that needs more than about a minute of
+waiting blocks a build, and questions only time answers are parked for the
+next major release (`CLAUDE.md`, "No long test waits").
 
 ## 2. Release build on the house (Windows session, Composer)
 
 Install the release files from the GitHub release through `tools/deploy.py
 start` and the brief it writes ("Deploy to the house" below); no "Restart
 Director?" unless a capability changed (then the owner reboots the
-controller from System Manager). The first install of the driver is not an
-update: the new device goes beside the stock WAC device, which is then
-replaced by hand, as
-[chapter 11 of the manual](../src/modernforms_fan/www/documentation.html#ch11)
-says (`CLAUDE.md`, Scope); the house's own cutover of 2026-11-04 is recorded
+controller from System Manager). The first install of the driver in a
+project is not an update: the new device goes beside the stock WAC device,
+which is then replaced by hand, as the manual's chapter "Moving from the
+stock WAC driver" says
+([chapter 4](../src/modernforms_fan/www/documentation.html#stock)) (`CLAUDE.md`, Scope); the house's own cutover of 2026-11-04 is recorded
 in [`migration-design.md`](migration-design.md). Every later install is an
-update in place. Read:
+update in place ([`composer-checklist.md`](composer-checklist.md), step 2).
+Read:
 
 1. `Driver Version` on every Modern Forms Fan device and every Modern
-   Forms Breeze Fan device = the build (a 1.2 Breeze switch, until it is
-   deleted, keeps build 115, the last that made its package); `Debug Mode` reads Off on every device (a dev-loop session often leaves it On,
-   and Director keeps the value through the release install).
+   Forms Breeze Fan device = the build; `Debug Mode` reads Off on every
+   device (a dev-loop session often leaves it On, and Director keeps the
+   value through the release install). (A 1.2 Breeze switch, while one
+   still existed, kept build 115, the last that made its package.)
 2. The Properties page: no development-only rows (those between the
-   `DEV-ONLY` markers of `driver.xml`); the rows and texts the v1 contract
-   lists.
-3. The Actions tab: the release's actions only, as many as section 0 counts.
+   `DEV-ONLY` markers of `driver.xml`: `Dev Server`, `Dev State`). On the
+   fan item 37 rows while a button is bound to a Fan Speed link, 16 without
+   one (the 21 keypad LED rows hidden); on the Breeze fan 3 rows
+   ([`composer-checklist.md`](composer-checklist.md), steps 8 and 88). A
+   row new in the release reads its default, except where the brief sets it.
+3. The Actions tab: the six actions section 0 counts; none on the Breeze
+   fan.
 4. The Documentation tab opens, shows the manual and ends with the
    changelog.
 5. The Lua tab of each device during the install: no `[ERROR]` line.
-6. Connections: the fan's speed links (the fan proxy's per-speed
-   connections), the light's links and every keypad binding are still there
-   after the update in place ([`composer-checklist.md`](composer-checklist.md),
-   sections D to F), and each Breeze fan is still connected to its fan's
-   `Breeze Switch` output (the output kept its 1.2 name).
-7. The first install of a release with Breeze (#111): the programming
-   items read back, **Add Breeze Switch** clicked once on each fan that has
-   Breeze, and File ▸ Refresh Navigators
-   ([`composer-checklist.md`](composer-checklist.md), section J). No
-   controller reboot: no capability of the fan device changes.
-8. **From 1.2 to 1.3, the Breeze switch to the Breeze fan** (#121,
+6. Connections, after the update in place: the fan's own Button Links (the
+   speed, Off, Toggle, Cycle and Fan Breeze links) and the light's links
+   with every keypad binding; each Breeze fan still bound to its fan's
+   `Breeze Switch` output (the output kept its 1.2 name); and since 1.9 a
+   keypad's Ambient Light Level (Source) still bound to the fan's Ambient
+   Light Level (Follower) where it was bound
+   ([`composer-checklist.md`](composer-checklist.md), sections D to F and O).
+7. **The first install of 1.3 or later on a fan with Breeze and no Breeze
+   fan yet** (#121): the programming items read back, **Add Breeze Fan**
+   clicked once on each fan that has Breeze, the new item placed after its
+   fan in the room's order, and File ▸ Refresh Navigators
+   ([`composer-checklist.md`](composer-checklist.md), steps 50 and 60 to
+   62). No controller reboot: no capability of the fan device changes.
+8. **A project still on 1.2, with its Breeze switch** (#121; the house did
+   this on 2026-11-08,
    [`breeze-design.md`](breeze-design.md#11-13-ornithopter-fan-mode-breeze-mode-and-the-breeze-fan-121)
    BF-D12; [`composer-checklist.md`](composer-checklist.md) steps 57 to
    63), in this order, every step in the Windows session's brief and the
@@ -152,41 +175,59 @@ update in place. Read:
    Off and the binding on the fan's `Breeze Switch` output; (f) move
    "Aviator 5 Breeze" right after the fan in the room's Navigator order
    where Composer allows it; (g) File ▸ Refresh Navigators. No controller
-   reboot. The brief also tells the owner that the house keypad has no
-   button on Fan Breeze, so every fan LED on it is dark while Breeze blows
-   (BF93; lighting one means binding a button to Fan Breeze, his choice). `deploy.py done --devices` counts the fan and the Breeze fan.
-   The old switch's package stays on the v1.2 release. Going back to 1.2
-   is not designed for: 1.2 does not carry the Breeze fan's package, and
-   its fan driver sends the Breeze fan no strength and ignores the
-   strengths and steps it sends (edge-cases-breeze-fan BF6, BF52), so the
-   Breeze fan would be deleted and 1.2's switch added again.
+   reboot. The brief also tells the owner that a keypad with no button on
+   Fan Breeze shows no steady fan LED while Breeze blows (BF93; lighting one
+   means binding a button to Fan Breeze, his choice). `deploy.py done
+   --devices` counts the fan and the Breeze fan. The old switch's package
+   stays on the v1.2 release. Going back to 1.2 is not designed for: 1.2
+   does not carry the Breeze fan's package, and its fan driver sends the
+   Breeze fan no strength and ignores the strengths and steps it sends
+   (edge-cases-breeze-fan BF6, BF52), so the Breeze fan would be deleted
+   and 1.2's switch added again.
+9. **A release that brings a new setting the house uses** sets it in the
+   brief and reads it back (1.6 set `Speed LED Animation`, 1.8 `Light Min
+   On (%)`, 1.9 bound the keypad's ambient output); the values the house
+   keeps are under "Settings" in [`status.md`](status.md#settings).
 
 ## 3. The owner, on the phone, the keypads and the fan
+
+Each under a minute, when the release changes what they cover
+([`composer-checklist.md`](composer-checklist.md) has the steps):
 
 1. Fan: each speed and off from a Navigator tile, from the keypad buttons
    linked to them, and from the Modern Forms app, the remote and the wall
    control; Control4 shows the fan's state at once, whichever was used.
 2. Keypad LEDs: with "Follow Connection", only the LED of the active speed is
    lit, and it follows a change made with the app, the remote or the wall
-   control ([`composer-checklist.md`](composer-checklist.md), section F).
+   control (section F).
 3. Light: on, off and dimming from the tile and the keypad; a change made
-   with the app reaches the tile.
-4. Keypad taps and holds on every bound button do what the v1 contract says
-   (press, click and release each handled).
-5. Breeze (#111; since #121 the Breeze fan), under a minute: on the phone,
-   the Breeze fan is listed by the fan; Breeze 1, 2, 3 and off each work;
-   the main fan shows off while Breeze blows; a fan speed on the main fan
-   ends Breeze ([`composer-checklist.md`](composer-checklist.md), step 61;
-   step 53 for the switch of 1.2).
+   with the app reaches the tile. Since 1.5 a tap fades over the Click
+   Rates and a second tap stops it (section K); since 1.8 the light is lit
+   from its first step at Control4's 1 % (section N).
+4. Keypad taps and holds on every bound button: a press acts once at the
+   push, a hold is one action, a double tap acts twice and still fires the
+   keypad's own Double Tap event (sections D and E).
+5. Breeze (#111; since #121 the Breeze fan): on the phone, the Breeze fan is
+   listed by the fan; Breeze 1, 2, 3 and off each work; the main fan shows
+   off while Breeze blows; a fan speed on the main fan ends Breeze
+   ([`composer-checklist.md`](composer-checklist.md), step 62; step 53 for
+   the switch of 1.2).
+6. The LED animations, where the release touches them: the Breeze gusts
+   (section J.3), the speed chase (section L), and since 1.9 their pause
+   while the bound keypad is dark (section O).
 
 ## 4. After a controller OS upgrade
 
 Once per new controller OS version, before a build is called good on it:
-sections 1 to 3 on the new OS, with the keypad lines of section 3 in full
-(the fan proxy's per-speed connections need OS 3.4.2, `CLAUDE.md`,
-Targets). Note the OS version and the result in the build's issue and in
-[`status.md`](status.md). The v1 contract adds what else a new OS must be
-checked for.
+sections 1 to 3 on the new OS, with the keypad lines of section 3 in full.
+Check in particular what rests on measurement rather than on the SDK
+documents: the keypad's push, click and release timings the links are
+built on (K6, K7), the keypad LED rows hiding in Composer (#178), the Click
+Rates loading only after a reboot (#141), and since 1.9 the keypad's
+Ambient Light Level (Source) reaching the fan's Ambient Light Level
+(Follower), whose class and command are in no SDK document (#207). The
+minimum OS stays 3.3.0 whatever the house runs. Note the OS version and the
+result in the build's issue and in [`status.md`](status.md).
 
 A build passes when every line reads as expected; anything else becomes an
 issue naming the build number ([`status.md`](status.md) "Open" points at
@@ -201,9 +242,10 @@ is kept out of the repository and out of every public text (owner,
 first build of a new X.Y its name goes into [`.github/codenames.json`](../.github/codenames.json) (an
 object such as `{"1.0": "<name>"}`), which
 [`tools/changelog.py`](../tools/changelog.py) and the Release workflow read.
-The file starts empty, `{}`: the Release workflow refuses every version whose
-X.Y it does not name, in its first step, so nothing is released before the
-owner has approved the 1.0 name (approved 2026-10-27, #6: 1.0 is "Arrakis").
+The Release workflow refuses every version whose X.Y the file does not
+name, in its first step. The file started empty, `{}`, so nothing was
+released before the owner had approved the 1.0 name (approved 2026-10-27,
+#6: 1.0 is "Arrakis"); on 2026-11-13 it names 1.0 to 1.9 "Sandwalk".
 Every release's and prerelease's notes open with the meaning of its
 codename (owner, 2026-11-10, #192): what the name is in its story and, where
 it fits, how that ties to what the version changed, one paragraph of at most
@@ -254,11 +296,11 @@ contract [`cicd-gitops-design.md`](cicd-gitops-design.md), section 5):
    changes (a run with an empty entry fails), and for the first build of a
    new X.Y that the owner has approved its codename and it is in
    `.github/codenames.json`, with its meaning in
-   `.github/codename-meanings.json`. Before the first release, read the "What you
-   get" and "Requirements" of
-   [`.github/release-notes.md`](../.github/release-notes.md) against the
-   driver and the v1 contract (the scaffold wrote them before either
-   existed) and add the OS and Composer versions section 2 passed on. Check
+   `.github/codename-meanings.json`. When a release changes what the drivers
+   are or need, read the "What you get" and "Requirements" of
+   [`.github/release-notes.md`](../.github/release-notes.md) against them
+   (first done before 1.0, when the scaffold's text was replaced) and keep
+   the OS and Composer versions section 2 passed on. Check
    the release page: the assets (six with the two packages since #111, five
    with one before), the title
    `<version> "<codename>"`, the notes' first heading with this build and,
@@ -278,10 +320,12 @@ The house installation is run from the repository (contract
 [`deploy/house.yaml`](../deploy/house.yaml) is the desired state, a GitHub
 Deployment on the environment `house` is the observed state, and the
 Composer click stays with the Windows session and is never automatic, since
-the controller has no install API. Until the first install the file says
-`release: none` and `build: none` (the house runs the stock WAC driver), and
-with no Deployment recorded that is no drift: the drift workflow opens no
-issue. After a release exists:
+the controller has no install API. Until the first install the file said
+`release: none` and `build: none` (the house ran the stock WAC driver), and
+with no Deployment recorded that was no drift: the drift workflow opened no
+issue. Since the first install (v1.0-beta.1, 2026-11-04, deploy issue #30)
+it names the release the house should run; on 2026-11-13 that is v1.9,
+build 220. For every release:
 
 1. **Say what the house should run.** A pull request edits
    `deploy/house.yaml`: `release:` to the tag, `build:` to the release's

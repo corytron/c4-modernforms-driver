@@ -1,5 +1,21 @@
 # Edge cases and lifecycle policy: following the fan's address
 
+> **Status (2026-11-13, #213).** Built for 1.0 (#39) by
+> [`address-follow-design.md`](address-follow-design.md) (F1 to F9), which
+> wins where it and this note differ. The rule of section 3 holds, and the
+> owner's five questions were answered as recommended. Changed by the
+> contract: the texts proposed here as L22 and L23 are **L30 and L31** (L22
+> to L29 went to Name Items After Fan); a pin without a MAC is never
+> followed (no MAC is derived from the client id, review of #48); the first
+> window opens 2 s after arming plus a slot of 3.5 s per device (device id
+> mod 8) plus 0 to 0.5 s, not 0 to 3 s of jitter; and `heard` keeps up to 64
+> pairs, not 8. Since 1.2 (#102) the Find Fans action is gone and every
+> window, the follower's included, feeds `Found Fans`
+> ([`auto-discovery-design.md`](auto-discovery-design.md#1-decisions), AD6
+> and AD10), which replaces CA5 and the "never touches `Found Fans`" of
+> sections 3.5 and 3.7. The manual's line numbers in section 3.8 are those
+> of 2026-11-04.
+
 > **Research (2026-11-04) for [issue #39](https://github.com/corytron/c4-modernforms-driver/issues/39)**,
 > read-only: nothing here was tried on the house fan or the controller. The
 > owner asked: "once we identify the fan in the driver we never have to

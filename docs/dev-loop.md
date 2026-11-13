@@ -20,11 +20,11 @@ this house's controller through October 2026; facts marked *[Hue project,
 hardware]* were measured there on OS 3.4.2 and are assumed for the house's
 OS 3.4.3 until this project's first dev install shows them again.
 
-**Current state (2026-11-05): not in use.** The house runs release builds
-only (`deploy/house.yaml` names the release; prereleases v1.0-beta.1 and
-beta.3 from 2026-11-04, then 1.0), and no dev build of this project has been
-installed there. [`status.md`](status.md) is the authority on what runs on
-the house. A
+**Current state (2026-11-13): not in use.** The house runs release builds
+(`deploy/house.yaml` names the release: 1.9, build 220). A dev build of this
+project ran there once, build 144 for the Breeze LED animation (#137),
+between the 1.3 install of 2026-11-08 and the 1.4 install of 2026-11-09,
+which ended it. [`status.md`](status.md) is the authority on what runs on the house. A
 release build carries no `common/devloop.lua`, so once releases are
 installed nothing on the controller polls this VM and no property can turn
 the loop on.
@@ -70,7 +70,9 @@ recorded: after a dev install, check that `Dev Server` holds the server's
   HTTP on one address (`--bind`, by default the VM's LAN address; every
   address only with `--bind 0.0.0.0`) and one port (`--port`, default
   8081). It serves one tree per `src/<driver>/driver.xml` it finds at
-  start, named after the directory (today `modernforms_fan`): that
+  start, named after the directory (today `modernforms_fan` and
+  `modernforms_breeze_fan`; only the first has the hook, so only a fan
+  device polls, [The driver hook](#the-driver-hook)): that
   directory's `.lua` and `.xml` files under the paths its `.c4z` uses, with
   `src/common/*.lua` mounted as `common/`. A file named `devkey.lua`,
   hidden files and everything else (the manual, icons) are never served; a
@@ -119,7 +121,7 @@ bundle, which must verify.
 
 `GET /bundle?tree=<tree>` → a signed envelope (not JSON as a whole):
 `<mac>\n<payload>`, where `<payload>` is the JSON
-`{"version": "...", "tree": "<tree>", "files": {"driver.lua": "<source>", "fan/http.lua": "<source>", ...}}`
+`{"version": "...", "tree": "<tree>", "files": {"driver.lua": "<source>", "fan/transport.lua": "<source>", ...}}`
 in ASCII and `<mac>` the 64-hex-character MAC (label `bundle`) over the
 payload's exact bytes ([What the controller checks](#what-the-controller-checks)).
 
@@ -136,8 +138,8 @@ an integer. Ids increase monotonically across server restarts (persisted in
 starts fresh and asks `after=0` receives only unacknowledged commands.
 `execute` runs the driver's development command of that name when it has
 one (the table it hands to `devloop.set_signed_commands`, named the way
-`common/dispatch.lua` names commands, so `"Fan Request"` finds
-`Fan_Request` and `LUA_ACTION` is unwrapped to its `ACTION`), else the
+`common/dispatch.lua` names commands, so `"Dev Request"` finds
+`Dev_Request` and `LUA_ACTION` is unwrapped to its `ACTION`), else the
 driver's `ExecuteCommand(command, params)`, which serves Composer's actions;
 `set_property` does `C4:UpdateProperty(name, value)`, sets
 `Properties[name]` as Director does, then calls `OnPropertyChanged(name)`;
@@ -211,7 +213,9 @@ hook; `src/modernforms_fan/driver.lua` and its `driver.xml` have it:
   its `driver.lua` (a reload's included), never into its dispatch table
   ([Development commands](#development-commands)); a driver that holds a
   secret (a key, a token) installs a redactor with
-  `devloop.set_redactor(fn)` the same way. The scaffold driver has neither.
+  `devloop.set_redactor(fn)` the same way. The Modern Forms Fan driver has
+  both (`fan/devcmds.lua`); the Breeze fan driver has no hook at all (no
+  `Dev Server` row, no `require` of the loop).
 - `OnDriverDestroyed` cancels the driver's own timers: the reload calls it
   before it loads the new code, while the loop's own state outlives the
   reload.
@@ -221,7 +225,9 @@ would also list those trees in `devloop.TREES` before `devloop.start`, and
 the children would register `devloop.reload_handler` as `DEV_RELOAD` and
 install `devloop.forward_logs` ([Forwarded trees](#forwarded-trees)); the
 polling driver would then register a `DEV_LOG` handler that prints each line
-under its sender's name. Nothing in this project does yet.
+under its sender's name. Nothing in this project does yet: the Breeze fan
+(since 1.3) is bound to the fan device on binding 400, but is not
+forwarded.
 
 ## Driver-side behaviour
 
@@ -294,7 +300,7 @@ under its sender's name. Nothing in this project does yet.
 - Reload sequence: `pcall(OnDriverDestroyed)`; clear every `package.loaded`
   entry the driver brought: `common.*` except `common.devloop`, and every
   module under a top-level directory of the old or the new bundle
-  (`fan/http.lua` makes every `fan.*` module the driver's) or named after
+  (`fan/transport.lua` makes every `fan.*` module the driver's) or named after
   one of its top-level files; modules no bundle brought, the runtime's and
   any library's, stay. Then install (or replace) a loader at
   `package.loaders[1]` that serves modules from the bundle (`a.b` →
@@ -337,8 +343,10 @@ under its sender's name. Nothing in this project does yet.
 
 ### Forwarded trees
 
-Dormant: `devloop.TREES` is empty and every driver of this project polls
-for itself. The Hue project's bridge used it to update the light and scene
+Dormant: `devloop.TREES` is empty and the fan driver polls for itself; the
+Breeze fan driver, bound to it since 1.3, has no hook and is not forwarded,
+so a change under `src/modernforms_breeze_fan/` reaches the controller only
+with a `.c4z` install. The Hue project's bridge used it to update the light and scene
 devices bound to it, which have no `Dev Server` of their own. Should the v1
 contract bind a second driver's devices to the fan driver's, a polling
 device lists that driver's tree in `devloop.TREES` (and the binding in
@@ -472,7 +480,7 @@ and reads every result back from the `Dev State` row:
 | F2 | `Dev Proxy` 5001 `SET_SPEED` 1 to 6 | `fan=on/N`, `told.fan=N`, links 300 to 308 lit for speed N, and `notify.fan` one higher than the step before (the same when the speed did not change: one notification per real change) |
 | F3 | `Dev Proxy` 5001 `SET_SPEED` 0 | `fan=off`, `told.fan=0`, link 300 lit and 301 to 308 dark |
 | F4 | `Dev Press` 307 `tap` | the fan on at its preset (any speed from 1 to 6: the pass learns it here), links 307 and 308 and only that speed's link lit |
-| F5 | `Dev Press` 308 `tap` `COUNT=3` `EVERY=150` | the preset plus three, wrapping past 6, `notify.fan` one higher (the burst coalesced into one report) |
+| F5 | `Dev Press` 308 `tap` `COUNT=3` `EVERY=150` | the preset plus three, wrapping past 6, `notify.fan` one higher (the burst coalesced into one report). Since 1.1 (#77) the driver's Fan Cycle stops at 6 instead, and `tools/regress.sh` still expects the wrap, so F5 fails from a preset of 4 or more until the script is changed (the house's preset is 3) |
 | F6 | `Dev Proxy` 5002 `SET_BRIGHTNESS_TARGET` 30, 70, then 0 | `light=on/30`, `on/70`, `off`; `told.light` the same; `changing=0` after each |
 | F7 | `Dev Press` 200 `tap` | `light=on/N`, `told.light=N`, `changing=0`; N is Default On Brightness, which `--default-on N` pins exactly and which otherwise may be any level (one equal to the 70 F6 left cannot be told from the kept level, and the pass says so) |
 | F8 | `Dev Proxy` back to F1's state | F1's `fan=` and `light=` again |
@@ -646,12 +654,15 @@ the dev key signed, and the key never crosses the wire.
   | `Dev Names Plan` | `MODE` `guarded` (default) or `forced` | logs what Use Selected Fan (guarded) or Name Items After Fan (forced) would do to the two items' names (`would=`, the fan type, the ids, the live and target names, whether each is the driver's), and renames nothing ([`fan-name-design.md`](fan-name-design.md) 2.4, #37) |
   | `Dev Request` | `BODY` | one request through the model's `request`, which the driver wires in and which sends only while the fan is online and nothing else is due (otherwise: `not sent (busy)`): one of the two queries, or a body `wire.body` builds from the fields the driver writes (any key order or spacing; the bytes sent are `wire.body`'s). The answer is logged normalized, `Dev Request #41 command: 200 in 0.31 s: fan on/4 forward, light off/100`, with the client id as `...5301` and nothing else of the answer |
   | `Dev Search` | none | asks for one search window as soon as the 30 s floor allows, for the house checks of [`auto-discovery-design.md`](auto-discovery-design.md#9-checks-on-the-house-each-under-a-minute) (#102): logs `Dev Search: a window is asked for (search=due:N)`; the list and its `Found Fans:` log line follow by themselves, and nothing goes to Last Action |
+  | `Dev Link` | `LINK` 300 to 308 or 311; `KIND` `colors` (`ON`, `OFF` default `000000`, `CURRENT` default `ON`, or `none` to leave it out), `state` (`STATE` true or false) or `flicker` (`COUNT`, `EVERY` as `Dev Press`) | raw keypad LED messages on one fan link, for the Breeze LED probes (#137, [`breeze-leds-design.md`](breeze-leds-design.md) section 6): `BUTTON_COLORS`, `MATCH_LED_STATE`, or `MATCH_LED_STATE` true and false in turn. The links' own bookkeeping is not told: set `Speed LED Colors` again afterwards |
+  | `Dev Vars` | `LINK` (a Button Link) or `DEVICE` (a device id) | logs every variable (`C4:GetDeviceVariables`) of each device bound to `LINK`, or of `DEVICE`; reads only (#137) |
+  | `Dev Light Steps` | `FROM`, `TO` (0 to 100); `STEP` (1 to 50 levels a request) or `DURATION` (500 to 20000 ms); `EVERY` (0 to 2000 ms), `GAP` (0 to 250 ms, this run only), `BACK` (yes or no), `REPEAT` (1 to 4) | steps the light from `FROM` to `TO` through the model's slot, one log line per answer and a summary, for the fade probes of [`light-fades-design.md`](light-fades-design.md) (#141); stops at a failure, an answer slower than 2 s, an unexpected `lightOn`, 60 s or 150 requests, then puts the light and the gap back |
 
   A parameter outside what a command takes (a link that is none of the
-  twelve, a count of 0 or 101, a body with a key the driver never writes,
+  thirteen, a count of 0 or 101, a body with a key the driver never writes,
   a mix of groups) is refused: nothing is sent and one warning says why
   (`Dev Press refused: LINK 399 is not a Button Link (200 to 202, 300 to
-  308); nothing was done`). A refusal does not raise, so the `command_done`
+  308, 311); nothing was done`). A refusal does not raise, so the `command_done`
   report carries no error: read the log.
 - **Dev State.** One line of `key=value` pairs separated by spaces, always
   in this order: `phase`, `seq`, `fan`, `dir`, `light` (what the fan
@@ -661,12 +672,12 @@ the dev key signed, and the key never crosses the wire.
   `told.fan`, `told.dir`, `told.light` (what the proxies were last told),
   `notify.fan`, `notify.dir`, `notify.light` (the notifications sent since
   late init), `changing` (1 while the light's `CHANGING` is open), `leds`
-  (links 300 to 308, then 200 to 202, as `303:1`), `follow` (the address
+  (links 300 to 308 and 311, then 200 to 202, as `303:1`), `follow` (the address
   follower of #39, [`address-follow-design.md`](address-follow-design.md):
   `off` while `Follow Address Changes` is Off, `pending` while a typed `Fan
   Address` has not answered yet, `armed:N` while it looks for the fan with
   window N due or under way, `idle` otherwise, `?` in a build without a
-  follower) and `ms` (the last request's time). A fan or light reads `on/3`, `on/40` or `off`; `?` is
+  follower), `search` (below) and `ms` (the last request's time). A fan or light reads `on/3`, `on/40` or `off`; `?` is
   unknown (a module that cannot say, before the first contact), `-` is none
   (`busy=-`, nothing told yet, `light=-` for a fan without a light kit). The
   light's buttons follow [the contract's LED rule](v1-design.md#52-light-links-200202)

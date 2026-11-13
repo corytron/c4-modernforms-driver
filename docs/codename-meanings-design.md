@@ -6,6 +6,10 @@
 > fits, how that ties to what the release changed. How the names are chosen
 > stays private: only each name's meaning is published.
 
+> **Status (2026-11-13, #213).** In use and current: the meanings file
+> covers 1.0 to 1.9, `tools/changelog.py check` and the Release workflow
+> enforce CM-D5, and CM-D6's rewrite of the past notes was a one-off.
+
 ## 1. Decisions
 
 | # | Decision |

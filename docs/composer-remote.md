@@ -10,14 +10,17 @@ Composer, driven by messages from the coordinator's session. It is the same
 session, with the same rules, that has served the author's Hue driver since
 2026-10-21 (that project's `docs/composer-remote.md` holds its rounds).
 
-**Current state (2026-10-27):** this project has had no round of its own
-yet. The session's rounds of 2026-10-27 on the house's fan keypad, run for
-the Hue project (its
-[issue #312](https://github.com/corytron/c4-hue-driver/issues/312)), tested
-the stock fan driver's Button Links and produced the rules and the
-"Learned" section below. A release install
-follows [`release-checklist.md`](release-checklist.md): `tools/deploy.py
-start` writes the brief the session works from ("Workflow" below). While a
+**Current state (2026-11-13):** in use for every change in Composer. This
+project's own rounds began with the M1 probe (#17, 2026-10-27 and
+2026-11-04) and the cutover from the stock driver (2026-11-04, Discussion
+#34), and every release since has been installed by this session from the
+brief `tools/deploy.py start` writes; each round is posted to GitHub
+Discussions and summed up in [`status.md`](status.md). The rules and the
+"Learned" section below came from the session's rounds of 2026-10-27 on the
+house's fan keypad, run for the Hue project (its
+[issue #312](https://github.com/corytron/c4-hue-driver/issues/312)), which
+tested the stock fan driver's Button Links. A release install follows
+[`release-checklist.md`](release-checklist.md) ("Workflow" below). While a
 dev build runs, the dev loop's shipped log is the coordinator's view; with a
 release build, Composer is where results are read (rule 13).
 
@@ -234,7 +237,8 @@ package and its sha256, the PowerShell that fetches them into
 steps, what to read back, and the standing-approval sentence. The session
 installs every package at once with Driver ▸ "Add or Update Driver or
 Agent…", in place (rule 20), and reads back every device's `Driver Version`
-and `Debug Mode` (and the properties the v1 contract adds to that list);
+and `Debug Mode`, any dialog Composer showed and any `[ERROR]` line in a
+device's Lua tab (the brief's "Read back and report");
 the coordinator records the result with `tools/deploy.py done --devices N`
 or `failed --note`. A dev build or a feature-branch test build is the
 exception (`CLAUDE.md`, Deploy): the coordinator serves the `.c4z` from
@@ -313,8 +317,8 @@ starts.
   LED on the \<keypad> to \<colour> when on"); "Use the on color for
   \<button>" and "Use the off color for \<button>" light and darken it,
   with the button's LED Behavior on Programmed; "Set LED Current" shows a
-  colour now. These are the commands of the house's LED workaround
-  ([`status.md`](status.md)).
+  colour now. These were the commands of the house's LED workaround, which
+  the cutover of 2026-11-04 removed ([`status.md`](status.md)).
 - **The Programming view's lists are read from screenshots only** (rule
   19): a cross-process list-view read there crashed Composer on
   2026-10-26.
@@ -325,9 +329,10 @@ starts.
 
 ## History
 
-No round of this project yet (2026-10-27). The rounds that made the rules
-above, from the first reads of Composer's pages on 2026-10-21 to the
-synthetic drags of 2026-10-27, are recorded in the Hue project's
+The rounds that made the rules above, from the first reads of Composer's
+pages on 2026-10-21 to the synthetic drags of 2026-10-27, are recorded in
+the Hue project's
 [`docs/composer-remote.md`](https://github.com/corytron/c4-hue-driver/blob/main/docs/composer-remote.md).
-This project's rounds are numbered from 1 here, each also posted to GitHub
-Discussions as it arrives.
+This project's own rounds, from the M1 probe of 2026-10-27 on, are posted to
+GitHub Discussions as they arrive and summed up in [`status.md`](status.md)
+and the issues; this page keeps the rules, not the rounds.
