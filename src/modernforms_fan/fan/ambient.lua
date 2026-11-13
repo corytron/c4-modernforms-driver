@@ -1,15 +1,17 @@
 -- fan/ambient.lua: whether the bound keypad's LEDs are dark, from its ambient light readings (#207). The contract is
--- docs/ambient-pause-design.md: what the house probe measured (section 0, AP1 to AP5), AP-D2 to AP-D5 and this
--- module's interface (section 2); the reasons are docs/edge-cases-led-dimming.md (DM15, DM48, DM61, DM72 to DM74).
+-- docs/ambient-pause-design.md: what the house probe measured (section 0, AP1 to AP5), AP-D2 to AP-D5, the lapse of
+-- section 1a (AP-D16 to AP-D18, #223) and this module's interface (sections 1a and 2); the reasons are
+-- docs/edge-cases-led-dimming.md (DM15, DM48, DM61, DM72 to DM74).
 --
 -- A keypad dimmer's Ambient Light Level (Source), bound to the fan's Ambient Light Level (Follower), sends the
 -- command AMBIENT_LIGHT_LEVEL with GROUP (its device id), LEVEL (its reading, 0 to 255) and TARGET (unused), on
 -- change only (AP1, AP2). The keypad is dark while its last reading is below the threshold, the property Pause LED
 -- Animations Below (AP-D2). Only dark pauses the LED animations: unknown runs them as today (fail-open, DM72).
 --
---   unknown   at construction, after a bind and after an unbind, until a reading counts. dark() is false.
+--   unknown   at construction, after a bind, after an unbind and after a lapse, until a reading counts. dark() is
+--             false.
 --   lit       the last counted reading is at or above the threshold.
---   dark      a counted reading was below the threshold, and nothing has resumed since. dark() is true.
+--   dark      a counted reading was below the threshold, and nothing has resumed or lapsed since. dark() is true.
 --
 -- Going dark is at once: a counted reading below the threshold makes the state dark and cancels the lit hold.
 -- Going lit from dark is held (AP-D3, DM15): a counted reading at or above the threshold arms one hold of
@@ -39,29 +41,50 @@
 -- as from a bound keypad whose id is unknown, so GROUP is not checked (but for its length) and nothing is skipped.
 --
 -- bound(id) is a bind: the id (nil when it is not a number or non-empty text, and then GROUP is not checked) and
--- the bind time are kept, the state is unknown, the hold is cancelled and the last reading forgotten. bound(nil)
--- (or false) is an unbind: the same, with no id and no bind time. Either calls on_change(false, "bound") or
--- on_change(false, "unbound") when the state was dark.
+-- the bind time are kept, the state is unknown, the hold and the lapse are cancelled and the last reading
+-- forgotten (last() too). bound(nil) (or false) is an unbind: the same, with no id and no bind time. Either calls
+-- on_change(false, "bound") or on_change(false, "unbound") when the state was dark.
+--
+-- The lapse (AP-D16, #223): the keypad sends on change only, so a dark verdict could outlive the night when no
+-- bright reading reached the driver in the morning. While dark, a second timer, the lapse, runs: it is armed with
+-- a fresh lapse_ms() when the state becomes dark (by a reading or by a threshold change) and again at every later
+-- counted dark reading while dark; a threshold change that keeps the state dark leaves it running. lapse_ms() is
+-- called in pcall; nil, a non-number, NaN, inf, a failure (logged at warn) or no lapse_ms at all give
+-- LAPSE_DEFAULT_MS (12 h); the delay is rounded to a whole ms and clamped to LAPSE_MIN_MS (1 min) to LAPSE_MAX_MS
+-- (24 h). The driver's lapse_ms gives the time to the next sunrise. Leaving dark by any path cancels it: lit after
+-- the hold (a threshold change that goes lit resumes through the hold too), a bind, an unbind, stop(). When it
+-- fires while dark, the state is unknown, the level (the one judged) is forgotten, a lit hold is cancelled and
+-- on_change(false, "the dark verdict lapsed (no reading since 23:51)") is called ("no reading for 12 h" when the
+-- reading's time is unknown); the next counted reading decides as from unknown. A lapse that cannot be armed is
+-- logged at warn, and the state stays dark until a reading, as before #223.
+--
+-- last() (AP-D17) gives the last counted reading and the epoch second it was counted (epoch(), default os.time, in
+-- pcall, whole; nil when it fails or gives no finite number), or nil: what the Keypad Links note names while
+-- paused. A lapse keeps it, so the note can still name it; a bind or an unbind clears it.
 --
 -- on_change(dark, why) is called only when dark() changes, never at construction, always in pcall (a failure is
 -- logged at warn and changes nothing). why is one English phrase: "keypad dark (reading 3 < 10)", "keypad lit again
--- (reading 14 >= 10, held 10 s)", "bound" or "unbound". The state has changed before it is called.
+-- (reading 14 >= 10, held 10 s)", "the dark verdict lapsed (no reading since 23:51)", "bound" or "unbound". The
+-- state has changed before it is called.
 --
--- The timer: one one-shot timer at a time, the hold; every re-arm and cancel bumps a generation, so a callback of a
--- cancelled timer is ignored. A hold that cannot be armed resumes at once with a warning (fail-open, as unknown
--- runs the animations, DM72). stop() cancels it and is final: every later call is ignored, dark(), state() and
--- debug() still answer.
+-- The timers: two one-shot timers, the hold and the lapse, each with its own generation; every re-arm and cancel
+-- bumps it, so a callback of a cancelled timer is ignored. A hold that cannot be armed resumes at once with a
+-- warning (fail-open, as unknown runs the animations, DM72). stop() cancels both and is final: every later call is
+-- ignored, dark(), state(), last() and debug() still answer.
 --
 -- No persistence and no polling (AP-D5, DM48, DM61): after a restart the state is unknown until the keypad's next
--- change, and there is no staleness rule, because silence means "no change" (AP2).
+-- change. Silence means "no change" (AP2), so a reading holds until the next one, but a dark verdict holds only
+-- until the lapse (AP-D16).
 --
 --   local a = ambient.new({ now = fn() -> ms, timer = fn(ms, cb) -> handle with :Cancel(),
---       on_change = fn(dark, why), log = { debug, warn } })   -- log: default common.log
+--       on_change = fn(dark, why), lapse_ms = fn() -> ms, epoch = fn() -> epoch seconds,
+--       log = { debug, warn } })   -- epoch: default os.time; log: default common.log
 --   a:set_threshold(n); a:bound(device_id_or_nil); a:reading(params)   -- params: GROUP, LEVEL, TARGET
---   a:dark() -> bool; a:state() -> "unknown" | "lit" | "dark"; a:stop()
---   a:debug() -> { state, level, threshold, bound, since_bind_ms, hold }
+--   a:dark() -> bool; a:state() -> "unknown" | "lit" | "dark"; a:last() -> level, at_s (or nil); a:stop()
+--   a:debug() -> { state, level, threshold, bound, since_bind_ms, hold, last_level, last_at_s, lapse }
 --
--- Pure: no Director calls, no globals. Lua 5.1: no goto, no integer division, no bit operators.
+-- Pure: no Director calls, no globals (os.time and os.date of the standard library only). Lua 5.1: no goto, no
+-- integer division, no bit operators.
 
 local ambient = {}
 
@@ -70,6 +93,9 @@ ambient.BIND_SETTLE_MS = 5000 -- AP-D4, AP3
 ambient.DEFAULT_THRESHOLD = 10 -- AP-D2
 ambient.MAX_LEVEL = 255 -- AP1: the keypad's Ambient Light Profile scale
 ambient.MAX_ID_CHARS = 32 -- #214: no device id is longer; a longer GROUP is refused before it is trimmed
+ambient.LAPSE_DEFAULT_MS = 43200000 -- AP-D16: 12 h, when lapse_ms gives nothing usable
+ambient.LAPSE_MIN_MS = 60000 -- AP-D16: never shorter than 1 minute
+ambient.LAPSE_MAX_MS = 86400000 -- AP-D16: never longer than 24 h
 
 local Ambient = {}
 Ambient.__index = Ambient
@@ -201,6 +227,32 @@ local function seconds(ms)
 	return string.format("%g s", ms / 1000)
 end
 
+-- A lapse for a line: whole minutes below 2 h, else hours to a tenth ("90 min", "12 h", "7.5 h").
+local function span(ms)
+	if ms < 7200000 then
+		return string.format("%d min", round(ms / 60000))
+	end
+	return string.format("%g h", round(ms / 360000) / 10)
+end
+
+-- "23:51" for an epoch second, in the controller's local time; nil when it cannot be written.
+local function hhmm(at_s)
+	if at_s == nil then
+		return nil
+	end
+	local ok, text = pcall(os.date, "%H:%M", at_s)
+	if not ok or type(text) ~= "string" then
+		return nil
+	end
+	return text
+end
+
+-- One timer slot: the handle of the one armed timer, and a generation that every cancel (and so every re-arm)
+-- bumps, so a callback of an older arm is ignored.
+local function slot(name)
+	return { name = name, handle = nil, armed = false, gen = 0, ms = nil }
+end
+
 -- The instance -----------------------------------------------------------------------------------------------
 
 function ambient.new(opts)
@@ -210,15 +262,15 @@ function ambient.new(opts)
 		log = opts.log or require("common.log"),
 		threshold = ambient.DEFAULT_THRESHOLD,
 		st = "unknown",
-		level = nil, -- the last counted reading since the last bind or unbind
+		level = nil, -- the last counted reading since the last bind, unbind or lapse: the one judged
+		last_level = nil, -- the last counted reading since the last bind or unbind, for last(); a lapse keeps it
+		last_at_s = nil, -- the epoch second it was counted, or nil
 		bound_given = nil, -- the id as bound() was given it, for debug()
 		bound_id = nil, -- the id as text, for comparing with GROUP; nil: unknown (GROUP not checked)
 		bind_at = nil, -- the clock at the last bind
 		settling = false, -- true from a bind until its first reading that passes LEVEL and GROUP
-		-- the hold
-		handle = nil,
-		armed = false,
-		gen = 0, -- bumped by every cancel: a callback of an older arm is ignored
+		hold = slot("hold"), -- the lit hold (AP-D3)
+		lapse = slot("lapse"), -- the lapse of a dark verdict (AP-D16)
 		stopped = false,
 	}, Ambient)
 end
@@ -245,6 +297,23 @@ function Ambient:clock()
 	return number_of(t)
 end
 
+-- The epoch second now, whole (AP-D17): epoch(), default os.time; nil when it fails or gives no finite number.
+function Ambient:epoch_s()
+	local fn = self.o.epoch
+	if fn == nil then
+		fn = os.time
+	end
+	local ok, t = try(fn)
+	if not ok then
+		self:say("warn", "the epoch clock failed: %s", tostring(t))
+		return nil
+	end
+	if not finite(t) then
+		return nil
+	end
+	return math.floor(t)
+end
+
 -- Milliseconds since the last bind, or nil (no bind, or no clock at the bind or now).
 function Ambient:since_bind()
 	if self.bind_at == nil then
@@ -269,43 +338,46 @@ function Ambient:notify(dark, why)
 	end
 end
 
--- The hold timer ---------------------------------------------------------------------------------------------
+-- The timers -------------------------------------------------------------------------------------------------
 
-function Ambient:cancel()
-	self.gen = self.gen + 1
-	self.armed = false
-	local handle = self.handle
-	self.handle = nil
+function Ambient:cancel(t)
+	t.gen = t.gen + 1
+	t.armed = false
+	local handle = t.handle
+	t.handle = nil
 	if handle ~= nil then
 		local ok, err = pcall(function() handle:Cancel() end)
 		if not ok then
-			self:say("warn", "the hold timer could not be cancelled: %s", tostring(err))
+			self:say("warn", "the %s timer could not be cancelled: %s", t.name, tostring(err))
 		end
 	end
 end
 
--- One hold of LIT_HOLD_MS; true when it is armed (or already fired, for a timer that calls back at once).
-function Ambient:arm(ms)
-	self:cancel()
-	local gen = self.gen
-	self.armed = true
-	local ok, handle = try(self.o.timer, ms, function() self:fire(gen) end)
+-- One timer of ms in the slot t, calling on_fire(self, gen) when it falls due; true when it is armed (or already
+-- fired, for a timer that calls back at once).
+function Ambient:arm(t, ms, on_fire)
+	self:cancel(t)
+	local gen = t.gen
+	t.armed, t.ms = true, ms
+	local ok, handle = try(self.o.timer, ms, function() on_fire(self, gen) end)
 	if not ok then
-		self.armed = false
-		self:say("warn", "the hold timer could not be armed (%d ms): %s", ms, tostring(handle))
+		t.armed = false
+		self:say("warn", "the %s timer could not be armed (%d ms): %s", t.name, ms, tostring(handle))
 		return false
 	end
-	if self.armed and self.gen == gen then
-		self.handle = handle
+	if t.armed and t.gen == gen then
+		t.handle = handle
 	end
 	return true
 end
 
-function Ambient:fire(gen)
-	if self.stopped or gen ~= self.gen then
+-- The hold falls due: lit, unless a dark verdict came since (it cancels the hold, so that is not reached).
+function Ambient:hold_due(gen)
+	local t = self.hold
+	if self.stopped or gen ~= t.gen then
 		return
 	end
-	self.handle, self.armed = nil, false
+	t.handle, t.armed = nil, false
 	if self.st ~= "dark" or self.level == nil or self.level < self.threshold then
 		return -- a dark verdict cancels the hold, so this is not reached; nothing to resume
 	end
@@ -313,26 +385,84 @@ function Ambient:fire(gen)
 		seconds(hold_ms())))
 end
 
+-- The lapse delay (AP-D16): lapse_ms() in pcall, rounded to a whole ms and clamped to LAPSE_MIN_MS to
+-- LAPSE_MAX_MS; nil, a non-number, NaN, inf, a failure or no lapse_ms at all give LAPSE_DEFAULT_MS.
+function Ambient:lapse_delay()
+	local ms
+	if self.o.lapse_ms ~= nil then
+		local ok, value = try(self.o.lapse_ms)
+		if not ok then
+			self:say("warn", "lapse_ms failed, the default %s applies: %s", span(ambient.LAPSE_DEFAULT_MS),
+				tostring(value))
+		elseif finite(value) then
+			ms = value
+		elseif value ~= nil then
+			self:say("debug", "lapse_ms gave %s, not a number of ms: the default %s applies", shown(value),
+				span(ambient.LAPSE_DEFAULT_MS))
+		end
+	end
+	ms = round(ms or ambient.LAPSE_DEFAULT_MS)
+	return math.min(math.max(ms, ambient.LAPSE_MIN_MS), ambient.LAPSE_MAX_MS)
+end
+
+-- While dark: the lapse, armed again with a fresh delay. One that cannot be armed is logged at warn by arm(), and
+-- the state stays dark until a reading, as before #223.
+function Ambient:arm_lapse()
+	local ms = self:lapse_delay()
+	if self:arm(self.lapse, ms, Ambient.lapse_due) and self.lapse.armed then
+		self:say("debug", "the dark verdict lapses in %s unless a dark reading comes first", span(ms))
+	end
+end
+
+-- The lapse falls due while dark (AP-D16): unknown, and the next counted reading decides.
+function Ambient:lapse_due(gen)
+	local t = self.lapse
+	if self.stopped or gen ~= t.gen then
+		return
+	end
+	t.handle, t.armed = nil, false
+	if self.st ~= "dark" then
+		return -- leaving dark cancels the lapse, so this is not reached
+	end
+	if self.hold.armed then
+		self:cancel(self.hold)
+		self:say("debug", "the resume hold is cancelled (the dark verdict lapsed)")
+	end
+	self.st, self.level = "unknown", nil
+	local at = hhmm(self.last_at_s)
+	local why = "the dark verdict lapsed (" .. (at and "no reading since " .. at or "no reading for " .. span(t.ms))
+		.. ")"
+	self:say("always", "%s: the keypad state is unknown, the animations run", why)
+	self:notify(false, why)
+end
+
 -- State changes ----------------------------------------------------------------------------------------------
 
-function Ambient:go_dark(reason)
-	if self.armed then
-		self:cancel()
+-- A dark verdict: dark at once, and the lapse armed when the state becomes dark; `reading` (a counted dark
+-- reading) arms it again while already dark.
+function Ambient:go_dark(reason, reading)
+	if self.hold.armed then
+		self:cancel(self.hold)
 		self:say("debug", "the resume hold is cancelled (%s)", reason)
 	end
 	if self.st == "dark" then
+		if reading then
+			self:arm_lapse()
+		end
 		return
 	end
 	self.st = "dark"
 	local why = "keypad dark (" .. reason .. ")"
-	self:say("debug", "%s", why)
+	self:say("always", "%s", why)
+	self:arm_lapse()
 	self:notify(true, why)
 end
 
 function Ambient:go_lit(why)
 	local was_dark = self.st == "dark"
 	self.st = "lit"
-	self:say("debug", "%s", why)
+	self:cancel(self.lapse)
+	self:say(was_dark and "always" or "debug", "%s", why)
 	if was_dark then
 		self:notify(false, why)
 	end
@@ -340,13 +470,13 @@ end
 
 -- While dark with a reading at or above the threshold: one hold, timed from the first such reading.
 function Ambient:hold_lit()
-	if self.armed then
+	if self.hold.armed then
 		self:say("debug", "reading %d >= %d: the resume hold goes on", self.level, self.threshold)
 		return
 	end
 	local ms = hold_ms()
-	if self:arm(ms) then
-		if self.armed then
+	if self:arm(self.hold, ms, Ambient.hold_due) then
+		if self.hold.armed then
 			self:say("debug", "reading %d >= %d: lit again in %s unless a reading below %d comes", self.level,
 				self.threshold, seconds(ms), self.threshold)
 		end
@@ -356,14 +486,14 @@ function Ambient:hold_lit()
 		self.level, self.threshold))
 end
 
--- The last counted reading against the threshold.
-function Ambient:judge(note)
+-- The last counted reading against the threshold; `reading` when a counted reading asks (not a threshold change).
+function Ambient:judge(note, reading)
 	local level, threshold = self.level, self.threshold
 	if level == nil then
 		return
 	end
 	if level < threshold then
-		self:go_dark(string.format("reading %d < %d%s", level, threshold, note or ""))
+		self:go_dark(string.format("reading %d < %d%s", level, threshold, note or ""), reading)
 	elseif self.st == "dark" then
 		self:hold_lit()
 	elseif self.st == "unknown" then
@@ -391,8 +521,10 @@ function Ambient:bound(id)
 		return
 	end
 	local was_dark = self.st == "dark"
-	self:cancel()
+	self:cancel(self.hold)
+	self:cancel(self.lapse)
 	self.st, self.level = "unknown", nil
+	self.last_level, self.last_at_s = nil, nil
 	local why
 	if id == nil or id == false then
 		self.bound_given, self.bound_id, self.bind_at, self.settling = nil, nil, nil, false
@@ -411,7 +543,7 @@ end
 
 function Ambient:ignore(template, ...)
 	local ok, text = pcall(string.format, template, ...)
-	self:say("debug", "reading ignored: %s", ok and text or tostring(template))
+	self:say("always", "reading ignored: %s", ok and text or tostring(template))
 end
 
 function Ambient:reading(params)
@@ -422,6 +554,10 @@ function Ambient:reading(params)
 		self:ignore("the parameters are not a table (%s)", shown(params))
 		return
 	end
+	-- #223: every message the keypad sends is logged whatever Debug Mode says (a few a day), with its raw
+	-- values, so a pause that does not end can be traced in Composer's log afterwards.
+	self:say("always", "the keypad sent LEVEL %s GROUP %s TARGET %s (state %s)", shown(params.LEVEL, true),
+		shown(params.GROUP, true), shown(params.TARGET, true), self.st)
 	local level = level_of(params.LEVEL)
 	if level == nil then
 		self:ignore("LEVEL %s is not a whole number 0 to %d", shown(params.LEVEL), ambient.MAX_LEVEL)
@@ -452,7 +588,8 @@ function Ambient:reading(params)
 	end
 	self:say("debug", "reading %d counted (threshold %d, state %s)", level, self.threshold, self.st)
 	self.level = level
-	self:judge()
+	self.last_level, self.last_at_s = level, self:epoch_s()
+	self:judge(nil, true)
 end
 
 function Ambient:dark()
@@ -463,11 +600,17 @@ function Ambient:state()
 	return self.st
 end
 
+-- The last counted reading and the epoch second it was counted (AP-D17), or nil; a lapse keeps them.
+function Ambient:last()
+	return self.last_level, self.last_at_s
+end
+
 function Ambient:stop()
 	if self.stopped then
 		return
 	end
-	self:cancel()
+	self:cancel(self.hold)
+	self:cancel(self.lapse)
 	self.stopped = true
 end
 
@@ -478,7 +621,10 @@ function Ambient:debug()
 		threshold = self.threshold,
 		bound = self.bound_given,
 		since_bind_ms = self:since_bind(),
-		hold = self.armed,
+		hold = self.hold.armed,
+		last_level = self.last_level,
+		last_at_s = self.last_at_s,
+		lapse = self.lapse.armed,
 	}
 end
 

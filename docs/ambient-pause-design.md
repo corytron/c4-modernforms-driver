@@ -59,6 +59,26 @@
 | AP-D10 | **Reporting:** pauses and resumes are logged at debug (no Last Action line, DM77). `Keypad Links`' note says "LED animations paused: the keypad is dark" while dark (DM79). The new property joins the keypad LED rows that show only while a speed link is bound (#178, KL-D1). |
 | AP-D11 | **The manual:** a section "Pausing the animations in the dark": bind the keypad's Ambient Light Level (Source) to the fan's Ambient Light Level (Follower); set the keypad's Status LED Min Brightness to 0 and `Pause LED Animations Below` to its Dark Room value; what pauses, what still updates, the 10 s resume hold, one keypad only, and what binding does to the keypad's Sensing (Source). |
 
+### 1a. Since 1.10, a later build (#223): the dark verdict lapses
+
+Found on the house on 2026-11-13: after a dark reading at night, no bright
+reading reached the driver in the morning, and the chase stayed paused in a
+bright room until the binding was reconnected. AP-D5's "no staleness rule"
+left no way out of `dark` but a reading.
+
+| # | Decision |
+| --- | --- |
+| AP-D16 | **A safety net, not a rule: a dark verdict lapses 12 h after the last dark reading** (`ambient.LAPSE_DEFAULT_MS`). The owner (2026-11-13): the pause follows the keypad's ambient light; the room has blackout curtains, so the sun is no guide, and the net is for a report that never arrives. When it lapses the state becomes `unknown`: the animations run, and the next reading decides. `lapse_ms` lets a caller choose another delay (clamped to 1 minute through 24 h); the driver passes none. |
+| AP-D19 | **Every message the keypad sends is logged at `always`**, whatever Debug Mode says, with its raw LEVEL, GROUP and TARGET and the state, as are every pause, resume, lapse and ignored reading: a few lines a day, so a pause that does not end can be traced in Composer's log afterwards (#223's root cause). Measured on 2026-11-13: the keypad sends at a change and again 5 s later, then nothing until the next change; a covered sensor read 19, 2, 16, 255, and the driver paused and resumed as AP-D3 says. |
+| AP-D17 | **The last counted reading and its time** are kept (`ambient:last()` gives the level and the epoch second, or nil). While paused, `Keypad Links` says which: "LED animations paused: the keypad read 1 at 23:51". |
+| AP-D18 | Nothing else changes: AP-D3's dark at once and 10 s lit hold, AP-D4's readings, AP-D6 to AP-D8's pause and resume. |
+
+Interfaces: `ambient.new` takes two more options, `lapse_ms = fn() -> ms`
+(the delay until the verdict lapses; nil or invalid gives 12 h; clamped to
+1 minute through 24 h; the driver passes none) and `epoch = fn() -> epoch
+seconds` (default `os.time`). `texts.keypad_leds_note(shown, dark, last)`
+takes `last = { level, at_s, now_s }`.
+
 ## 2. Interfaces
 
 `fan/ambient.lua` (agent A):

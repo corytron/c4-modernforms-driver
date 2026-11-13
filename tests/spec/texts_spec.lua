@@ -1924,6 +1924,121 @@ describe("fan.texts", function()
 				-- Cycle, Breeze and the light's three): dark adds nothing.
 				assert.equal(75, #("7 of 13 links bound" .. texts.keypad_leds_note(false, true)))
 			end)
+
+			-- ambient-pause-design AP-D17 (#223): while paused, the note names the
+			-- last counted reading and its time, { level, at_s, now_s }.
+			describe("with the last reading", function()
+				local NIGHT = at(2026, 11, 12, 23, 51) -- shown as 23:51
+				local function last(level, at_s, now_s)
+					return { level = level, at_s = at_s, now_s = now_s }
+				end
+
+				-- The first row with every link bound: 13 links, each its own.
+				local function every_link_bound()
+					local rows = {}
+					for index = 1, texts.LINK_COUNT do
+						rows[index] = { "Link " .. index .. " Button Link", "K", index }
+					end
+					return texts.keypad_links(rows)[1]
+				end
+
+				it("names the level and the time it was read", function()
+					assert.equal("; LED animations paused: the keypad read 1 at 23:51",
+						texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 60)))
+					assert.equal("; LED animations paused: the keypad read 0 at 23:51",
+						texts.keypad_leds_note(true, true, last(0, NIGHT, NIGHT)))
+					assert.equal("; LED animations paused: the keypad read 255 at 23:51",
+						texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 86400)), "exactly 24 h")
+				end)
+
+				it("gives the time without a present as texts.clock does, the hour alone", function()
+					assert.equal("; LED animations paused: the keypad read 3 at 23:51",
+						texts.keypad_leds_note(true, true, last(3, NIGHT)))
+					assert.equal("; LED animations paused: the keypad read 3 at 23:51",
+						texts.keypad_leds_note(true, true, last(3, NIGHT, "now")))
+				end)
+
+				it("adds the date once the reading is over a day old, without 'the' so that the row fits", function()
+					assert.equal("; LED animations paused: keypad read 1 at 11-12 23:51",
+						texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 86401)))
+					assert.equal("; LED animations paused: keypad read 255 at 11-12 23:51",
+						texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 3 * 86400)))
+				end)
+
+				it("names the level alone when the time cannot be shown", function()
+					for _, at_s in ipairs({ 1e300, 0 / 0, math.huge, -math.huge }) do
+						assert.equal("; LED animations paused: the keypad read 4",
+							texts.keypad_leds_note(true, true, last(4, at_s, NIGHT)), tostring(at_s))
+					end
+				end)
+
+				it("without it reads as today", function()
+					assert.equal(DARK, texts.keypad_leds_note(true, true))
+					assert.equal(DARK, texts.keypad_leds_note(true, true, nil))
+				end)
+
+				it("reads as today when it is not a reading: a bad level, a time that is no number", function()
+					local bad = {
+						last(0 / 0, NIGHT, NIGHT),
+						last(math.huge, NIGHT, NIGHT),
+						last(-1, NIGHT, NIGHT),
+						last(256, NIGHT, NIGHT),
+						last(1.5, NIGHT, NIGHT),
+						last("5", NIGHT, NIGHT),
+						last(nil, NIGHT, NIGHT),
+						last(true, NIGHT, NIGHT),
+						last(5, tostring(NIGHT), NIGHT),
+						last(5, nil, NIGHT),
+						last(5, {}, NIGHT),
+						last(5, true, NIGHT),
+						{ 5, NIGHT, NIGHT },
+						{},
+						"read 5",
+						5,
+						true,
+					}
+					for index, value in ipairs(bad) do
+						assert.equal(DARK, texts.keypad_leds_note(true, true, value), "case " .. index)
+					end
+				end)
+
+				it("changes nothing while not shown or not dark", function()
+					local good = last(1, NIGHT, NIGHT + 60)
+					assert.equal(SHOWN, texts.keypad_leds_note(true, false, good))
+					assert.equal(SHOWN, texts.keypad_leds_note(true, nil, good))
+					assert.equal(SHOWN, texts.keypad_leds_note(true, 1, good))
+					assert.equal(HIDDEN, texts.keypad_leds_note(false, true, good))
+					assert.equal(HIDDEN, texts.keypad_leds_note(nil, true, good))
+					assert.equal(HIDDEN, texts.keypad_leds_note(false, false, good))
+				end)
+
+				it("keeps every first row at or under Composer's 75 characters, with no comma, ASCII only", function()
+					local first = every_link_bound()
+					assert.equal("13 of 13 links bound", first)
+					local longest = 0
+					for _, level in ipairs({ 0, 9, 10, 99, 100, 255 }) do
+						for _, now_s in ipairs({ NIGHT, NIGHT + 86400, NIGHT + 86401, NIGHT + 40 * 86400, "?" }) do
+							for _, at_s in ipairs({ NIGHT, 0 / 0 }) do
+								local note = texts.keypad_leds_note(true, true, last(level, at_s, now_s))
+								local row = first .. note
+								assert.is_true(#row <= texts.ROW_CUT, row)
+								assert.is_nil(note:find(",", 1, true), note)
+								assert.is_nil(note:find("[^\32-\126]"), note)
+								longest = math.max(longest, #row)
+							end
+						end
+					end
+					-- The longest: a three-digit level over a day old, exactly at the cut.
+					assert.equal(75, longest)
+					assert.equal("13 of 13 links bound; LED animations paused: keypad read 255 at 11-12 23:51",
+						first .. texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 86401)))
+					-- Within a day "the" stays: 73 at most.
+					assert.equal(73, #(first .. texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 60))))
+					-- With fewer links bound the date form is shorter still.
+					assert.equal("4 of 13 links bound; LED animations paused: keypad read 1 at 11-12 23:51",
+						"4 of 13 links bound" .. texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 86401)))
+				end)
+			end)
 		end)
 
 		-- auto-discovery-design 3.1 and 3.2: texts.found_rows(view) gives the
