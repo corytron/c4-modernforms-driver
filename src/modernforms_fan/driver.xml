@@ -119,6 +119,17 @@
 				<default>15</default>
 				<readonly>false</readonly>
 			</property>
+			<!-- min-on-design MO-D1 (#195): Control4's 1 % becomes this fan level, the
+			     first one at which the light kit lights; 0 changes nothing. A property,
+			     not the proxy's deprecated Range Levels, so no capability changes. -->
+			<property>
+				<name>Light Min On (%)</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>0</minimum>
+				<maximum>99</maximum>
+				<default>0</default>
+				<readonly>false</readonly>
+			</property>
 			<!-- Section 7.3: the keypad buttons bound to the driver's links; a pick
 			     snaps back to the first row. -->
 			<property>

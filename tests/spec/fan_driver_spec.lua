@@ -209,7 +209,7 @@ describe("Modern Forms Fan driver", function()
 				for body in bare:gmatch("<property>(.-)</property>") do names[#names + 1] = field(body, "name") end
 				assert.same({ "Driver Version", "Status", "Last Action", "Fan Address", "Found Fans",
 					"Follow Address Changes", "Fan ID",
-					"Fan Model", "Firmware", "Last Seen", "Last Change By", "Fan Automations", "Poll Interval (s)",
+					"Fan Model", "Firmware", "Last Seen", "Last Change By", "Fan Automations", "Poll Interval (s)", "Light Min On (%)",
 					"Keypad Links", "Speed 1 Link Also Lit At", "Speed 2 Link Also Lit At", "Speed 3 Link Also Lit At",
 					"Speed 4 Link Also Lit At", "Speed 5 Link Also Lit At", "Speed 6 Link Also Lit At",
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",

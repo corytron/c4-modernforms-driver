@@ -209,6 +209,11 @@ local function refresh_status()
 	view.failing = (found_list ~= nil and found_list:failing())
 		or (model:identity() ~= nil and trimmed(Properties["Fan Address"]) == "")
 	view.os = os_info
+	-- min-on-design MO-D11: the Control4 level beside the fan's.
+	if light then
+		view.min_on = light:min_on()
+		view.light_level = light:c4_level(view.st)
+	end
 	set_row("Status", texts.status(view))
 end
 
@@ -766,6 +771,19 @@ dispatch.properties["Poll_Interval_(s)"] = function(value)
 	end
 end
 
+-- min-on-design MO-D9, MO-D10 (#195): late init's replay takes the value
+-- without sending anything; an edit afterwards acts at once. A refused value
+-- keeps the one in use and writes it back.
+dispatch.properties["Light_Min_On_(%)"] = function(value)
+	local ok, why = light:set_min_on(value, started and "property" or "load")
+	if not ok then
+		local kept = light:min_on()
+		log.warn("Light Min On (%%) %s refused (%s); keeping %d", tostring(value), tostring(why), kept)
+		prop("Light Min On (%)", tostring(kept))
+	end
+	refresh_status()
+end
+
 -- "Speed 3" -> 3, "No other speed" -> nil (V26).
 for speed = 1, 6 do
 	dispatch.properties["Speed_" .. speed .. "_Link_Also_Lit_At"] = function(value)
@@ -1146,6 +1164,10 @@ local function take_fan(address, mac)
 		end
 		if key == "moved" or key == "now_using" then
 			prop("Fan Address", address)
+		end
+		-- min-on-design MO-D13: a new fan keeps the Min On; say so once.
+		if key == "now_using" and light and light:min_on() > 0 then
+			log.info("Light Min On is %d %%; check it for this fan's light", light:min_on())
 		end
 		result(key, args)
 		refresh_status()

@@ -204,6 +204,10 @@ Read-only research written before a feature's contract, in the same style.
   both sides (#195): levels set from the fan's app or remote, changing the
   value, turn-ons, fades, presets, the device's life cycle, rounding, and
   what is automatic, offered or forbidden.
+- [`min-on-design.md`](min-on-design.md): the contract for Min On on the
+  fan's light (#195): the property `Light Min On (%)`, the mapping between
+  Control4's levels and the fan's, what a change of the value does, the
+  Control4 guidelines it follows, and who owns which file.
 
 ## Start here
 
