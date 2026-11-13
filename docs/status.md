@@ -17,6 +17,19 @@ has been rebooted since and 1.5's tap fades and second-tap stop are live;
 it also set the Min On of the keypad dimmer beside the fan, whose lamp was
 slow to start, from 1 to 10 (Discussion #199). Before it:
 
+**The keypads' ambient LED dimming (#198, 2026-11-12).** The speed chase
+and the Breeze gusts are scaled by the keypad's own Ambient Light Profile,
+like its other LEDs; the keypad dimmer bound to the fan's speed links had
+a Status LED minimum of 13, so a lit LED, the chase included, stayed dimly
+lit in a dark room. The Windows session set that minimum to 0 (Discussion
+#204): below the Dark Room threshold every LED on that keypad goes dark,
+the chase and the gusts included, and they come back along its curve as
+the room brightens. No driver change (the research:
+[`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md),
+[`edge-cases-led-dimming.md`](edge-cases-led-dimming.md), Discussion #200).
+The chase keeps sending its messages while unseen; a driver pause at night
+is offered, not built.
+
 **1.7 "Stillsuit" is installed on the house: build 193, released and
 installed in place on 2026-11-10 (#177, #178, #185; deploy issues #181 and
 #187; the announcement and install rounds in Discussion #184).** The speed
