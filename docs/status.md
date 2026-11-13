@@ -24,17 +24,21 @@ like its other LEDs, so they follow its dimming policy with no driver
 change (the research:
 [`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md),
 [`edge-cases-led-dimming.md`](edge-cases-led-dimming.md), Discussion #200).
-The keypad dimmer bound to the fan's speed links had another Status LED
-curve than the two switches beside it (a night floor of 13 against their
-17). A first change set its floor to 0, which left it dark while the
-switches still glowed; the owner wants the chase lit whenever their LEDs
-are. Since 2026-11-12 all three have the same Status LED curve, Min 17,
-Max 255, Dark Room below 10, Bright Room above 50, and the same backlight
-(Discussion #205), so the keypad and its chase dim with the switches. Each
-still reads its own ambient sensor ("Independent"); Composer can make one
-follow another's through the connections Ambient Light Level (Source) and
-(Follower), which is not done. The chase keeps sending its messages while
-dim; a driver pause at night is offered, not built.
+The keypad dimmer bound to the fan's speed links and the two switches
+beside it had night floors of 13 and 17 out of 255: a lit LED never went
+dark. At night the switches looked dark only because their lights were off
+and they showed black and a half red, which vanish at that level, while
+the chase's purple, with a full blue channel, stayed visible (the owner
+saw the keypad's own half-red LED dark too). At the owner's word ("all
+dark"), all three now have the same Status LED curve with a floor of 0:
+Min 0, Max 255, Dark Room below 10, Bright Room above 50, backlight
+unchanged (Discussion #205). Below Dark Room every status LED on all three
+is dark, the chase and the gusts included, and they come back together
+along the same curve as the room brightens. Each still reads its own
+ambient sensor ("Independent"); Composer can make one follow another's
+through the connections Ambient Light Level (Source) and (Follower), which
+is not done. The chase keeps sending its messages while dark; a driver
+pause at night is offered, not built.
 
 Before it:
 
