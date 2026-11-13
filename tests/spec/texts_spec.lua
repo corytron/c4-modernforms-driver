@@ -1848,6 +1848,59 @@ describe("fan.texts", function()
 			end)
 		end)
 
+		-- keypad-leds-visibility-design KL-D7: the note the driver puts after the
+		-- first row; ambient-pause-design AP-D10 (#207): the pause while the
+		-- keypad bound to Ambient Light Level (Follower) is dark.
+		describe("Keypad Links' note", function()
+			local SHOWN = "; LED settings shown"
+			local HIDDEN = "; LED settings hidden: bind a button to a Fan Speed link"
+			local DARK = "; LED animations paused: the keypad is dark"
+
+			it("without the dark argument reads as before: shown or hidden (KL-D7)", function()
+				assert.equal(SHOWN, texts.keypad_leds_note(true))
+				assert.equal(HIDDEN, texts.keypad_leds_note(false))
+				assert.equal(HIDDEN, texts.keypad_leds_note(nil))
+				assert.equal(HIDDEN, texts.keypad_leds_note())
+			end)
+
+			it("with the keypad not dark reads as before", function()
+				assert.equal(SHOWN, texts.keypad_leds_note(true, false))
+				assert.equal(SHOWN, texts.keypad_leds_note(true, nil))
+				assert.equal(HIDDEN, texts.keypad_leds_note(false, false))
+			end)
+
+			it("while the keypad is dark says the animations are paused, in place of LED settings shown (AP-D10)",
+				function()
+					assert.equal(DARK, texts.keypad_leds_note(true, true))
+				end)
+
+			it("keeps the binding hint while the rows are hidden: no speed link, nothing to pause", function()
+				assert.equal(HIDDEN, texts.keypad_leds_note(false, true))
+				assert.equal(HIDDEN, texts.keypad_leds_note(nil, true))
+			end)
+
+			it("counts only true as dark", function()
+				for _, value in ipairs({ 1, "true", "dark", {}, 0 }) do
+					assert.equal(SHOWN, texts.keypad_leds_note(true, value), tostring(value))
+				end
+			end)
+
+			it("leaves the first row under Composer's 75 characters, with no comma, ASCII only", function()
+				for _, note in ipairs({ SHOWN, HIDDEN, DARK }) do
+					assert.is_nil(note:find(",", 1, true), note)
+					assert.is_nil(note:find("[^\32-\126]"), note)
+				end
+				-- Every link bound: the longest first row the pause can follow.
+				local first = texts.keypad_links({ { "Fan Speed 3 Button Link", "K", 1 } }, 13)[1]:gsub("^1 ", "13 ")
+				assert.equal("13 of 13 links bound; LED animations paused: the keypad is dark",
+					first .. texts.keypad_leds_note(true, true))
+				assert.equal(63, #(first .. texts.keypad_leds_note(true, true)))
+				-- The most links bound with none of them a speed link (Off, Toggle,
+				-- Cycle, Breeze and the light's three): dark adds nothing.
+				assert.equal(75, #("7 of 13 links bound" .. texts.keypad_leds_note(false, true)))
+			end)
+		end)
+
 		-- auto-discovery-design 3.1 and 3.2: texts.found_rows(view) gives the
 		-- summary (the first item, and the value while no pick waits) and the item
 		-- rows under it; the summary is not repeated in the items.

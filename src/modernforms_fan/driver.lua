@@ -46,6 +46,7 @@ local ledhub_mod = require("fan.ledhub")
 local ledrows_mod = require("fan.ledrows")
 local fanmode = require("fan.mode")
 local sun_mod = require("fan.sun")
+local ambient_mod = require("fan.ambient")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -191,6 +192,7 @@ end
 -- The modules ------------------------------------------------------------------
 
 local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds, sleds, ledhub, lrows
+local ambient -- #207: the bound keypad dark or lit (ambient-pause-design)
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 local keypad_raw = {} -- the same list as links.lua gave it, before the LED settings note (#178)
 local update_rows -- the keypad LED rows follow the bindings and the fan (#178); defined with the links
@@ -416,7 +418,7 @@ local function write_keypad_links(items)
 		for index, item in ipairs(items) do
 			copy[index] = item
 		end
-		copy[1] = items[1] .. texts.keypad_leds_note(shown)
+		copy[1] = items[1] .. texts.keypad_leds_note(shown, ambient ~= nil and ambient:dark())
 		items = copy
 	end
 	keypad_items = items
@@ -490,6 +492,23 @@ sleds = speedleds_mod.new({
 	log = log,
 })
 ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
+
+-- #207 (ambient-pause-design AP-D1 to AP-D6): the keypad bound to the
+-- Ambient Light Level (Follower) input pushes its reading; while it reads
+-- dark, both LED engines pause and send nothing. on_change is never called
+-- before late init: readings wait for it like every other message.
+local AMBIENT_BINDING = 500
+ambient = ambient_mod.new({
+	now = now_ms,
+	timer = timer,
+	on_change = function(dark, why)
+		log.debug("LED animations %s: %s", dark and "paused" or "resumed", tostring(why))
+		sleds:configure({ dark = dark })
+		bleds:configure({ dark = dark })
+		write_keypad_links(keypad_raw)
+	end,
+	log = log,
+})
 
 links = links_mod.new({
 	model = model,
@@ -940,6 +959,13 @@ dispatch.properties["Breeze_LED_Bottom"] = function()
 end
 dispatch.properties["Speed_LED_Animation"] = apply_speed_leds
 dispatch.properties["Speed_LED_Rest_(s)"] = apply_speed_leds
+dispatch.properties["Pause_LED_Animations_Below"] = function(value)
+	ambient:set_threshold(tonumber(value))
+end
+-- #207 AP1: the bound keypad's reading arrives as a command, on change only.
+dispatch.commands["AMBIENT_LIGHT_LEVEL"] = function(params)
+	ambient:reading(params)
+end
 dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds
 -- A colour change during a chase ends it first (speed-leds-design SL-D11): the
@@ -1359,6 +1385,9 @@ OnBindingChanged = dev.binding_changed(function(binding, _, bound, other_device,
 	if binding == BREEZE_BINDING then
 		breeze:binding_changed(bound)
 	end
+	if binding == AMBIENT_BINDING then
+		ambient:bound(bound and other_device or nil)
+	end
 end)
 
 -- Section 2.7: the one condition, "Fan is online". With a VALUE (the text
@@ -1411,6 +1440,7 @@ function OnDriverDestroyed()
 	names_job:stop()
 	breeze:stop()
 	cancel_night_timer()
+	ambient:stop()
 	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
 	lrows:stop()
 	links:stop()

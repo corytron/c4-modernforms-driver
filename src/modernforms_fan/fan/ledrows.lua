@@ -1,9 +1,12 @@
 -- fan/ledrows.lua: the keypad LED rows shown only while a keypad can use them (#178). The contract is
 -- docs/keypad-leds-visibility-design.md: decisions KL-D1 to KL-D10 and this module's interface (section 2.1); the
 -- reasons are docs/edge-cases-keypad-leds-visibility.md (KF1 onward, KV1 to KV48) and
--- docs/keypad-leds-visibility-sdk-research.md.
+-- docs/keypad-leds-visibility-sdk-research.md. `Pause LED Animations Below` joined them with #207
+-- (docs/ambient-pause-design.md AP-D10).
 --
--- The rows (KL-D1): the 20 rows of ROWS, in driver.xml order. `Keypad Links` is never one of them.
+-- The rows (KL-D1, AP-D10): the 21 rows of ROWS, in driver.xml order: KL-D1's 20 and `Pause LED Animations
+-- Below`, which pauses both animations and so follows the gate alone, like `Breeze LED Bottom`. `Keypad Links`
+-- is never one of them.
 --
 -- The gate (KL-D2): the rows are shown while at least one device is bound to a fan speed link 301 to 306
 -- (`speed_bound`), whatever the device. Breeze (KL-D3): the three rows of BREEZE also need a fan that has Breeze;
@@ -15,7 +18,7 @@
 --
 -- How (KL-D6): an apply records every row's state and sends it SEND_MS[1] = 400 ms later and again SEND_MS[2] =
 -- 1,500 ms after the apply, through set_hidden(name, hidden) (the driver's C4:SetPropertyAttribs, 1 hides, 0 shows).
--- Every send carries all 20 rows, changed or not, in ROWS order, so a dropped send heals at the next one. A new
+-- Every send carries all 21 rows, changed or not, in ROWS order, so a dropped send heals at the next one. A new
 -- apply cancels the sends still pending from the one before and starts its own two; a send reads the state as
 -- applied when it goes out. The 400 ms keep the sends clear of the row texts the driver writes in the same moment
 -- (`changed` is called right after the apply), which Composer dropped visibility changes next to (KF4).
@@ -54,7 +57,8 @@
 
 local ledrows = {}
 
--- KL-D1: the managed rows, in driver.xml order (tests/spec/ledrows_spec.lua checks it against the file).
+-- KL-D1 and AP-D10: the managed rows, in driver.xml order (tests/spec/ledrows_spec.lua checks it against the
+-- file).
 ledrows.ROWS = {
 	"Speed 1 Link Also Lit At",
 	"Speed 2 Link Also Lit At",
@@ -76,9 +80,11 @@ ledrows.ROWS = {
 	"Breeze LED Night Brightness (%)",
 	"Speed LED Animation",
 	"Speed LED Rest (s)",
+	"Pause LED Animations Below", -- AP-D2, AP-D10 (#207): both animations, so not a Breeze-only row
 }
 
--- KL-D3: the rows only Breeze uses (`Breeze LED Bottom` also orders the chase and follows the gate alone).
+-- KL-D3: the rows only Breeze uses (`Breeze LED Bottom` also orders the chase, and `Pause LED Animations Below`
+-- also pauses it: both follow the gate alone).
 ledrows.BREEZE = {
 	["Breeze LED Animation"] = true,
 	["Breeze LED Step (ms)"] = true,

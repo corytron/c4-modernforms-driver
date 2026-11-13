@@ -41,11 +41,22 @@
 --
 -- Start (BL-D19): from idle, or when Breeze is back during the leave (BL-D10), every pixel is taken (held) and
 -- sent dark at once, and the first gust starts at once; its front enters pixel 1 one front step later, so the
--- dark shows first. Active means enabled, per_speed, online, breeze and at least one pixel. Any other way out
--- of active settles every held pixel at once, with no wipe (BL-D11). Leave during a gust or a rest starts the
--- ending wipe at once (BL-D10). The strength and the direction are read when a gust starts (its tail, double and
--- way) and the strength when a rest is armed; the direction when the wipe starts; a step change applies from the
--- next gust, and in the wipe from the next arm. A change of strength or direction alone sends nothing.
+-- dark shows first. Active means enabled, per_speed, online, breeze, at least one pixel and the keypad not dark.
+-- Any other way out of active settles every held pixel at once, with no wipe (BL-D11). Leave during a gust or a
+-- rest starts the ending wipe at once (BL-D10). The strength and the direction are read when a gust starts (its
+-- tail, double and way) and the strength when a rest is armed; the direction when the wipe starts; a step change
+-- applies from the next gust, and in the wipe from the next arm. A change of strength or direction alone sends
+-- nothing.
+--
+-- The keypad's dark (#207, docs/ambient-pause-design.md AP-D6 to AP-D8; docs/edge-cases-led-dimming.md DM16 to
+-- DM21): configure{ dark = true } takes the animation out of active and out of leaving alike, so it stops the
+-- way BL-D11 stops it: every held pixel settled once, at once, with no ending wipe, whether the first gust after
+-- the dark-first, a later gust, a rest or the ending wipe was running. While dark nothing animates and nothing is
+-- armed: Breeze starting starts nothing, Breeze ending plays no wipe, now or later. dark = false with Breeze
+-- still blowing (and the rest of active holding) starts again as Breeze starting does (BL-D19): dark first, then
+-- the first gust; nothing missed is replayed. The engine never sends black, a dark state or a scaled colour in
+-- the keypad's place (AP-D8): pausing only stops frames, and the steady LEDs are the links'. Night (BL-D28) is
+-- separate and unchanged. Whether the keypad is dark is the driver's to decide (fan/ambient.lua).
 --
 -- Messages (BL-D23): what the keypad shows is kept per pixel (lit, dark or unknown, and the colour loaded) and
 -- only real changes are sent: a dark pixel's colour is preloaded with paint(link, colour, false, true) and shown
@@ -115,7 +126,7 @@
 --       log = log,                                      -- default common.log
 --   })
 --   b:configure({ enabled = bool, per_speed = bool, bottom = 1 | 6, step = ms, night = bool,
---                 night_percent = 10..100 })
+--                 night_percent = 10..100, dark = bool })  -- dark: the keypad shows nothing (#207), false at first
 --   breezeleds.scale(colour, percent) -> colour  -- each component * percent / 100, rounded half up (BL-D28)
 --   b:set_pixels(list)       -- the bound speed links, any order, duplicates ignored, only 301 to 306 kept
 --   b:update({ breeze = bool, strength = 1 | 2 | 3 | nil, online = bool,
@@ -289,6 +300,7 @@ function breezeleds.new(opts)
 		step = breezeleds.STEP_DEFAULT,
 		night = false,
 		night_percent = breezeleds.NIGHT_PERCENT_DEFAULT,
+		dark = false, -- the keypad LEDs are dark (#207, AP-D6): not active, and no wipe
 		-- update
 		breeze = false,
 		strength = nil,
@@ -333,13 +345,14 @@ function Leds:say(level, template, ...)
 end
 
 function Leds:active()
-	return self.enabled and self.per_speed and self.online and self.breeze and #self.order > 0
+	return self.enabled and self.per_speed and self.online and self.breeze and #self.order > 0 and not self.dark
 end
 
 -- Breeze ended while everything else still holds: the falling wipe plays (BL-D8). Any other way out of active
--- settles at once (BL-D11).
+-- settles at once (BL-D11); the dark is one of them (AP-D6: no ending wipe while dark).
 function Leds:leaving()
 	return self.enabled and self.per_speed and self.online and not self.breeze and #self.order > 0
+		and not self.dark
 end
 
 function Leds:any_held()
@@ -1077,6 +1090,11 @@ function Leds:configure(c)
 	if c.night_percent ~= nil then
 		self.night_percent = percent_of(c.night_percent) or breezeleds.NIGHT_PERCENT_DEFAULT
 	end
+	local why = "configure"
+	if c.dark ~= nil and (c.dark == true) ~= self.dark then
+		self.dark = c.dark == true -- AP-D6, AP-D7: settled with no wipe, or dark first again
+		why = self.dark and "the keypad LEDs are dark" or "the keypad LEDs are lit again"
+	end
 	local moved = false
 	if c.bottom ~= nil then
 		local bottom = number_of(c.bottom) == 6 and 6 or 1
@@ -1092,7 +1110,7 @@ function Leds:configure(c)
 	elseif moved and self.phase == "leave" then
 		self:settle_all("the bottom changed during the falling wipe")
 	else
-		self:evaluate("configure")
+		self:evaluate(why)
 	end
 end
 
@@ -1233,6 +1251,7 @@ function Leds:debug()
 		per_speed = self.per_speed,
 		online = self.online,
 		breeze = self.breeze,
+		dark = self.dark, -- the keypad LEDs are dark (#207): paused
 		active = self:active() == true,
 		pending = self.armed,
 		stopped = self.stopped,

@@ -217,6 +217,11 @@ Read-only research written before a feature's contract, in the same style.
   both sides (#198): 81 cases of the dark state starting and ending during a
   chase or a gust, neighbouring sensors, presses, restarts and message cost,
   each automatic, offered or forbidden.
+- [`ambient-pause-design.md`](ambient-pause-design.md): the contract for
+  pausing the speed chase and the Breeze animation while the keypad's LEDs
+  are dark (#207): what the house probe measured on the keypad's Ambient
+  Light Level (Source) output, the dark and lit rules, the pause and resume
+  in both engines, and who owns which file.
 
 ## Start here
 

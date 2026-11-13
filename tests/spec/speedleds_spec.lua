@@ -1656,4 +1656,298 @@ describe("fan.speedleds", function()
 			assert.is_false(d.first) -- the rest between chases
 		end)
 	end)
+
+	describe("#207 dark", function()
+		-- The keypad bound to the fan reads dark (docs/ambient-pause-design.md AP-D6 to AP-D8; the cases are
+		-- docs/edge-cases-led-dimming.md DM10 to DM15, DM22 to DM24 and DM38 to DM40): the chase pauses through its
+		-- stop path and sends nothing while dark; lit again is a new run, its first chase FIRST_MS later (SL-D19).
+		local DARK = "the keypad LEDs are dark"
+
+		local function dark(r, on)
+			r.s:configure({ dark = on })
+		end
+
+		-- Paused: off for the dark, nothing held, nothing armed.
+		local function paused(r)
+			assert.is_nil(pending(r))
+			assert.is_false(held_any(r))
+			local d = r.s:debug()
+			assert.are.equal("off", d.state)
+			assert.is_false(d.first)
+			assert.is_false(d.active)
+			assert.is_true(d.dark)
+			assert.are.equal(DARK, d.why)
+		end
+
+		-- The keypad shows what the links left, never something the engine made up (AP-D8): the selected speed's
+		-- button lit, the others dark.
+		local function truthful(r)
+			for _, link in ipairs(r.pixels) do
+				assert.are.equal(r.rest[link] == true, r.kp[link].lit)
+			end
+		end
+
+		it("is false at first, reported by debug, and kept by a configure without it", function()
+			local r = rig()
+			assert.is_false(r.s:debug().dark)
+			start(r)
+			assert.is_false(r.s:debug().dark)
+			dark(r, true)
+			assert.is_true(r.s:debug().dark)
+			r.s:configure({ rest = 5 })
+			r.s:configure({})
+			assert.is_true(r.s:debug().dark)
+			dark(r, false)
+			assert.is_false(r.s:debug().dark)
+			r.s:configure({ dark = "yes" }) -- only true pauses: anything else runs as today (fail-open, AP-D3)
+			assert.is_false(r.s:debug().dark)
+		end)
+
+		it("pauses during the rest: the rest's timer cancelled, nothing sent (DM10)", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			local resting = pending(r)
+			assert.are.equal(REST_MS, resting.ms)
+			r.clock = r.clock + 2000
+			r.calls, r.stamps = {}, {}
+			dark(r, true)
+			assert.are.same({}, r.calls)
+			assert.are.equal(0, #r.stamps)
+			assert.is_true(resting.cancelled)
+			paused(r)
+			truthful(r)
+		end)
+
+		it("pauses in the first chase's wait: that run is dropped, the next gets its own 2,500 ms (DM11)", function()
+			local r = rig()
+			start(r)
+			local first = pending(r)
+			assert.are.equal(FIRST_MS, first.ms)
+			r.clock = first.at + 2000
+			dark(r, true)
+			assert.are.same({}, r.calls)
+			assert.is_true(first.cancelled)
+			paused(r)
+			r.clock = r.clock + 3000 -- past the dropped run's first chase: nothing falls due
+			assert.is_nil(pending(r))
+			dark(r, false)
+			assert.are.same({}, r.calls)
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+			assert.is_true(r.s:debug().first)
+		end)
+
+		it("pauses mid-chase: every held pixel settled once, then silence (DM12)", function()
+			local r = rig()
+			start(r)
+			tick(r)
+			tick(r)
+			local step = pending(r)
+			r.clock = r.clock + 100
+			r.calls, r.stamps = {}, {}
+			dark(r, true)
+			assert.are.same(settles(HOUSE), r.calls) -- no black, no dark state, no colour of its own (AP-D8)
+			assert.are.equal(8, #r.stamps)
+			assert.is_true(step.cancelled)
+			paused(r)
+			truthful(r)
+			assert.is_true(r.log.has("debug", DARK))
+			r.calls = {}
+			dark(r, true) -- the same dark again: nothing (SL-D10)
+			assert.are.same({}, r.calls)
+			assert.is_nil(pending(r))
+		end)
+
+		it("pauses while waiting for Breeze's ending wipe: nothing held, nothing sent (DM13)", function()
+			local r = rig()
+			start(r)
+			r.blocked[305] = true
+			assert.are.same({}, tick(r))
+			assert.are.equal("waiting", r.s:debug().state)
+			local retry = pending(r)
+			dark(r, true)
+			assert.are.same({}, r.calls)
+			assert.is_true(retry.cancelled)
+			paused(r)
+		end)
+
+		it("resumes with a new run, its first chase FIRST_MS after lit, at the speed of then (DM14, DM38)", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			dark(r, true)
+			r.clock = r.clock + 60000
+			r.speed, r.rest = 4, { [304] = true } -- a speed picked in the dark: the links light Med-High
+			r.s:update(view(r))
+			assert.are.same({}, r.calls)
+			paused(r)
+			r.clock = r.clock + 60000
+			dark(r, false)
+			assert.are.same({}, r.calls) -- nothing at once (DM58)
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+			local d = r.s:debug()
+			assert.are.equal("resting", d.state)
+			assert.is_true(d.first)
+			assert.is_true(d.active)
+			assert.is_false(d.dark)
+			assert.is_nil(d.why)
+			local first = tick(r)
+			assert.are.equal(t.at + FIRST_MS, r.clock)
+			assert.are.same({ { "light", 304, false }, { "paint", 305, COLOURS[4], false, true }, { "light", 305, true } },
+				first)
+			finish(r)
+			assert.are.equal(REST_MS, pending(r).ms) -- then one every rest; nothing missed is replayed
+		end)
+
+		it("pauses once and resumes once: the same dark or lit again sends nothing and keeps the timer", function()
+			local r = rig()
+			start(r)
+			local t = pending(r)
+			local armed = #r.timers
+			dark(r, false) -- lit while lit: not a change (SL-D10)
+			assert.are.equal(t, pending(r))
+			assert.is_false(t.cancelled)
+			dark(r, true)
+			dark(r, true)
+			assert.are.equal(armed, #r.timers)
+			dark(r, false)
+			local resumed = pending(r)
+			dark(r, false)
+			assert.are.equal(resumed, pending(r))
+			assert.are.equal(armed + 1, #r.timers)
+			assert.are.same({}, r.calls)
+		end)
+
+		-- The reasons that rule a chase out anyway keep their texts while dark; lit starts nothing while one holds,
+		-- and a reason that clears in the dark starts nothing either (DM22 to DM24).
+		local REASONS = {
+			{ "Speed LED Animation is Off", function(r) r.s:configure({ speeds = "off" }) end,
+				function(r) r.s:configure({ speeds = "2-5" }) end },
+			{ "Speed LED Colors is not Per speed", function(r) r.s:configure({ per_speed = false }) end,
+				function(r) r.s:configure({ per_speed = true }) end },
+			{ "not in fan mode", function(r) r.s:update(view(r, { fan_mode = false, speed = 0 })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "not online", function(r) r.s:update(view(r, { online = false })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "no chase at speed 6", function(r) r.s:update(view(r, { speed = 6 })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "the direction is unknown", function(r) r.s:update(view(r, { direction = false })) end,
+				function(r) r.s:update(view(r)) end },
+			{ "fewer than two speed buttons bound", function(r) r.s:set_pixels({ 303 }) end,
+				function(r) r.s:set_pixels(HOUSE) end },
+		}
+		for _, case in ipairs(REASONS) do
+			it("says " .. case[1] .. " while dark too; nothing starts until both allow (DM22 to DM24)", function()
+				local r = rig()
+				start(r)
+				case[2](r)
+				dark(r, true)
+				assert.are.equal(case[1], r.s:debug().why)
+				dark(r, false) -- lit, but not active: no run
+				assert.are.equal(case[1], r.s:debug().why)
+				assert.is_nil(pending(r))
+				dark(r, true)
+				case[3](r) -- the reason clears in the dark (the fan turned on at a speed, DM23): still nothing
+				assert.are.same({}, r.calls)
+				paused(r)
+				dark(r, false)
+				assert.are.equal(FIRST_MS, pending(r).ms)
+				assert.are.same({}, r.calls)
+			end)
+		end
+
+		it("sends nothing for speed, direction or button changes in the dark: the steady LEDs are the links'"
+			.. " (DM38 to DM40)", function()
+				local r = rig()
+				start(r)
+				dark(r, true)
+				local armed = #r.timers
+				for _, speed in ipairs({ 2, 5, 4, 3 }) do
+					r.speed, r.rest = speed, { [300 + speed] = true }
+					r.s:update(view(r))
+					assert.is_false(held_any(r)) -- the links own every pixel: they light the new speed's button
+				end
+				r.direction = "reverse"
+				r.s:update(view(r))
+				r.s:set_pixels({ 301, 302, 303, 304, 305, 306 })
+				r.s:configure({ rest = 30, bottom = 6 })
+				assert.is_false(r.s:repaint(303))
+				assert.are.same({}, r.calls)
+				assert.are.equal(armed, #r.timers)
+				paused(r)
+				dark(r, false) -- one new run, with what holds now
+				assert.are.equal(FIRST_MS, pending(r).ms)
+				local d = r.s:debug()
+				assert.are.equal("reverse", d.direction)
+				assert.are.equal(30, d.rest)
+				assert.are.equal(6, #d.pixels)
+				tick(r)
+				assert.are.equal("chasing", r.s:debug().state)
+				finish(r)
+				assert.are.equal(30000, pending(r).ms)
+			end)
+
+		it("sends nothing in ten minutes of dark, whatever changes, and resumes after (AP-D6)", function()
+			local r = rig()
+			start(r)
+			run_chase(r)
+			tick(r) -- the next chase's frame 1: every pixel held
+			r.clock = r.clock + 50
+			r.calls, r.stamps = {}, {}
+			dark(r, true)
+			assert.are.same(settles(HOUSE), r.calls) -- the pause's one settle a pixel
+			r.calls, r.stamps = {}, {}
+			local armed, from = #r.timers, r.clock
+			for s = 1, 600 do
+				r.clock = from + s * 1000
+				assert.is_nil(pending(r), "nothing armed in the dark")
+				if s % 15 == 0 then
+					r.speed = 2 + (s / 15) % 4 -- 2 to 5, the speeds that chase
+					r.rest = { [300 + r.speed] = true }
+					r.s:update(view(r))
+				end
+				if s % 40 == 0 then
+					r.direction = r.direction == "forward" and "reverse" or "forward"
+					r.s:update(view(r))
+				end
+				if s % 90 == 0 then
+					r.s:set_pixels(s % 180 == 0 and HOUSE or { 302, 303, 304, 305, 306 })
+				end
+				if s % 120 == 0 then
+					r.s:configure({ rest = 5 + s % 7 })
+				end
+				assert.is_false(r.s:repaint(302))
+			end
+			assert.are.equal(0, #r.calls)
+			assert.are.equal(0, #r.stamps)
+			assert.are.equal(armed, #r.timers)
+			paused(r)
+			dark(r, false)
+			assert.are.same({}, r.calls)
+			local t = pending(r)
+			assert.are.equal(FIRST_MS, t.ms)
+			assert.are.equal(r.clock, t.at)
+			tick(r)
+			assert.are.equal("chasing", r.s:debug().state)
+			local calls = finish(r)
+			assert.is_true(#calls > 0)
+			assert.are.equal("resting", r.s:debug().state)
+		end)
+
+		it("stops while dark with nothing to send; final as ever", function()
+			local r = rig()
+			start(r)
+			dark(r, true)
+			r.s:stop()
+			dark(r, false)
+			assert.are.same({}, r.calls)
+			assert.is_nil(pending(r))
+			assert.is_true(r.s:debug().stopped)
+			assert.are.equal("off", r.s:debug().state)
+		end)
+	end)
 end)

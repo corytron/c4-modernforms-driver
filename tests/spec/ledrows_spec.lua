@@ -1,5 +1,6 @@
 -- fan.ledrows on fakes: the keypad LED rows shown only while a keypad can use them (#178,
--- docs/keypad-leds-visibility-design.md: KL-D1 to KL-D10, the interface of section 2.1, the tests of section 3).
+-- docs/keypad-leds-visibility-design.md: KL-D1 to KL-D10, the interface of section 2.1, the tests of section 3;
+-- #207, docs/ambient-pause-design.md AP-D10: `Pause LED Animations Below` is one of them).
 -- set_hidden records every call with the clock; the timer records its ms and callback, and advance() moves the fake
 -- clock, firing every timer that falls due on the way in the order it falls due. changed() records its arguments.
 --
@@ -10,6 +11,7 @@ local ledrows = require("fan.ledrows")
 local ROWS = ledrows.ROWS
 local HIDE_MS = 8000
 local BREEZE_ONLY = { "Breeze LED Animation", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)" }
+local PAUSE = "Pause LED Animations Below"
 
 local function fake_log()
 	local l = { lines = {} }
@@ -175,7 +177,7 @@ describe("fan.ledrows", function()
 			return names
 		end
 
-		it("are the 20 rows after Keypad Links, in driver.xml's order", function()
+		it("are the 21 rows after Keypad Links, in driver.xml's order", function()
 			local names = xml_rows()
 			local first
 			for i, name in ipairs(names) do
@@ -186,7 +188,7 @@ describe("fan.ledrows", function()
 			end
 			assert.is_not_nil(first)
 			assert.equal("Keypad Links", names[first - 1])
-			assert.equal(20, #ROWS)
+			assert.equal(21, #ROWS)
 			for i, name in ipairs(ROWS) do
 				assert.equal(names[first + i - 1], name)
 			end
@@ -219,6 +221,13 @@ describe("fan.ledrows", function()
 			end
 			assert.is_nil(ledrows.BREEZE["Breeze LED Bottom"])
 		end)
+
+		it("end with Pause LED Animations Below, after Speed LED Rest (s), not a Breeze-only row (AP-D2, AP-D10)",
+			function()
+				assert.equal(PAUSE, ROWS[#ROWS])
+				assert.equal("Speed LED Rest (s)", ROWS[#ROWS - 1])
+				assert.is_nil(ledrows.BREEZE[PAUSE])
+			end)
 
 		it("hide after 8 s and are sent at 400 ms and 1,500 ms (KL-D4, KL-D6)", function()
 			assert.equal(8000, ledrows.HIDE_MS)
@@ -440,6 +449,50 @@ describe("fan.ledrows", function()
 		end)
 	end)
 
+	-- #207 (docs/ambient-pause-design.md AP-D2, AP-D10): the threshold below which both animations pause is a
+	-- keypad LED row like the others: the gate alone decides it, whatever the fan says about Breeze.
+	describe("Pause LED Animations Below (AP-D10)", function()
+		-- The state the last send gave the Pause row.
+		local function pause_sent(r)
+			local last
+			for _, call in ipairs(take(r)) do
+				if call.name == PAUSE then
+					last = call.hidden
+				end
+			end
+			return last
+		end
+
+		it("is shown with the gate, on a fan with Breeze, without Breeze and before the fan has said", function()
+			for _, has_breeze in ipairs({ true, false, "unknown" }) do
+				local r = rig()
+				r.l:update({ speed_bound = true, has_breeze = has_breeze ~= "unknown" and has_breeze or nil })
+				r.l:start()
+				advance(r, 20000)
+				assert.is_false(pause_sent(r), tostring(has_breeze))
+			end
+		end)
+
+		it("hides 8 s after the last speed link is unbound and comes back at once with a bind", function()
+			local r = started({ speed_bound = true, has_breeze = false })
+			r.l:update({ speed_bound = false, has_breeze = false })
+			advance(r, HIDE_MS - 1)
+			assert.is_nil(pause_sent(r))
+			advance(r, 20000)
+			assert.is_true(pause_sent(r))
+			r.l:update({ speed_bound = true, has_breeze = false })
+			advance(r, 20000)
+			assert.is_false(pause_sent(r))
+		end)
+
+		it("stays shown when only the fan's Breeze changes", function()
+			local r = started({ speed_bound = true, has_breeze = true })
+			r.l:update({ speed_bound = true, has_breeze = false })
+			advance(r, 20000)
+			assert.is_false(pause_sent(r))
+		end)
+	end)
+
 	describe("Breeze (KL-D3, has_breeze alone)", function()
 		it("false while shown hides the three Breeze rows at once, no changed, no hide timer", function()
 			local r = started({ speed_bound = true })
@@ -606,7 +659,7 @@ describe("fan.ledrows", function()
 			assert.equal(#ROWS, #s[1].calls)
 			assert.equal(#ROWS, #s[2].calls)
 			assert.equal(#ROWS - 1, count(r.rows))
-			assert.is_true(r.log.has("warn", "send 1: 1 of 20 rows could not be set (Speed LED Colors"))
+			assert.is_true(r.log.has("warn", "send 1: 1 of 21 rows could not be set (Speed LED Colors"))
 			assert.equal(2, r.l:debug().failures)
 		end)
 
@@ -705,7 +758,7 @@ describe("fan.ledrows", function()
 			assert.is_true(d.shown)
 			assert.is_false(d.breeze_shown)
 			assert.equal(3, d.hidden)
-			assert.equal(20, d.rows)
+			assert.equal(21, d.rows)
 			assert.same({ cause = "start", since = 1000, left = HIDE_MS - 3000 }, d.hide)
 			assert.is_nil(d.send)
 			assert.equal(1, d.applies)
@@ -714,7 +767,7 @@ describe("fan.ledrows", function()
 			advance(r, HIDE_MS)
 			d = r.l:debug()
 			assert.is_false(d.shown)
-			assert.equal(20, d.hidden)
+			assert.equal(21, d.hidden)
 			assert.is_nil(d.hide)
 			assert.equal(2, d.applies)
 		end)

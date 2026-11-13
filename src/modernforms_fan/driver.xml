@@ -347,6 +347,17 @@
 				<default>5</default>
 				<readonly>false</readonly>
 			</property>
+			<!-- ambient-pause-design AP-D2 (#207): the speed chase and the Breeze
+			     animation pause while the keypad bound to Ambient Light Level
+			     (Follower) reads below this; 0 never pauses. -->
+			<property>
+				<name>Pause LED Animations Below</name>
+				<type>RANGED_INTEGER</type>
+				<minimum>0</minimum>
+				<maximum>255</maximum>
+				<default>10</default>
+				<readonly>false</readonly>
+			</property>
 			<property>
 				<name>Debug Mode</name>
 				<type>LIST</type>
@@ -797,6 +808,24 @@
 			<classes>
 				<class>
 					<classname>MODERNFORMS_BREEZE</classname>
+				</class>
+			</classes>
+		</connection>
+		<!-- ambient-pause-design AP-D1 (#207): a keypad's Ambient Light Level
+		     (Source) output binds here; its reading arrives as the command
+		     AMBIENT_LIGHT_LEVEL (measured, AP1; not in the SDK documents). -->
+		<connection>
+			<id>500</id>
+			<facing>6</facing>
+			<connectionname>Ambient Light Level (Follower)</connectionname>
+			<type>1</type>
+			<consumer>True</consumer>
+			<audiosource>False</audiosource>
+			<videosource>False</videosource>
+			<linelevel>False</linelevel>
+			<classes>
+				<class>
+					<classname>AMBIENT_LEVEL</classname>
 				</class>
 			</classes>
 		</connection>

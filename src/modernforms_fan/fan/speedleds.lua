@@ -54,6 +54,16 @@
 -- ascending (a link that just left the list too), and holds nothing; then a new run (SL-D19) while a chase can
 -- still run, else off. The same inputs again send nothing and keep the timer (SL-D10).
 --
+-- The keypad's dark (#207, docs/ambient-pause-design.md AP-D6 to AP-D8; docs/edge-cases-led-dimming.md DM10 to
+-- DM15, DM22 to DM24, DM38 to DM40): configure{ dark = true } is one more reason no chase can run ("the keypad
+-- LEDs are dark", after every reason that rules a chase out anyway, so those keep their texts) and one more input,
+-- so it takes the stop path above: a rest's, a first delay's or a wait's timer is cancelled and nothing is sent; a
+-- chase in progress settles its held pixels once. dark = false is a real change too: a new run, its first chase
+-- FIRST_MS later (SL-D19), at the speed and direction of that moment; nothing missed is replayed. While dark the
+-- engine arms no timer and sends nothing, whatever else changes. It never sends black, a dark state or a scaled
+-- colour in the keypad's place (AP-D8): the steady LEDs are the links'. Whether the keypad is dark is the
+-- driver's to decide (fan/ambient.lua), not this module's.
+--
 -- One clock and a budget (SL-D13, the Breeze window BL-D24): one one-shot timer at a time; every re-arm, change
 -- and stop cancels the pending one first, and a callback of a cancelled timer is ignored. The engine's time
 -- follows `now` and never runs backwards (without a clock, a timer's time is what it was armed for). Every
@@ -80,7 +90,8 @@
 --   local s = speedleds.new({ paint = fn(link, colour, with_state, preload), light = fn(link, lit),
 --       settle = fn(link), lit = fn(link) -> bool, colour = fn(speed) -> "rrggbb" | nil,
 --       blocked = fn(link) -> bool, timer = fn(ms, cb) -> handle, now = fn() -> ms, log = { debug, info, warn } })
---   s:configure({ speeds = "off" | "2-5" | "1-6", per_speed = bool, bottom = 1 | 6, rest = seconds })
+--   s:configure({ speeds = "off" | "2-5" | "1-6", per_speed = bool, bottom = 1 | 6, rest = seconds,
+--       dark = bool })  -- dark: the keypad shows nothing (#207), false at first
 --   s:set_pixels(list)  -- the bound speed links, any order, duplicates ignored, only 301 to 306 kept
 --   s:update({ fan_mode = bool | nil, speed = 0..6 | nil, online = bool, direction = "forward" | "reverse" | nil })
 --   s:held(link) -> bool; s:repaint(link) -> bool (true: it was held, the chase ended); s:stop(); s:debug() -> table
@@ -241,6 +252,7 @@ function speedleds.new(opts)
 		per_speed = false,
 		bottom = 1,
 		rest = speedleds.REST_DEFAULT,
+		dark = false, -- the keypad LEDs are dark (#207, AP-D6): no chase
 		-- update
 		fan_mode = nil,
 		speed = nil,
@@ -288,7 +300,7 @@ function Leds:enabled_for(speed)
 	return range ~= nil and speed ~= nil and speed >= range[1] and speed <= range[2]
 end
 
--- Why no chase can run now (SL-D4, SL-D8, SL-D9), or nil when one can.
+-- Why no chase can run now (SL-D4, SL-D8, SL-D9; the dark last, AP-D6), or nil when one can.
 function Leds:why_not()
 	if speedleds.RANGES[self.speeds] == nil then
 		return "Speed LED Animation is Off"
@@ -304,6 +316,8 @@ function Leds:why_not()
 		return "the direction is unknown"
 	elseif #self.order < 2 then
 		return "fewer than two speed buttons bound"
+	elseif self.dark then
+		return "the keypad LEDs are dark"
 	end
 	return nil
 end
@@ -313,12 +327,12 @@ function Leds:active()
 end
 
 -- Everything a real change is made of (SL-D10), as one string. The rest is not one: a rest change reschedules
--- the run it is in instead of starting a new one (SL-D19).
+-- the run it is in instead of starting a new one (SL-D19). The dark is (AP-D6, AP-D7): lit again is a new run.
 function Leds:inputs()
 	return table.concat({
 		self.speeds, tostring(self.per_speed), tostring(self.bottom),
 		tostring(self.fan_mode), tostring(self.speed), tostring(self.online), tostring(self.direction),
-		table.concat(self.links, ","),
+		table.concat(self.links, ","), tostring(self.dark),
 	}, "|")
 end
 
@@ -798,7 +812,12 @@ function Leds:configure(c)
 	if c.rest ~= nil then
 		self.rest = seconds_of(c.rest)
 	end
-	if not self:changed(before, "configure") and self.rest ~= rest then
+	local why = "configure"
+	if c.dark ~= nil and (c.dark == true) ~= self.dark then
+		self.dark = c.dark == true -- AP-D6, AP-D7: the stop path, or a new run
+		why = self.dark and "the keypad LEDs are dark" or "the keypad LEDs are lit again"
+	end
+	if not self:changed(before, why) and self.rest ~= rest then
 		self:rest_changed() -- SL-D19: not a new run
 	end
 end
@@ -910,6 +929,7 @@ function Leds:debug()
 		fan_mode = self.fan_mode,
 		online = self.online,
 		direction = self.direction,
+		dark = self.dark, -- the keypad LEDs are dark (#207): paused
 		active = self:active(),
 		why = self:why_not(),
 		pending = self.armed,
