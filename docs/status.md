@@ -11,13 +11,13 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.9 "Sandwalk", build 220**, both packages (`modernforms_fan.c4z` and
-`modernforms_breeze_fan.c4z`), installed in place on the night of
-2026-11-12 (deploy issue #211, closed; deployment 7757289093, success,
-"Driver Version 220 on 2 devices"). `deploy/house.yaml` and the environment
-`house` agree. No controller reboot was needed. What 1.9 brought, and how
-its install went, is the first entry of the
-[release history](#19-sandwalk-build-220-2026-11-13).
+**1.10 "Shield Wall", build 226**, both packages (`modernforms_fan.c4z`
+and `modernforms_breeze_fan.c4z`), released on 2026-11-13 and being
+installed in place (the hardening from the security review, #214).
+`deploy/house.yaml` names it; until the install round reports, the house
+runs 1.9 "Sandwalk", build 220. No controller reboot is needed. What 1.10
+brings is the first entry of the
+[release history](#110-shield-wall-build-226-2026-11-13).
 
 ### Controller, devices and names
 
@@ -115,25 +115,23 @@ paste the scripts back, or load the backup.
 
 ## Open
 
-Every open piece of work is an issue (`gh issue list --state open`). On
-2026-11-13 two are open, neither about the driver's behaviour:
-
-- **#213** the documentation review (this page among the documents it
-  covers, the rules in [`doc-coherence-design.md`](doc-coherence-design.md)).
-- **#214** a security review of the driver source, for running and
-  installing on Control4.
+Every open piece of work is an issue (`gh issue list --state open`). The
+documentation review (#213, PR #215, the rules in
+[`doc-coherence-design.md`](doc-coherence-design.md)) and the security
+review (#214, PR #217, the summary in
+[`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214)) are done.
 
 Checks on the house that were never run or are still being read. None
 blocks a build or a release; each belongs to its closed issue, where its
 result goes as a comment:
 
-- **#207, the pause in the dark.** For 3¾ minutes after the bind, `Keypad
-  Links` did not show the pause. The likely cause, being checked through the
-  driver's debug log: with its LEDs now dark at night the keypad's reading
-  is steady, so it sends nothing after the bind; the readings that flickered
-  between 3 and 6 during the probe came every 5 s, the chase's rest, so they
-  were probably the chase's own light on the sensor. The one report at the
-  bind is ignored by design (AP3).
+- **#207, the pause in the dark.** Not yet seen on the house. Measured on
+  2026-11-12 (Discussion #208 and the issue): the keypad sends its reading
+  only when it changes, and with its LEDs dark at night the bedroom's
+  reading stayed at 1, so nothing arrived after the bind; the readings that
+  flickered during the probe came every 5 s, the chase's rest, and were
+  probably the chase's own light on the sensor. The pause starts at the
+  next change of the room's light (lights going off).
 - **#195, Light Min On.** The fan light's first glow was not measured; 10 is
   a first setting. The contract's checks (a hold from off and a Navigator ON
   lit from the first moment, the slider at 1 % glowing) wait for a
@@ -162,6 +160,23 @@ Newest first; one paragraph per release, with its issues and Discussions.
 Release dates are those of `CHANGELOG.md` and GitHub (UTC); the house
 rounds of the evening of 2026-11-12, local time, fall on 2026-11-13 there.
 What every release changed, in full, is in [`CHANGELOG.md`](../CHANGELOG.md).
+
+### 1.10 "Shield Wall", build 226 (2026-11-13)
+
+Hardening from the security review (#214, PR #217; what was reviewed and
+changed: [`SECURITY.md`](../SECURITY.md#security-review-2026-11-13-214)).
+No redirect is followed, oversized, compressed or deeply nested answers are
+refused, fan text is cleaned and capped, searches have budgets and keep
+places for the pinned fan, a waiting pick lapses after 10 minutes, the
+automatic follow stays in the fan's /24, Composer actions run only as
+Composer sends them, every command waits for late init, Add Breeze Fan
+never adds duplicates, light times are capped at 24 h, and both drivers lock
+Composer's Lua command window in release builds (build 220's was open,
+checked on the house on 2026-11-12). The tooling verifies the attestation's
+ref, commit and runner, checks every package against its source, and serves
+dev and test packages only from random one-file paths. The VM's old dev
+package holding the dev key was deleted and the key rotated the same day.
+No hardware round before the release, at the owner's word.
 
 ### 1.9 "Sandwalk", build 220 (2026-11-13)
 

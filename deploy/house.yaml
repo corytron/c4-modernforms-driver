@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.9               # 1.9 "Sandwalk": LED animations pause while the keypad is dark (#207)
-build: 220
+release: v1.10              # 1.10 "Shield Wall": hardening from the security review (#214)
+build: 226
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off

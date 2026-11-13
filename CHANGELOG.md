@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.10 "Shield Wall", build 226 (2026-11-13)
+
 ### Changed
 
 - Hardening from a security review of the driver (#214). Nothing changes for a fan that answers as a Modern Forms fan does.
