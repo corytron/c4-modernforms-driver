@@ -11,7 +11,7 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.10 "Shield Wall", build 232** is being installed (#223: every keypad light reading logged, a 12 h safety net for the dark pause, the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+**1.10 "Shield Wall", build 236** is being installed (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
