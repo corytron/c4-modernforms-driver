@@ -12,10 +12,13 @@ first, and the [decisions that stand](#decided-not-open).
 ### The release
 
 **1.10 "Shield Wall", build 226**, both packages (`modernforms_fan.c4z`
-and `modernforms_breeze_fan.c4z`), released on 2026-11-13 and being
-installed in place (the hardening from the security review, #214).
-`deploy/house.yaml` names it; until the install round reports, the house
-runs 1.9 "Sandwalk", build 220. No controller reboot is needed. What 1.10
+and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
+hardening from the security review, #214; deploy issue #219, closed;
+deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
+round in Discussion #220). `deploy/house.yaml` and the environment `house`
+agree. The Lua command window of both devices now reads "Encrypted Driver
+or Execute Not Allowed" and runs nothing; Debug Mode output still shows. No
+controller reboot was needed. What 1.10
 brings is the first entry of the
 [release history](#110-shield-wall-build-226-2026-11-13).
 
