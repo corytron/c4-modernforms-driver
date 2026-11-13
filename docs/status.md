@@ -20,16 +20,21 @@ slow to start, from 1 to 10 (Discussion #199).
 
 **The keypads' ambient LED dimming (#198, 2026-11-12).** The speed chase
 and the Breeze gusts are scaled by the keypad's own Ambient Light Profile,
-like its other LEDs; the keypad dimmer bound to the fan's speed links had
-a Status LED minimum of 13, so a lit LED, the chase included, stayed dimly
-lit in a dark room. The Windows session set that minimum to 0 (Discussion
-#204): below the Dark Room threshold every LED on that keypad goes dark,
-the chase and the gusts included, and they come back along its curve as
-the room brightens. No driver change (the research:
+like its other LEDs, so they follow its dimming policy with no driver
+change (the research:
 [`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md),
 [`edge-cases-led-dimming.md`](edge-cases-led-dimming.md), Discussion #200).
-The chase keeps sending its messages while unseen; a driver pause at night
-is offered, not built.
+The keypad dimmer bound to the fan's speed links had another Status LED
+curve than the two switches beside it (a night floor of 13 against their
+17). A first change set its floor to 0, which left it dark while the
+switches still glowed; the owner wants the chase lit whenever their LEDs
+are. Since 2026-11-12 all three have the same Status LED curve, Min 17,
+Max 255, Dark Room below 10, Bright Room above 50, and the same backlight
+(Discussion #205), so the keypad and its chase dim with the switches. Each
+still reads its own ambient sensor ("Independent"); Composer can make one
+follow another's through the connections Ambient Light Level (Source) and
+(Follower), which is not done. The chase keeps sending its messages while
+dim; a driver pause at night is offered, not built.
 
 Before it:
 
