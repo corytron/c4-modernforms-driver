@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.10 "Shield Wall", build 236 (2026-11-13)
+
 ### Fixed
 
 - The root cause of the pause that stayed on in a bright room: after the driver starts (an update, a restart), the keypad sends no more light readings to it, although Composer still shows the connection, until the connection is made again. The driver now makes the keypad's Ambient Light Level connection again by itself 30 seconds after it starts, with the same keypad and output, so the pause follows the room's light again after every update. Nothing is connected that the dealer did not connect (#223).

@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.10              # 1.10 "Shield Wall": security hardening (#214); the dark pause traced, 12 h net (#223)
-build: 232
+release: v1.10              # 1.10 "Shield Wall": hardening (#214); the keypad binding made again after a start (#223)
+build: 236
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off
