@@ -20,16 +20,25 @@ slow to start, from 1 to 10 (Discussion #199).
 
 **The keypads' ambient LED dimming (#198, 2026-11-12).** The speed chase
 and the Breeze gusts are scaled by the keypad's own Ambient Light Profile,
-like its other LEDs; the keypad dimmer bound to the fan's speed links had
-a Status LED minimum of 13, so a lit LED, the chase included, stayed dimly
-lit in a dark room. The Windows session set that minimum to 0 (Discussion
-#204): below the Dark Room threshold every LED on that keypad goes dark,
-the chase and the gusts included, and they come back along its curve as
-the room brightens. No driver change (the research:
+like its other LEDs, so they follow its dimming policy with no driver
+change (the research:
 [`keypad-led-dimming-sdk-research.md`](keypad-led-dimming-sdk-research.md),
 [`edge-cases-led-dimming.md`](edge-cases-led-dimming.md), Discussion #200).
-The chase keeps sending its messages while unseen; a driver pause at night
-is offered, not built.
+The keypad dimmer bound to the fan's speed links and the two switches
+beside it had night floors of 13 and 17 out of 255: a lit LED never went
+dark. At night the switches looked dark only because their lights were off
+and they showed black and a half red, which vanish at that level, while
+the chase's purple, with a full blue channel, stayed visible (the owner
+saw the keypad's own half-red LED dark too). At the owner's word ("all
+dark"), all three now have the same Status LED curve with a floor of 0:
+Min 0, Max 255, Dark Room below 10, Bright Room above 50, backlight
+unchanged (Discussion #205). Below Dark Room every status LED on all three
+is dark, the chase and the gusts included, and they come back together
+along the same curve as the room brightens. Each still reads its own
+ambient sensor ("Independent"); Composer can make one follow another's
+through the connections Ambient Light Level (Source) and (Follower), which
+is not done. The chase keeps sending its messages while dark; a driver
+pause at night is offered, not built.
 
 Before it:
 
