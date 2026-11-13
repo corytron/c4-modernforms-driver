@@ -9,6 +9,13 @@ straight from the VM over the fan's local interface (`POST /mf`, see
 the controller. The source and its full help: [`tools/mf_probe.py`](../tools/mf_probe.py)
 (`python3 tools/mf_probe.py --help`). Standard library only.
 
+The tool's K16 is its own check for Min On, not the K16 of `v1-design.md`
+section 11 (a remote press and an app change). K11, K12, K13 and K15 ran on
+2026-10-27 and their results are in
+[`v1-design.md` section 11](v1-design.md#11-hardware-checks-before-the-first-install)
+and #17. 1.8 shipped without hardware rounds, and the house's first glow
+was not measured ([`status.md`](status.md)).
+
 ## Commands
 
 | Command | Sends | Writes to the fan |
@@ -44,8 +51,9 @@ With M0's latencies (0.25 to 0.39 s per request):
 | K15 | "The fan's light ramps from 1 % to full in about 3 s and back down; please watch whether it looks like a smooth dim or a staircase." | about 10 s |
 | K16 | "The fan's light goes to N % for the next 30 s (or the hold) and then back to how it was; please say whether it is visibly lit." | the hold, plus about 2 s |
 
-The stock driver keeps polling the fan meanwhile, so the keypad LEDs and
-Composer may follow the changes late; nothing to fix. If a check reports that
+The driver on the controller keeps polling the fan meanwhile (the stock WAC
+driver when this was written, the Modern Forms Fan driver since 2026-11-04),
+so the keypad LEDs and Composer may follow the changes late; nothing to fix. If a check reports that
 the fan stopped answering, the owner switches it off at the wall for 10 s
 (the report's `attention` says so, with the state it had).
 

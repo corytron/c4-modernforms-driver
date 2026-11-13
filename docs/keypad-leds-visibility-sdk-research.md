@@ -1,5 +1,18 @@
 # Keypad LED rows only with a keypad: what the SDK allows
 
+> **Status (2026-11-13, #213).** Built in 1.7 (#178) by
+> [`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)
+> (KL-D1 to KL-D11), on this note's findings: `C4:SetPropertyAttribs` from
+> one function, every managed row sent at late init and 400 ms and 1.5 s
+> after the texts (KL-D6), no attempt to classify keypads. The contract
+> uses **one gate** for every managed row, "a device is bound to a speed
+> link" (KL-D2), plus "the fan has Breeze" for the three Breeze-only rows
+> (KL-D3); the nested conditions of section 3's last table (colours only
+> under `Per speed`, `Step` only under `Gusts`) were not built. On the house
+> a scratch device hid its rows by itself about 15 s after the add
+> ([`status.md`](status.md)). Since 1.9 (#207) `Pause LED Animations Below`
+> is a managed row too. The code line numbers are those of 2026-11-10.
+
 Research for issue #178, written 2026-11-10. The owner asked that the
 keypad LED rows (colours, the Breeze animation, the speed chase) show only
 when a configurable keypad is linked to the driver, that the driver say

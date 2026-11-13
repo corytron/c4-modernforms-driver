@@ -76,7 +76,8 @@ model.REBOOT_WINDOW_S = 120
 model.REBOOT_POLL_S = 10
 model.INFO_REFRESH_S = 21600 -- the static data again every 6 h
 -- #141 LF-D7, LF-D8: a fade step on a Gen 3 fan waits this long after its answer (probe FP1
--- confirms it; other generations and other requests keep GAP_MS), and a bucket of
+-- was to confirm it, and 1.5 shipped without the probes at the owner's word; other generations
+-- and other requests keep GAP_MS), and a bucket of
 -- FADE_BUDGET fade-step requests refills at FADE_REFILL_PER_S a second.
 model.FADE_GAP_MS = 100
 model.FADE_BUDGET = 20

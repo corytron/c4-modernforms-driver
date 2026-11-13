@@ -1,5 +1,14 @@
 # Scaffold contract (#1)
 
+> **Status (2026-11-13, #213).** The scaffold's record. Its names, ports,
+> placeholders, checks and CI jobs still hold; the skeleton driver of
+> section 7 became the v1 driver ([`v1-design.md`](v1-design.md)), a second
+> package came with Breeze (`modernforms_breeze_fan` since 1.3), the
+> desired state of section 5 names a release since the first install, and
+> `tools/make_icons.py` (section 8) arrived with the driver's icons in 1.1
+> (#78). [`cicd-gitops-design.md`](cicd-gitops-design.md) is the current
+> description of the pipeline.
+
 The shared text every agent of the scaffold builds against (2026-10-27). The
 project copies the process of [corytron/c4-hue-driver](https://github.com/corytron/c4-hue-driver)
 (the "Hue repo", checked out read-only at `~/projects/c4-hue-driver`), adapted
@@ -74,8 +83,8 @@ packager in `~/c4-tools/drivers-driverpackager/` (or `$DP3`), stamps
 at the bottom of every driver's `www/documentation.html`, and writes
 `build/manifest.json` with the Hue schema 1 (`schema`, `build`, `commit`,
 `tag`, `dev`, `packages{name: {sha256, bytes}}`). The Release workflow
-(`release.yml`): releases `vX.Y` (final; every 1.x moves the `v1.0` tag as
-in the Hue repo) and prereleases `vX.Y-beta.N` that never move, built from
+(`release.yml`): releases `vX.Y` (final; every build of X.Y moves its
+`vX.Y` tag, as in the Hue repo) and prereleases `vX.Y-beta.N` that never move, built from
 `main` only, with `SHA256SUMS.txt`, `manifest.json` and build-provenance
 attestations, the title and notes written from `CHANGELOG.md`'s `##
 Unreleased`, the codename from `.github/codenames.json`.

@@ -11,6 +11,16 @@ is `src/modernforms_fan/driver.lua`. The Breeze contract is
 [`breeze-leds-design.md`](breeze-leds-design.md) and its reasons are
 [`edge-cases-breeze-leds.md`](edge-cases-breeze-leds.md).
 
+> **What was built** (2026-11-13, #213): option (a), in 1.6 (#159):
+> `fan/speedleds.lua` beside `fan/breezeleds.lua` and the arbiter
+> `fan/ledhub.lua`, released between chases (mode A), with a preload of
+> the chase colour into each dark pixel on every chase
+> ([`speed-leds-design.md`](speed-leds-design.md) SL-D1 to SL-D3, SL-D12).
+> The contract's step table is 400, 300, 200 and 120 ms (not section 5's),
+> its rest a property, 5 s by default since 1.7 (#177). The dropped
+> `preload` argument this note opens with was fixed by #164 in the same
+> release. The file and line numbers below are those of 2026-11-09.
+
 The owner's request, in short: at speeds 2, 3, 4 and 5 a one-after-the-other
 animation runs in the direction the fan blows, at even intervals; between runs
 the selected speed's LED is lit, but not while the animation plays; the

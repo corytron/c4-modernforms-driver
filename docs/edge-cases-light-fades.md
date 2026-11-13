@@ -1,5 +1,21 @@
 # Simulated light fades: the fan's limits and the edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.5 (#141) by
+> [`light-fades-design.md`](light-fades-design.md) (LF-D1 to LF-D24), which
+> took this note's proposals and the recommended answers to FQ1 to FQ5:
+> one time-based engine, a 100 ms fade gap on Gen 3 and 250 ms otherwise, a
+> budget of 20 steps refilling at 2 a second, the dark write-back after a
+> fade to off, one jump after a failure, Toggle and the LEDs following the
+> target, a straight line. Taps fade over the light's Click Rates (3 s by
+> default; `click_rates` is True since 1.5, which cost one controller
+> reboot). The owner had it shipped without the probes of section 4, so the
+> 100 ms gap and the look of the steps were not measured first
+> ([`status.md`](status.md)). Since 1.8 (#195) `Light Min On (%)` can map
+> Control4's 1 % to a higher fan level, so a fade lights from its first step
+> on a light kit that stays dark low down
+> ([`min-on-design.md`](min-on-design.md)). The code line numbers are those
+> of commit 714dbe2.
+
 > **Research (2026-11-09) for [issue #141](https://github.com/corytron/c4-modernforms-driver/issues/141)**,
 > desk research only: nothing was sent to the fan, the controller, the dev
 > server or any other device while writing it. The fan's light has no fade

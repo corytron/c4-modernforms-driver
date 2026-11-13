@@ -352,9 +352,10 @@ check_preset_on() {
 	check_pairs "fan=on/$preset" "told.fan=$preset" "leds.fan=$preset" notify.fan=auto
 }
 
-# F5: Cycle three times from the preset, wrapping past 6 to 1; the burst coalesces into one report.
+# F5: Cycle three times from the preset; Cycle stops at 6, as the proxy's does (V11, #77), and the
+# burst coalesces into one report.
 check_cycled() {
-	local want=$(((preset - 1 + 3) % 6 + 1))
+	local want=$((preset + 3 > 6 ? 6 : preset + 3))
 	check_pairs "fan=on/$want" "told.fan=$want" "leds.fan=$want" notify.fan=auto
 }
 

@@ -1,5 +1,20 @@
 # Automatic fan discovery: the mechanism (research for #102)
 
+> **Status (2026-11-13, #213).** Built in 1.2, build 115 (#102), by the
+> contract [`auto-discovery-design.md`](auto-discovery-design.md), which wins
+> where it and this note differ. Still true: one load window, the Finder as
+> the only owner of binding 6001, every window feeding the list, a pick that
+> acts at once with the guard for a different fan (Q2), no search while the
+> pinned fan answers (Q3), no cross-device mark (Q5), no alias and a
+> `Dev Search` command (Q6). Changed by the contract: **no Search again item**
+> (Q1, the owner said no); the `seek` ladder is 30 s, 1, 2, 5 and 10 min, then
+> every 15 min (section 4.1 proposed 1 and 5 min); an entry ages out after
+> **three** sending windows that missed it (4.3.3 proposed two); a pinned
+> device with an empty `Fan Address` never searches (mode `stopped`, AD5; Q4
+> proposed `seek`); and a pinned fan that is away while the follower is not
+> armed is `quiet`, not `seek`. Section 3 describes the code as it was on
+> 2026-11-07, and section 4.4's file lines are from that day's checkout.
+
 This is the mechanism research for issue
 [#102](https://github.com/corytron/c4-modernforms-driver/issues/102). The
 owner asked on 2026-11-07 that the driver find fans by itself, at driver load

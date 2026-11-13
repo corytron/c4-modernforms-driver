@@ -1,5 +1,20 @@
 # Fan proxy and keypad links: research (#2)
 
+> **Status (2026-11-13, #213).** The probe ran the tests of section 8
+> ([`v1-design.md`](v1-design.md#111-what-the-probe-has-shown-so-far-17)):
+> T1 (K1) the stock driver declares `fan` with class `FAN` and 12 links of
+> its own, without the capability; T2 to T4 (K5) **model A**: with
+> `proxy_fan_speed_connections` True the fan proxy adds ten links of its
+> own (Off, Level 1 to 6, Toggle Preset, Cycle Speed Up and Down), sends
+> `SET_SPEED` on a press and lights a bound button itself; T5 and T6 (K6)
+> the press messages, and the keypad takes colours sent over a link; T7 and
+> T8 (K8) `CURRENT_SPEED` alone sets Is On and `ON` jumps to the preset, so
+> `ON` is never sent. v1 still chose option B, the driver's own links 300
+> to 308, and does not declare `proxy_fan_speed_connections` (V2, the
+> decision of #6); 309 and 310 were never declared, and 311 is Fan Breeze
+> since 1.2. `preset_speed` is 3, the minimum OS 3.3.0 (V3, V11), and
+> per-speed colours came as `Speed LED Colors` (V27).
+
 Research for the v1 contract (2026-10-27, read-only). The question: what the
 driver needs so that a keypad button linked to the fan's "Fan Speed N" link
 (and to Off, Toggle and Cycle links) works, and with the button's LED
@@ -226,7 +241,7 @@ Each takes under a minute of anyone's time after the install. A throwaway **prob
 
 | Test | Settles | How | Reading |
 |---|---|---|---|
-| T1 | the proxy's XML name and class; whether the stock driver declares its 13 links or uses the capability; a working capability set for these fans | Windows session: copy the stock `.c4z` from Composer's driver store, open it as a zip, read `driver.xml` (`<proxies>`, `<capabilities>`, `<connections>`); report names and ids only, commit nothing of it. No install needed. | If the stock driver sets the capability and its `<connections>` lack the speed links, its dead links were the proxy's. The stock driver does take speed commands and reports speeds (the house's keypad scripts and its "Fan Speed Changed" timer use both), so model A is then refuted on OS 3.4.3, leaving B or C |
+| T1 | the proxy's XML name and class; whether the stock driver declares its 12 links or uses the capability; a working capability set for these fans | Windows session: copy the stock `.c4z` from Composer's driver store, open it as a zip, read `driver.xml` (`<proxies>`, `<capabilities>`, `<connections>`); report names and ids only, commit nothing of it. No install needed. | If the stock driver sets the capability and its `<connections>` lack the speed links, its dead links were the proxy's. The stock driver does take speed commands and reports speeds (the house's keypad scripts and its "Fan Speed Changed" timer use both), so model A is then refuted on OS 3.4.3, leaving B or C |
 | T2 | the proxy makes speed links on OS 3.4.3; their names; an Off link; their ids | Windows session installs the probe, adds one device, reads its Connections rows; the Lua window prints `C4:GetBindingsByDevice(C4:GetProxyDevices())` (`API 25_proxy/_1-GetProxyDevices.md`; its output for control bindings is undocumented) | links listed or not |
 | T3 | model A, B or C | bind a spare keypad button (no programming, no link) to the "speed 2" link by the drag; one press, then a second press. The press: `C4:SendToDevice(<keypad proxy id>, "KEYPAD_BUTTON_ACTION", {BUTTON_ID = n, ACTION = 1})` then `ACTION = 2` from the Lua window (the command exists, `KP 60_keypad_proxy_commands/_4-KEYPADBUTTONACTION.md`; that it travels the link is ASSUMED), else the owner presses once | `SET_SPEED {SPEED=2}` on 5001 = A (the second press shows whether it toggles); `DO_*` on another id = B; nothing = C |
 | T4 | the proxy lights the LEDs | the button on Follow Connection; the Lua window sends `CURRENT_SPEED` 2, then 3, then 0, five seconds apart; the owner glances at the LED | lit, dark, dark = A |

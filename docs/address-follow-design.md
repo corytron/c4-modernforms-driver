@@ -1,5 +1,10 @@
 # Following the pinned fan to a new address (#39)
 
+> **Status (2026-11-13, #213).** Shipped in 1.0-beta.3 and holds today, with
+> #102's change below. The follow itself was seen on the house on
+> 2026-11-05 through a stand-in address on the VM (#58, Discussion #60);
+> section 5's other assumptions are still unmeasured.
+
 The contract for issue [#39](https://github.com/corytron/c4-modernforms-driver/issues/39):
 the owner asked (2026-11-04) that once the driver has identified the fan, an
 IP address change never needs a manual step. It rests on the read-only
@@ -37,7 +42,7 @@ follower still never acts on the list or the pick (F8 as AD10 has it).
   F4's first step over the window's `heard` list (at most 3, in the order
   heard).
 - `find`'s callback gets a third value, `heard`: every distinct
-  (instance, address) pair of the window, up to 64 (MAX_FOUND; `candidates` still reads at most 3), each `{ instance, address,
+  (instance, address) pair of the window, up to 64 (`MAX_HEARD`, as many as `MAX_FOUND`; `candidates` still reads at most 3), each `{ instance, address,
   mac, port }`, beside the unchanged first-answer-wins list (Find Fans and its
   spec stay as they are). Since #102 every closed window, whoever opened it,
   is also handed to `on_window`, which feeds `Found Fans`

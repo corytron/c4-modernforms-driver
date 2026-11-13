@@ -1,5 +1,26 @@
 # Control4-side edge cases: the Modern Forms fan driver
 
+> **Status (2026-11-13, #213).** The v1 contract
+> [`v1-design.md`](v1-design.md) (V1 to V31) decided these proposals and
+> wins where it and this note differ; 1.0 shipped it (#26). The owner's
+> questions: Q1 the driver's own links (V2: Off 300, Speed 1 to 6 on 301 to
+> 306, Toggle 307 and one Cycle link 308, light 200 to 202; no Speed Down
+> or Direction link, their ids kept free; 311 is Fan Breeze since 1.2); Q2
+> six speeds (V4); Q3 (a), double taps stay keypad programming (V12), with
+> `Speed N Link Also Lit At` for their LED (V26); Q4 the preset, 3, and no
+> wrap (V11; since 1.1 the Fan Cycle link stops at Level 6 too); Q5 the
+> last state (V13); Q6 one driver with two proxies (V1); Q8
+> `reduced_als_support` True and `hide_proxy_properties` False (V19). Not
+> built: `Forget Fan` (D20), the hidden `FAN_ID` variable and duplicate
+> detection (D17, H11), the `Fan Name` row. The fan list is `Found Fans`,
+> and the colours are `Speed LED Colors` with `Speed 1 LED Color` to
+> `Speed 6 LED Color` and `Speed LED Off Color` (C12). Since 1.2 (#102) the
+> Find Fans action is gone and the driver keeps `Found Fans` current by
+> itself ([`auto-discovery-design.md`](auto-discovery-design.md)), so the
+> Find Fans steps of D1, D19, M1 and section 6.2 describe 1.0 and 1.1. The
+> migration of section 2 is done: the stock driver is gone from the house
+> ([`status.md`](status.md)).
+
 > Research for the v1 design ([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)),
 > 2026-10-27, read-only. This document covers what Director, Composer, the
 > fan, `light_v2` and keypad proxies, Control4 programming and the Navigators

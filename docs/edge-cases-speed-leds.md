@@ -1,5 +1,23 @@
 # Fixed-speed chase on the keypad LEDs: lifecycle edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.6 (#159) by
+> [`speed-leds-design.md`](speed-leds-design.md) (SL-D1 to SL-D19), which
+> wins where it and this note differ. Taken as recommended: a single dot,
+> `Speed LED Animation` = `Off`, `Speeds 2 to 5` or `Speeds 1 to 6`
+> (question 1), no chase under `Keypad's own` (question 6), night as by day
+> (question 5), the Breeze engine first, holds only while the chase plays.
+> Changed: the steps are 400, 300, 200 and 120 ms (500 at speed 1, 100 at
+> speed 6); the chase preloads its colour into every button that is dark at
+> rest, so a chase over four buttons costs 13 messages, not section 5's 11
+> (SL-D12), and 11 at the edge speeds since 1.6 build 182 (SL-D18, #172);
+> `Speed LED Rest (s)` runs 5 to 60, default 10 in 1.6 and **5 since 1.7**
+> (#177), not 2 to 120. Question 3 was reversed in 1.7: a new run's first
+> chase comes **2.5 s** after a speed is selected, from any source, not
+> after a full rest (SL-D19). Since 1.9 (#207) the chase also pauses while
+> the bound keypad reads dark
+> ([`ambient-pause-design.md`](ambient-pause-design.md)). The code line
+> numbers are those of 2026-11-09.
+
 > **Research (2026-11-09) for [issue #159](https://github.com/corytron/c4-modernforms-driver/issues/159)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner asked for a second keypad animation, for the fan's **fixed speeds**:
@@ -45,7 +63,8 @@ paraphrased, never quoted. Placeholders only: fan 10.0.2.151, controller
    flag really changes, never on a light-level fade tick (SL7).
 4. **The cost is small and steady.** About 11 messages per cycle with four
    pixels; 0.35 to 2 messages a second on average for the timings tried in
-   section 5, peaks of 5 to 17 a second for under half a second, inside the
+   section 5, peaks of 5 to 17 a second for under 2 s (the 17 for under
+   half a second), inside the
    Breeze engine's 30 a second budget and its measured clean 40 a second. The
    load that matters is the **hours**: a fan at speed 4 runs the chase all
    night (SL57, SL58).

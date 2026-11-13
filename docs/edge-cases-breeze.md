@@ -1,5 +1,21 @@
 # Breeze in Control4: Navigators, programming and edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.2 (#111) by
+> [`breeze-design.md`](breeze-design.md) sections 1 to 10: the commands,
+> the variable, the events, the condition, link 311 and the rank 1
+> companion switch. Since 1.3 (#121) the companion is a **fan device**, the
+> Breeze fan (`modernforms_breeze_fan.c4z`, Breeze 1 to 3), added by **Add
+> Breeze Fan**; the light_v2 switch of section 3.2 is no longer released
+> ([`edge-cases-breeze-fan.md`](edge-cases-breeze-fan.md),
+> [`breeze-design.md`](breeze-design.md) section 11). The owner's finding
+> that the fan runs in fan mode or in Breeze mode, never both, replaced
+> BC6 to BC9 and BC13: a fan-mode command ends Breeze, Off stops the fan
+> and clears a stored Breeze, a start from Control4 never resumes a stored
+> Breeze, Breeze from a stopped fan starts it straight in Breeze, and a
+> double tap on 311 from fan mode stops the fan. The fan's tile shows off
+> during Breeze (BC36) and Status reads `Breeze 2` instead of a speed
+> (BC4). The fan-side checks BR1 to BR5 never ran (BZ5).
+
 > **Research (2026-11-07) for [issue #111](https://github.com/corytron/c4-modernforms-driver/issues/111)**,
 > read-only: nothing here was tried on the house fan or the controller. The
 > owner asked that the fan's Breeze mode (the fan speeds up and slows down by

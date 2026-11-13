@@ -1,5 +1,22 @@
 # Keypad LED rows only with a keypad: lifecycle edge cases
 
+> **Status (2026-11-13, #213).** Built in 1.7 (#178) by
+> [`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)
+> (KL-D1 to KL-D11), which wins where it and this note differ. The owner's
+> questions were answered as recommended. Changed by the contract: one gate
+> instead of the groups and device kinds of section 1: every managed row is
+> shown while any device is bound to a speed link, whatever it is (KL-D2);
+> a hide waits until "nothing bound" has held for 8 s (KL-D4); the texts are
+> `; LED settings shown` and `; LED settings hidden: bind a button to a Fan
+> Speed link` at the end of `Keypad Links`, and L44 and L45 in Last Action
+> (KL-D7), not the wording of KV44 to KV46. An unbind is believed on
+> Director's second empty answer (KL-D11, #185). On the house a scratch
+> device hid its rows by itself about 15 s after the add
+> ([`status.md`](status.md)). Since 1.9 (#207) `Pause LED Animations Below`
+> is a managed row too, so there are **21**, not 20
+> ([`ambient-pause-design.md`](ambient-pause-design.md), AP-D10). The
+> file line numbers are those of 2026-11-10.
+
 > **Research (2026-11-10) for [issue #178](https://github.com/corytron/c4-modernforms-driver/issues/178)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner asked that the keypad LED work (the per-speed colours, the Breeze

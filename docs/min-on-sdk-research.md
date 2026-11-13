@@ -1,5 +1,17 @@
 # Min On for the fan light: what the SDK says
 
+> **Status (2026-11-13, #213).** Built in 1.8 (#195) by
+> [`min-on-design.md`](min-on-design.md) on route B, as recommended: the
+> fan item's `Light Min On (%)`, 0 to 99, default 0, with this note's
+> mapping and the Status row of decision 2 ("light 40 % (fan 52)", MO-D11).
+> Probe P1 was not needed and did not run, and `min_max` stays False. The
+> owner had it shipped without hardware question 1, so the house's first
+> glow was not measured; its fan has `Light Min On (%)` 10
+> ([`status.md`](status.md)). The `click_rates` reboot this note calls
+> pending had in fact happened: on 2026-11-12 the Windows session found the
+> light's Click Rates keeping 3 s. The code line numbers of section 6 are
+> those of 2026-11-12.
+
 Research for [issue #195](https://github.com/corytron/c4-modernforms-driver/issues/195),
 written 2026-11-12 by a read-only research agent. The owner's finding: the
 fan's light fades, but it starts late, because its first few levels do not

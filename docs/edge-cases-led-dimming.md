@@ -1,5 +1,25 @@
 # The keypad's LED dimming and the LED animations: lifecycle edge cases
 
+> **Status (2026-11-13, #213).** Two later facts change this note. (1) E2
+> was done on 2026-11-12 (#198), and wider than Q1 recommended: at the
+> owner's word ("all dark") the keypad dimmer **and both switches** got the
+> same Status LED curve, Min 0, Max 255, Dark Room below 10, Bright Room
+> above 50, so below Dark Room every status LED on all three is dark, the
+> chase and the gusts included ([`status.md`](status.md)). (2) Route (a)
+> exists after all: the house probe of 2026-11-12 measured a driver
+> connection of class `AMBIENT_LEVEL`, bound to the keypad's Ambient Light
+> Level (Source) **output**, receiving the keypad's reading at every change,
+> while `GET_AMBIENT_LEVEL` answers only Composer
+> ([`ambient-pause-design.md`](ambient-pause-design.md) section 0). 1.9
+> (#207) built E3 on it: below `Pause LED Animations Below` (default 10,
+> the Dark Room value) both animations pause, and they start a new run
+> after 10 s of light (DM15's hold). The contract departs from section 5 in
+> three places: an unknown or silent source runs as today (fail open, with
+> no start wait and no staleness rule; DM48, DM73); the one bound keypad
+> decides, not "dark wins" across keypads (DM28); and the threshold is the
+> dealer's setting, never a copy of the curve (DM9). BL70's input stays
+> unbound. The code line numbers are those of 2026-11-12.
+
 > **Research (2026-11-12) for [issue #198](https://github.com/corytron/c4-modernforms-driver/issues/198)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner's request (2026-11-12): "the fan led chase still lights even when the

@@ -5,9 +5,16 @@
 > Discussion #34). The Migration Report (section 4), the `Migration` and
 > `Stock Device` properties and `fan/migration.lua` were removed from the
 > driver; another house moves by hand, as
-> [chapter 11 of the manual](../src/modernforms_fan/www/documentation.html#ch11)
+> [the manual's "Moving from the stock WAC driver"](../src/modernforms_fan/www/documentation.html#ch11)
 > says. This document stays as the record of how the house was cut over;
 > what it says of the report describes the builds before #45.
+>
+> **Later changes that touch this record** (2026-11-13, #213): the Fan
+> Cycle link stops at 6 since 1.1 (#77; section 1.2); the house's items are
+> named after the fan, "Aviator 5" and "Aviator 5 Light", since 2026-11-05
+> (Phase 8's last paragraph); the keypad's Up and Down are bound to the
+> light's Top and Bottom links (section 8, item 14). [`status.md`](status.md)
+> says how the house is set up today.
 
 Status: contract, 2026-10-27, written for
 [issue #12](https://github.com/corytron/c4-modernforms-driver/issues/12)
@@ -121,7 +128,7 @@ says which new link takes over a button's script (ids and names:
 | Fan Off (3) | Fan Off (300) | off | none |
 | Fan Speed 1 to 6 (4 to 9) | Fan Speed 1 to 6 (301 to 306) | that speed | none |
 | Toggle Preset (10) | Fan Toggle (307) | off when on; on at the preset speed (3) when off | none |
-| Cycle Speed (11) | Fan Cycle (308) | one speed up, wrapping from 6 to 1 (V11 of v1-design.md) | none |
+| Cycle Speed (11) | Fan Cycle (308) | one speed up, wrapping from 6 to 1 (V11 of v1-design.md; since 1.1, #77, it stops at 6) | none |
 
 ### 1.3 Programming that names the stock device
 
@@ -680,12 +687,16 @@ turns the phases into briefs and section 6 collects the ways back.
   fan's product name (#37) arrives: its Use Selected Fan finds names that are
   neither a default nor the driver's and keeps them, and only the owner's own
   click on `Name Items After Fan` would give them the product name instead
-  ([`fan-name-design.md`](fan-name-design.md#1-decisions), N8).
+  ([`fan-name-design.md`](fan-name-design.md#1-decisions), N8). The owner
+  clicked it on 2026-11-05, and the device that replaced this one the same
+  evening (added from 1.1 for the icons, #91) was named by Use Selected Fan:
+  "Aviator 5" and "Aviator 5 Light" ([`status.md`](status.md)).
 
 ## 4. The Migration Report
 
 This section is the report's specification; [`v1-design.md`](v1-design.md)
-lists its action and its two properties with the driver's others.
+listed its action and its two properties with the driver's others until
+#45 removed them.
 
 ### 4.1 What it is, and what it never does
 
@@ -735,7 +746,8 @@ DEVICE_SELECTOR [verified: FUND
    - Otherwise no verdict: "3 stock WAC devices: pick this fan's in Stock
      Device".
 3. `Stock Device` offers `wac_mf_fan_and_light_controller(v4).c4z` as its
-   item (row 29 of v1-design.md's section 2.5), one device at a time; the
+   item (row 29 of v1-design.md's section 2.5 until #45, which removed the
+   row), one device at a time; the
    driver reads the chosen id from `Properties` [verified: FUND
    `15_composerpro_interface_into_the_sdk/_3.1-DEVICESELECTOR.md`]. A stock
    file of another name is added to the items in a later build (a property,
@@ -1075,11 +1087,15 @@ What the M1 probes (#17) and the first dev install may change:
 12. The Button Behavior of a linked button: Keypad on the five fan buttons
     (M0), kept unless Medium's first press shows that it must change.
 13. `Find Fans`: if v1-design.md offers it (K10), Phase 1 picks the fan from
-    `Found Fans`; otherwise the address is typed. Both are written.
+    `Found Fans`; otherwise the address is typed. Both are written. (K10
+    passed and Find Fans shipped in 1.0; since 1.2, #102, `Found Fans`
+    fills by itself.)
 14. Up and Down on the light's links: v1-design.md does not say whether a
     Regular Button can bind Light Top and Light Bottom. Until a probe shows
     it, they stay programming, re-aimed at the new light (G8); bound, they
     would gain the hold-to-dim of those links, a later change in Composer
-    only.
+    only. **Settled by K19** (2026-11-04, G8): both have Button Link rows,
+    and the house binds Up to Light Top and Down to Light Bottom
+    ([`status.md`](status.md)).
 15. Which address the stock driver uses, its `IP Address` property or
     network connection 6000's: Phase 6, step 6 shows it (G13).

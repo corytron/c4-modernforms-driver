@@ -12,6 +12,13 @@
 > DM1 to DM81, variant (a)). The probe that settled the route ran on the
 > house on 2026-11-12 (Discussion #208 and the issue).
 
+> **Status (2026-11-13, #213).** Shipped in 1.9 "Sandwalk" (build 220) and
+> holds today. On the house the keypad dimmer bound to the fan's speed
+> links is bound to the new input and `Pause LED Animations Below` is 10;
+> section 5's check has not shown the pause yet (for 3¾ minutes after the
+> bind `Keypad Links` did not show it; the likely cause, a steady reading
+> the keypad does not send, is being checked, [`status.md`](status.md)).
+
 ## 0. What the probe measured (MEASURED, OS 3.4.3, a C4-KD120 keypad dimmer on firmware 5.1.1)
 
 | # | Fact |

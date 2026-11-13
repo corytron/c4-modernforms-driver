@@ -8,6 +8,16 @@
 > (the API and how the Hue drivers already do it on the house). Placeholders
 > only: fan 10.0.2.151, controller 10.0.2.10.
 
+> **Status (2026-11-13, #213).** Shipped in 1.7 "Stillsuit" (build 193,
+> with KL-D11's fix, #185) and holds today. Since 1.9 a 21st managed row
+> follows the gate alone: `Pause LED Animations Below`
+> ([`ambient-pause-design.md`](ambient-pause-design.md) AP-D10, #207), and
+> while the animations pause the `Keypad Links` note reads `; LED
+> animations paused: the keypad is dark` in place of `; LED settings
+> shown`. Section 4's checks ran on 2026-11-10: the scratch device's rows
+> hid by themselves about 15 s after the add and the house fan kept every
+> row ([`status.md`](status.md)).
+
 The owner asked that the keypad LED work (the per-speed colours, the Breeze
 animation, the speed chase) show up in Composer only when a keypad is linked
 to the driver, with clear instructions for both cases, easy to disable, and

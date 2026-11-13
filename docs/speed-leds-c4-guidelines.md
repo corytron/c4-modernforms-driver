@@ -17,6 +17,17 @@ and the reason this note counts messages per hour and per day.
 This note is the input for the contract's "Control4 guidelines" section. It
 does not decide anything; section 8 gives recommendations.
 
+> **What was decided** (2026-11-13, #213): the contract,
+> [`speed-leds-design.md`](speed-leds-design.md), took most of section 8
+> with these differences: the property is `Speed LED Animation` (`Off`,
+> `Speeds 2 to 5`, `Speeds 1 to 6`) beside `Speed LED Rest (s)`; the chase
+> preloads the chase colour into every dark pixel on every chase, 13
+> messages for four buttons (11 at the edge speeds), instead of keeping it
+> loaded (SL-D12, SL-D18); the rest's default is 5 s since 1.7, not the 10 s
+> of section 8.3 (#177); and since 1.9 the chase pauses while the keypad is
+> dark ([`ambient-pause-design.md`](ambient-pause-design.md), #207). The
+> numbers below are this note's, for its 2N + 2 scheme.
+
 **Sources and status key.** SDK files are cited by path under
 `~/c4-tools/reference/`; the Snap One text is paraphrased, never copied.
 

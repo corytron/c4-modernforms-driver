@@ -11,6 +11,13 @@
 > hardware rounds (2026-11-12): every open question takes its recommended
 > answer below.
 
+> **Status (2026-11-13, #213).** Shipped in 1.8 "Carryall" (build 207) and
+> holds today. Section 5 is partly past: the controller has been rebooted
+> since (the light's Click Rates keep 3 s, 2026-11-12), so the tap fades
+> and the second-tap stop are live, and the house's `Light Min On (%)` is
+> 10; the first glow of the house's light kit was not measured
+> ([`status.md`](status.md)).
+
 ## 1. Decisions
 
 | # | Decision |
@@ -26,7 +33,7 @@
 | MO-D9 | **Changing M (CM1 to CM9).** At load (late init's replay of the properties) M is taken and nothing is sent (CM7). On an owner's edit: with the light off, nothing is sent (CM1). With the light on at a level Control4 set (MO-D4's memory matches the fan), the Control4 level stays and the light moves to its new fan level in one request, with no fade and no CHANGED (CM2, MQ3's recommended answer). With the light on at a level set outside Control4, the fan is not touched, and the proxy hears the new Control4 level once (CM3). A running fade, hold or scene ramp keeps the M it started with. When it ends, CM2 or CM3 applies once (CM6). An offline, rebooting or foreign fan: M is kept and nothing is sent (CM9). |
 | MO-D10 | **Bad values (BV1 to BV5):** not a number, below 0, or 100 and over are refused: the old value is kept, the property is written back to it, and one warning is logged. A decimal is rounded half up and then checked. |
 | MO-D11 | **The Status row (RP1, MQ5):** while M is above 1 and the light is on, "light 40 % (fan 52)", the Control4 level first. Below m: "light 1 % (fan 5, below Min On)". At M of 0 or 1, today's "light 40 %" exactly. |
-| MO-D12 | **The log (RP3):** one always-on info line per change of M that is not the load's: "Light Min On 20: Control4's 1 % is the fan's level 20" (or "Light Min On 0: levels are the fan's" at 0 or 1). The light's debug lines that name a level say which: "40 %" for Control4, "fan level 52" for the fan. |
+| MO-D12 | **The log (RP3):** one info line per change of M (the driver shows info lines only while Debug Mode is On; corrected in #213) that is not the load's: "Light Min On 20: Control4's 1 % is the fan's level 20" (or "Light Min On 0: levels are the fan's" at 0 or 1). The light's debug lines that name a level say which: "40 %" for Control4, "fan level 52" for the fan. |
 | MO-D13 | **A new fan (LC1):** when Use Selected Fan takes a fan and M is above 0, one info line: "Light Min On is 20 %; check it for this fan's light". M is never reset or guessed. A new light kit, a firmware update and a restore are covered by the manual (LC2, LC3, LC6). |
 | MO-D14 | **The manual (RP4):** a "Light Min On" section on the Documentation tab, in the driver's own words: what it is, that 0 is off, that 1 % becomes the first lit level, how to find the value (at 0, find the first level that lights, then set a few points above it, as Control4 suggests for its own dimmers), that times stay the same, that levels set in the Modern Forms app or by the remote below Min On show as 1 %, that the app's numbers no longer match Control4's, and to check the value after a new fan, light kit or firmware. Near 99 only two levels are left. |
 | MO-D15 | **Out of scope:** Max On, Cold Start, a Range Levels route (MSR Summary 6). |

@@ -1,5 +1,12 @@
 # Prereleases for testers
 
+> **Status (2026-11-13, #213).** In use and current. Since this was written,
+> three prereleases were cut before the first release, `v1.0-beta.1` to
+> `v1.0-beta.3` (2026-11-04 and 2026-11-05), the house moved off the stock
+> WAC driver with them (section 7's path), and none has been cut since 1.0.
+> The release carries two packages since 1.2 (section 2), and
+> `.github/codenames.json` names 1.0 to 1.9.
+
 Status: contract, 2026-10-27, ported with the scaffold (#1) from the Hue
 project's prerelease contract
 ([corytron/c4-hue-driver](https://github.com/corytron/c4-hue-driver),
@@ -29,7 +36,7 @@ reproduce) is decided per feature; the mechanics below do not depend on it.
 
 ## 2. The packages: one list
 
-The packages are named in one place: the directories `src/<name>/` that hold a `driver.xml`, sorted by name. Today there is one, `modernforms_fan`, the fan and its light; if the v1 research gives the light a driver of its own, that is a second such directory and nothing below changes.
+The packages are named in one place: the directories `src/<name>/` that hold a `driver.xml`, sorted by name. Today there is one, `modernforms_fan`, the fan and its light; if the v1 research gives the light a driver of its own, that is a second such directory and nothing below changes. (The light stayed in the fan driver; the second directory came with Breeze: `modernforms_breeze` in 1.2, `modernforms_breeze_fan` since 1.3.)
 - `tools/build.sh` builds exactly those.
 - `build/manifest.json` lists them.
 - The Release workflow's checks (the file listing, `SHA256SUMS.txt`, the provenance subjects, the upload) take the list from the manifest, never a literal list. The manifest is itself checked against the `src/*/driver.xml` directories of the commit.
@@ -95,6 +102,6 @@ Decided with the scaffold (2026-10-27): allowed. A `1.0-beta.N` can put the driv
 
 - **Codename:** the 1.0 name must be approved and in `.github/codenames.json` first; the Release workflow refuses a 1.0 beta otherwise, as any version whose X.Y the file does not name.
 - **Notes:** there is no stable release, so `{stable}` and `{stable_version}` have no value and the template's `if no stable` blocks take over (section 3): the notes say that the prerelease comes before the first release and that the project has no stable release yet, list the whole `Unreleased` entry (everything so far) under "What to try", and send the tester back to the stock WAC driver.
-- **Install:** the first install is no update. The tester adds a Modern Forms Fan device beside the stock WAC device of the same fan, and the stock device stays in the project with its programming disabled, not deleted, until the move is checked (disable before delete: [chapter 11 of the manual](../src/modernforms_fan/www/documentation.html#ch11), as the house's cutover did it, [`migration-design.md`](migration-design.md#3-phases)). Later betas update that device in place.
+- **Install:** the first install is no update. The tester adds a Modern Forms Fan device beside the stock WAC device of the same fan, and the stock device stays in the project with its programming disabled, not deleted, until the move is checked (disable before delete: [the manual's "Moving from the stock WAC driver"](../src/modernforms_fan/www/documentation.html#ch11), as the house's cutover did it, [`migration-design.md`](migration-design.md#3-phases)). Later betas update that device in place.
 - **Going back:** to the stock WAC driver, by the migration's rollback: disconnect the new device's links, set each keypad button's LED Behavior back to Programmed (disconnecting does not restore it), enable the stock device's programming again, undo anything done to quiet the stock device, then delete the Modern Forms Fan device or keep it unused.
 - **Changelog:** the rules do not change. A prerelease is never stamped, the 1.0 entry carries everything when 1.0 is released, and until then the Documentation tab shows the `Unreleased` entry as `1.0 beta 1 "<codename>" (prerelease), build N (date)`.

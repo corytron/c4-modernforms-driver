@@ -1,5 +1,20 @@
 # Edge cases and lifecycle policy: the fan side
 
+> **Status (2026-11-13, #213).** The v1 contract
+> [`v1-design.md`](v1-design.md) decided these proposals for 1.0 (#26);
+> notes beside N1, Q3, S4 and V4 give the later changes there. The owner's
+> questions: Q1 keep the last state (V13); Q2 report what the fan does, with
+> no `After Power Returns` row; Q4 15 s while idle and 2 s for 20 s after a
+> change, as `Poll Interval (s)` 10 to 120 (V7); Q5 at once (V10); Q6
+> generations 1 to 3 only (V4); Q7 no WAC licence (V15). Not built: the
+> `Attention` and `Fan Name` rows, and the actions Clear Fan Schedule,
+> Restore Fan Schedule, Clear Fan Timers, Accept Fan Automations and
+> Diagnostics (V22: the fan's schedule and timers are shown, not cleared).
+> Reboot Fan is an action only, not a programming command (V23). Breeze,
+> left out of v1 in section 9, came in 1.2 (#111) and 1.3 (#121)
+> ([`breeze-design.md`](breeze-design.md)), and since 1.2 (#102) the Find
+> Fans action is gone ([`auto-discovery-design.md`](auto-discovery-design.md)).
+
 > **Research (2026-10-27) for [issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)**, written before the v1 contract. Read-only: nothing here was tried on the house fan. It lists what a Modern Forms fan, its remotes, the Modern Forms app and WAC's cloud do over the life of the system. For each case it says what the driver sees and recommends what is automatic, what is only offered (a click in Composer) and what is forbidden without a click. The Control4 side is [`edge-cases-control4.md`](edge-cases-control4.md): Composer, Director, proxies, bindings, discovery APIs and the move from the stock driver. The fan's interface itself is [`modernforms-api-research.md`](modernforms-api-research.md); this file uses it only where a lifecycle case depends on it. The owner's answers go into §11; until then the recommended defaults stand.
 
 A fan differs from the Hue bridge in three ways, and most rows here
