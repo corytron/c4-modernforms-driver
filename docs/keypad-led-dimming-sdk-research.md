@@ -16,6 +16,13 @@
 > Animations Below` (default 10) pauses both animations while the bound
 > keypad reads dark. BL-D28's night halving stays (decision 5).
 
+> **Since 1.11 (#233, 2026-11-14).** The pause 1.9 built on route 3.4 is
+> withdrawn whole, the input and `Pause LED Animations Below` with it: it
+> kept the chase stopped in a sunny room. The driver no longer uses any
+> undocumented route. The animations now pause while every light in the
+> fan's room is off after sunset; see
+> [`room-dark-pause-design.md`](room-dark-pause-design.md).
+
 Research for [issue #198](https://github.com/corytron/c4-modernforms-driver/issues/198), written
 2026-11-12. The owner saw the speed chase ([`speed-leds-design.md`](speed-leds-design.md), #159)
 still lit at night while the LEDs of the switches beside the keypad had gone "totally dark", and

@@ -12,7 +12,7 @@ This notebook was opened on 2026-10-27 as a list of questions for the v1
 research ([issue #2](https://github.com/corytron/c4-modernforms-driver/issues/2)).
 The research and the owner's decisions ([#6](https://github.com/corytron/c4-modernforms-driver/issues/6))
 answered them; each section now opens with what the code does, marks with
-"Since 1.N (#NNN)" what a later release changed, and ends with the
+"Since 1.N (#233)" what a later release changed, and ends with the
 questions it was opened with, as they were asked.
 
 ## Method
@@ -48,7 +48,7 @@ or the fan. What counts as a primary source:
   the build; hardware findings also go into the issue as comments.
 
 **Dated history.** Contracts, research notes and edge-case notes keep what
-was decided when; a later change adds a short "Since 1.N (#NNN)" note
+was decided when; a later change adds a short "Since 1.N (#233)" note
 beside the old text and never rewrites it. This notebook and `status.md`
 are kept true for the present instead.
 
@@ -67,11 +67,10 @@ Composer can show goes to the Windows session.
 - **Controller.** OS 3.4.3 at the house, managed with Composer Pro 3.4.2;
   the drivers must also work on OS 4.x and with the date-versioned Composer
   Pro releases, so they use documented APIs and nothing that is 4.x-only.
-  One measured departure: since 1.9 (#207) the ambient connection's class
-  `AMBIENT_LEVEL` and its command `AMBIENT_LIGHT_LEVEL` are in no SDK
-  document **[measured, 2026-11-12, OS 3.4.3, a C4-KD120 keypad dimmer:
-  [`ambient-pause-design.md`](ambient-pause-design.md) section 0]**;
-  unbound, it changes nothing. OS 4.x has not been tried.
+  OS 4.x has not been tried. Since 1.11 (#233) nothing rests on an
+  undocumented interface: the keypad's ambient connection of 1.9 and 1.10,
+  measured on the house but in no SDK document, was withdrawn with the
+  pause it fed (see [Keypad LEDs](#keypad-leds)).
 - **Minimum OS: 3.3.0**, declared as `minimum_os_version` in both
   `driver.xml` files and checked at run time by the fan driver (Status
   `Controller OS … is older than 3.3.0; the light may misbehave`). See
@@ -131,10 +130,8 @@ its LED scripts and the settle timer are gone from the house
   and the Documentation tab) and a `light_v2` proxy on binding 5002 (V1,
   probes K2 and K4). Its connections: the light's Button Links 200 to 202,
   the fan's 300 to 308 and, since 1.2 (#111), 311 Fan Breeze; 400 `Breeze
-  Switch`, a provider binding of class `MODERNFORMS_BREEZE` (since 1.2);
-  and since 1.9 (#207) 500 `Ambient Light Level (Follower)`, a consumer of
-  class `AMBIENT_LEVEL`. The multicast DNS search runs on the dynamic
-  network binding 6001.
+  Switch`, a provider binding of class `MODERNFORMS_BREEZE` (since 1.2).
+  The multicast DNS search runs on the dynamic network binding 6001.
 - **Modern Forms Breeze Fan** (`src/modernforms_breeze_fan/`,
   `modernforms_breeze_fan.c4z`), since 1.3 (#121): a second fan device per
   Breeze fan for the Navigators, one `fan` proxy with three speeds Breeze 1
@@ -171,7 +168,7 @@ entry points, properties, actions and events; the layout is
 | `breezeleds.lua`, `sun.lua` | the Breeze animation on the speed links, and night at the project's location | 1.4 (#137) |
 | `speedleds.lua`, `ledhub.lua` | the speed chase, and the one owner of the speed links between the two engines | 1.6 (#159) |
 | `ledrows.lua` | showing the keypad LED rows only while a speed link is bound | 1.7 (#178) |
-| `ambient.lua` | whether the bound keypad's LEDs are dark | 1.9 (#207) |
+| `roomdark.lua` | whether every light in the fan's room is off at night, which pauses the LED animations | 1.11 (#233) |
 | `devcmds.lua` | the signed development commands, in `--dev` builds only | 1.0 |
 
 `src/common/` is the owner's own Apache-2.0 code shared with the Hue
@@ -384,16 +381,29 @@ animate.
   values are kept and still apply. 20 rows then, **21 since 1.9 (#207)**:
   `Speed 1` to `Speed 6 Link Also Lit At`, `Speed LED Colors`, `Speed 1` to
   `Speed 6 LED Color`, `Speed LED Off Color`, the four `Breeze LED` rows,
-  `Speed LED Animation`, `Speed LED Rest (s)` and `Pause LED Animations
-  Below`.
-- **Since 1.9 (#207):** the animations pause while the keypad is dark
-  (`fan/ambient.lua`, [`ambient-pause-design.md`](ambient-pause-design.md)).
-  A keypad's Ambient Light Level (Source), bound to the fan's Ambient Light
-  Level (Follower), sends its reading on change only; below `Pause LED
-  Animations Below` (0 to 255, default 10; 0 never pauses) the chase and the
-  gusts send nothing, and a new run starts after 10 s of light. The steady
-  LEDs still follow the fan. Nothing is persisted or polled: after a restart
-  the animations run until the keypad's next reading.
+  `Speed LED Animation`, `Speed LED Rest (s)` and, since 1.11 (#233),
+  `Pause LED Animations` (`Pause LED Animations Below` before). The pause
+  row hides with the others but is not Breeze-only.
+- **Since 1.11 (#233):** the animations pause at night in a dark room
+  (`fan/roomdark.lua`, [`room-dark-pause-design.md`](room-dark-pause-design.md)).
+  The room's lights are every `light_v2` proxy in the fan item's room
+  (`C4:GetDevices` and `C4:RoomGetId`, read again at the start, when
+  `Pause LED Animations` is set, at sunrise, at sunset and every 6 hours),
+  and each one's Light State (variable 1000) is watched with
+  `C4:RegisterVariableListener`. With `Pause LED Animations` at `Room
+  lights off after sunset` (the default), the pause starts when it is
+  night at the project's location (`fan/sun.lua`, the look the Breeze
+  night brightness takes) and every light is known off; it ends when any
+  light reports on, when the row is set to `Never`, or when the room has
+  no light. Sunrise does not end it, and it is persisted, so a driver
+  update or a restart keeps a dark room's animations stopped. While
+  paused, the chase and the gusts send nothing (a chase in progress
+  settles, the gusts end with no wipe); the steady LEDs still follow the
+  fan. On resume they start again as when a speed is picked (the first
+  chase 2.5 s later) or Breeze starts. `Keypad Links` ends `; LED
+  animations paused: room dark at night`. It replaces the pause of 1.9 and
+  1.10 by a keypad's ambient light reading
+  ([`ambient-pause-design.md`](ambient-pause-design.md), withdrawn whole).
 
 The questions of 2026-10-27:
 

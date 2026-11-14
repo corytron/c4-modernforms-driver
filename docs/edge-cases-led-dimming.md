@@ -20,6 +20,13 @@
 > dealer's setting, never a copy of the curve (DM9). BL70's input stays
 > unbound. The code line numbers are those of 2026-11-12.
 
+> **Since 1.11 (#233, 2026-11-14).** The pause 1.9 built on route (a) is
+> withdrawn whole: it kept the chase stopped in a sunny room. The
+> animations now pause while every light in the fan's room is off after
+> sunset, a sign of a dark room read from the room's lights and the sun,
+> not from the keypad; see
+> [`room-dark-pause-design.md`](room-dark-pause-design.md).
+
 > **Research (2026-11-12) for [issue #198](https://github.com/corytron/c4-modernforms-driver/issues/198)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner's request (2026-11-12): "the fan led chase still lights even when the

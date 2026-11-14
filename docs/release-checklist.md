@@ -142,10 +142,11 @@ Read:
 6. Connections, after the update in place: the fan's own Button Links (the
    speed, Off, Toggle, Cycle and Fan Breeze links) and the light's links
    with every keypad binding; each Breeze fan still bound to its fan's
-   `Breeze Switch` output (the output kept its 1.2 name); and since 1.9 a
-   keypad's Ambient Light Level (Source) still bound to the fan's Ambient
-   Light Level (Follower) where it was bound
-   ([`composer-checklist.md`](composer-checklist.md), sections D to F and O).
+   `Breeze Switch` output (the output kept its 1.2 name)
+   ([`composer-checklist.md`](composer-checklist.md), sections D to F).
+   Since 1.11 the fan item has no Ambient Light Level (Follower) input: the
+   first install of 1.11 over 1.9 or 1.10 drops it and the keypad's binding
+   to it (step 96 there).
 7. **The first install of 1.3 or later on a fan with Breeze and no Breeze
    fan yet** (#121): the programming items read back, **Add Breeze Fan**
    clicked once on each fan that has Breeze, the new item placed after its
@@ -187,8 +188,9 @@ Read:
    and 1.2's switch added again.
 9. **A release that brings a new setting the house uses** sets it in the
    brief and reads it back (1.6 set `Speed LED Animation`, 1.8 `Light Min
-   On (%)`, 1.9 bound the keypad's ambient output); the values the house
-   keeps are under "Settings" in [`status.md`](status.md#settings).
+   On (%)`; 1.11 reads `Pause LED Animations` back at its default, `Room
+   lights off after sunset`); the values the house keeps are under
+   "Settings" in [`status.md`](status.md#settings).
 
 ## 3. The owner, on the phone, the keypads and the fan
 
@@ -214,8 +216,8 @@ Each under a minute, when the release changes what they cover
    ([`composer-checklist.md`](composer-checklist.md), step 62; step 53 for
    the switch of 1.2).
 6. The LED animations, where the release touches them: the Breeze gusts
-   (section J.3), the speed chase (section L), and since 1.9 their pause
-   while the bound keypad is dark (section O).
+   (section J.3), the speed chase (section L), and since 1.11 their pause
+   at night while every light in the fan's room is off (section O).
 
 ## 4. After a controller OS upgrade
 
@@ -223,12 +225,10 @@ Once per new controller OS version, before a build is called good on it:
 sections 1 to 3 on the new OS, with the keypad lines of section 3 in full.
 Check in particular what rests on measurement rather than on the SDK
 documents: the keypad's push, click and release timings the links are
-built on (K6, K7), the keypad LED rows hiding in Composer (#178), the Click
-Rates loading only after a reboot (#141), and since 1.9 the keypad's
-Ambient Light Level (Source) reaching the fan's Ambient Light Level
-(Follower), whose class and command are in no SDK document (#207). The
-minimum OS stays 3.3.0 whatever the house runs. Note the OS version and the
-result in the build's issue and in [`status.md`](status.md).
+built on (K6, K7), the keypad LED rows hiding in Composer (#178) and the
+Click Rates loading only after a reboot (#141). The minimum OS stays 3.3.0
+whatever the house runs. Note the OS version and the result in the build's
+issue and in [`status.md`](status.md).
 
 A build passes when every line reads as expected; anything else becomes an
 issue naming the build number ([`status.md`](status.md) "Open" points at
@@ -246,7 +246,7 @@ object such as `{"1.0": "<name>"}`), which
 The Release workflow refuses every version whose X.Y the file does not
 name, in its first step. The file started empty, `{}`, so nothing was
 released before the owner had approved the 1.0 name (approved 2026-10-27,
-#6: 1.0 is "Arrakis"); on 2026-11-13 it names 1.0 to 1.9 "Sandwalk".
+#6: 1.0 is "Arrakis"); on 2026-11-14 it names 1.0 to 1.11 "Hunter-Seeker".
 Every release's and prerelease's notes open with the meaning of its
 codename (owner, 2026-11-10, #192): what the name is in its story and, where
 it fits, how that ties to what the version changed, one paragraph of at most
@@ -325,8 +325,8 @@ the controller has no install API. Until the first install the file said
 `release: none` and `build: none` (the house ran the stock WAC driver), and
 with no Deployment recorded that was no drift: the drift workflow opened no
 issue. Since the first install (v1.0-beta.1, 2026-11-04, deploy issue #30)
-it names the release the house should run; on 2026-11-13 that is v1.9,
-build 220. For every release:
+it names the release the house should run; on 2026-11-13 that is v1.10,
+build 236. For every release:
 
 1. **Say what the house should run.** A pull request edits
    `deploy/house.yaml`: `release:` to the tag, `build:` to the release's

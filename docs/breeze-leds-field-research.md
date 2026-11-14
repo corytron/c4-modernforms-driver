@@ -18,6 +18,11 @@
 > keypad reads dark ([`ambient-pause-design.md`](ambient-pause-design.md)).
 > The hardware, Zigbee and perception findings stand.
 
+> **Since 1.11 (#233).** The pause by the keypad's ambient reading is
+> withdrawn; the gusts now pause while every light in the fan's room is
+> off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 Research for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137), written
 2026-11-08: everything outside the DriverWorks SDK that decides whether the keypad buttons bound to
 the fan can play a rising blue, teal and white "breeze" while Breeze blows, and how fast. The SDK

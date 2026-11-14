@@ -17,6 +17,11 @@
 > ([`ambient-pause-design.md`](ambient-pause-design.md), AP-D10). The
 > file line numbers are those of 2026-11-10.
 
+> **Since 1.11 (#233).** The 21st row is `Pause LED Animations` (`Room
+> lights off after sunset` or `Never`), in place of `Pause LED Animations
+> Below`, which was withdrawn with the ambient pause
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md) RD-D2).
+
 > **Research (2026-11-10) for [issue #178](https://github.com/corytron/c4-modernforms-driver/issues/178)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner asked that the keypad LED work (the per-speed colours, the Breeze

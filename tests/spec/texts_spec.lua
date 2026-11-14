@@ -1874,170 +1874,69 @@ describe("fan.texts", function()
 		end)
 
 		-- keypad-leds-visibility-design KL-D7: the note the driver puts after the
-		-- first row; ambient-pause-design AP-D10 (#207): the pause while the
-		-- keypad bound to Ambient Light Level (Follower) is dark.
+		-- first row; room-dark-pause-design RD-D10 (#233): the pause while every
+		-- light in the fan's room is off after sunset.
 		describe("Keypad Links' note", function()
 			local SHOWN = "; LED settings shown"
 			local HIDDEN = "; LED settings hidden: bind a button to a Fan Speed link"
-			local DARK = "; LED animations paused: the keypad is dark"
+			local PAUSED = "; LED animations paused: room dark at night"
 
-			it("without the dark argument reads as before: shown or hidden (KL-D7)", function()
+			it("without the paused argument reads as in 1.8: shown or hidden (KL-D7)", function()
 				assert.equal(SHOWN, texts.keypad_leds_note(true))
 				assert.equal(HIDDEN, texts.keypad_leds_note(false))
 				assert.equal(HIDDEN, texts.keypad_leds_note(nil))
 				assert.equal(HIDDEN, texts.keypad_leds_note())
 			end)
 
-			it("with the keypad not dark reads as before", function()
+			it("while not paused reads as in 1.8", function()
 				assert.equal(SHOWN, texts.keypad_leds_note(true, false))
 				assert.equal(SHOWN, texts.keypad_leds_note(true, nil))
 				assert.equal(HIDDEN, texts.keypad_leds_note(false, false))
 			end)
 
-			it("while the keypad is dark says the animations are paused, in place of LED settings shown (AP-D10)",
-				function()
-					assert.equal(DARK, texts.keypad_leds_note(true, true))
-				end)
+			it("while paused says so, in place of LED settings shown (RD-D10)", function()
+				assert.equal(PAUSED, texts.keypad_leds_note(true, true))
+			end)
 
 			it("keeps the binding hint while the rows are hidden: no speed link, nothing to pause", function()
 				assert.equal(HIDDEN, texts.keypad_leds_note(false, true))
 				assert.equal(HIDDEN, texts.keypad_leds_note(nil, true))
 			end)
 
-			it("counts only true as dark", function()
-				for _, value in ipairs({ 1, "true", "dark", {}, 0 }) do
+			it("counts only true as paused", function()
+				for _, value in ipairs({ 1, "true", "paused", {}, 0 }) do
 					assert.equal(SHOWN, texts.keypad_leds_note(true, value), tostring(value))
+					assert.equal(HIDDEN, texts.keypad_leds_note(false, value), tostring(value))
 				end
 			end)
 
+			it("takes no third argument: what the withdrawn ambient pause passed changes nothing", function()
+				local last = { level = 1, at_s = T, now_s = SOON }
+				assert.equal(PAUSED, texts.keypad_leds_note(true, true, last))
+				assert.equal(SHOWN, texts.keypad_leds_note(true, false, last))
+				assert.equal(HIDDEN, texts.keypad_leds_note(false, true, last))
+			end)
+
 			it("leaves the first row under Composer's 75 characters, with no comma, ASCII only", function()
-				for _, note in ipairs({ SHOWN, HIDDEN, DARK }) do
+				for _, note in ipairs({ SHOWN, HIDDEN, PAUSED }) do
 					assert.is_nil(note:find(",", 1, true), note)
 					assert.is_nil(note:find("[^\32-\126]"), note)
 				end
 				-- Every link bound: the longest first row the pause can follow.
-				local first = texts.keypad_links({ { "Fan Speed 3 Button Link", "K", 1 } }, 13)[1]:gsub("^1 ", "13 ")
-				assert.equal("13 of 13 links bound; LED animations paused: the keypad is dark",
-					first .. texts.keypad_leds_note(true, true))
-				assert.equal(63, #(first .. texts.keypad_leds_note(true, true)))
+				local rows = {}
+				for index = 1, texts.LINK_COUNT do
+					rows[index] = { "Link " .. index .. " Button Link", "K", index }
+				end
+				local first = texts.keypad_links(rows)[1]
+				assert.equal("13 of 13 links bound", first)
+				local row = first .. texts.keypad_leds_note(true, true)
+				assert.equal("13 of 13 links bound; LED animations paused: room dark at night", row)
+				assert.equal(63, #row)
+				assert.is_true(#row <= texts.ROW_CUT, row)
+				assert.is_true(#(first .. SHOWN) <= texts.ROW_CUT)
 				-- The most links bound with none of them a speed link (Off, Toggle,
-				-- Cycle, Breeze and the light's three): dark adds nothing.
+				-- Cycle, Breeze and the light's three): paused adds nothing.
 				assert.equal(75, #("7 of 13 links bound" .. texts.keypad_leds_note(false, true)))
-			end)
-
-			-- ambient-pause-design AP-D17 (#223): while paused, the note names the
-			-- last counted reading and its time, { level, at_s, now_s }.
-			describe("with the last reading", function()
-				local NIGHT = at(2026, 11, 12, 23, 51) -- shown as 23:51
-				local function last(level, at_s, now_s)
-					return { level = level, at_s = at_s, now_s = now_s }
-				end
-
-				-- The first row with every link bound: 13 links, each its own.
-				local function every_link_bound()
-					local rows = {}
-					for index = 1, texts.LINK_COUNT do
-						rows[index] = { "Link " .. index .. " Button Link", "K", index }
-					end
-					return texts.keypad_links(rows)[1]
-				end
-
-				it("names the level and the time it was read", function()
-					assert.equal("; LED animations paused: the keypad read 1 at 23:51",
-						texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 60)))
-					assert.equal("; LED animations paused: the keypad read 0 at 23:51",
-						texts.keypad_leds_note(true, true, last(0, NIGHT, NIGHT)))
-					assert.equal("; LED animations paused: the keypad read 255 at 23:51",
-						texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 86400)), "exactly 24 h")
-				end)
-
-				it("gives the time without a present as texts.clock does, the hour alone", function()
-					assert.equal("; LED animations paused: the keypad read 3 at 23:51",
-						texts.keypad_leds_note(true, true, last(3, NIGHT)))
-					assert.equal("; LED animations paused: the keypad read 3 at 23:51",
-						texts.keypad_leds_note(true, true, last(3, NIGHT, "now")))
-				end)
-
-				it("adds the date once the reading is over a day old, without 'the' so that the row fits", function()
-					assert.equal("; LED animations paused: keypad read 1 at 11-12 23:51",
-						texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 86401)))
-					assert.equal("; LED animations paused: keypad read 255 at 11-12 23:51",
-						texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 3 * 86400)))
-				end)
-
-				it("names the level alone when the time cannot be shown", function()
-					for _, at_s in ipairs({ 1e300, 0 / 0, math.huge, -math.huge }) do
-						assert.equal("; LED animations paused: the keypad read 4",
-							texts.keypad_leds_note(true, true, last(4, at_s, NIGHT)), tostring(at_s))
-					end
-				end)
-
-				it("without it reads as today", function()
-					assert.equal(DARK, texts.keypad_leds_note(true, true))
-					assert.equal(DARK, texts.keypad_leds_note(true, true, nil))
-				end)
-
-				it("reads as today when it is not a reading: a bad level, a time that is no number", function()
-					local bad = {
-						last(0 / 0, NIGHT, NIGHT),
-						last(math.huge, NIGHT, NIGHT),
-						last(-1, NIGHT, NIGHT),
-						last(256, NIGHT, NIGHT),
-						last(1.5, NIGHT, NIGHT),
-						last("5", NIGHT, NIGHT),
-						last(nil, NIGHT, NIGHT),
-						last(true, NIGHT, NIGHT),
-						last(5, tostring(NIGHT), NIGHT),
-						last(5, nil, NIGHT),
-						last(5, {}, NIGHT),
-						last(5, true, NIGHT),
-						{ 5, NIGHT, NIGHT },
-						{},
-						"read 5",
-						5,
-						true,
-					}
-					for index, value in ipairs(bad) do
-						assert.equal(DARK, texts.keypad_leds_note(true, true, value), "case " .. index)
-					end
-				end)
-
-				it("changes nothing while not shown or not dark", function()
-					local good = last(1, NIGHT, NIGHT + 60)
-					assert.equal(SHOWN, texts.keypad_leds_note(true, false, good))
-					assert.equal(SHOWN, texts.keypad_leds_note(true, nil, good))
-					assert.equal(SHOWN, texts.keypad_leds_note(true, 1, good))
-					assert.equal(HIDDEN, texts.keypad_leds_note(false, true, good))
-					assert.equal(HIDDEN, texts.keypad_leds_note(nil, true, good))
-					assert.equal(HIDDEN, texts.keypad_leds_note(false, false, good))
-				end)
-
-				it("keeps every first row at or under Composer's 75 characters, with no comma, ASCII only", function()
-					local first = every_link_bound()
-					assert.equal("13 of 13 links bound", first)
-					local longest = 0
-					for _, level in ipairs({ 0, 9, 10, 99, 100, 255 }) do
-						for _, now_s in ipairs({ NIGHT, NIGHT + 86400, NIGHT + 86401, NIGHT + 40 * 86400, "?" }) do
-							for _, at_s in ipairs({ NIGHT, 0 / 0 }) do
-								local note = texts.keypad_leds_note(true, true, last(level, at_s, now_s))
-								local row = first .. note
-								assert.is_true(#row <= texts.ROW_CUT, row)
-								assert.is_nil(note:find(",", 1, true), note)
-								assert.is_nil(note:find("[^\32-\126]"), note)
-								longest = math.max(longest, #row)
-							end
-						end
-					end
-					-- The longest: a three-digit level over a day old, exactly at the cut.
-					assert.equal(75, longest)
-					assert.equal("13 of 13 links bound; LED animations paused: keypad read 255 at 11-12 23:51",
-						first .. texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 86401)))
-					-- Within a day "the" stays: 73 at most.
-					assert.equal(73, #(first .. texts.keypad_leds_note(true, true, last(255, NIGHT, NIGHT + 60))))
-					-- With fewer links bound the date form is shorter still.
-					assert.equal("4 of 13 links bound; LED animations paused: keypad read 1 at 11-12 23:51",
-						"4 of 13 links bound" .. texts.keypad_leds_note(true, true, last(1, NIGHT, NIGHT + 86401)))
-				end)
 			end)
 		end)
 

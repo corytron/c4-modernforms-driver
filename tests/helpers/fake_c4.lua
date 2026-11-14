@@ -745,6 +745,29 @@ local function new_c4(env)
 		return out
 	end
 
+	-- Watching another device's variable [verified: API 36_variable/_10, _11]:
+	-- RegisterVariableListener(id, var) on a device of the project calls the
+	-- driver's OnWatchedVariableChanged(id, var, value) at once ("called
+	-- immediately after the listener is successfully set"; synchronously here,
+	-- inside the register call, the harder case [assumed]), then at every
+	-- fake.set_variable. A device not in the project raises (the API "will fail
+	-- if the variable does not exist"; how it fails is [assumed]).
+	-- c4.listeners["id:var"] = true while watched.
+	c4.listeners = {}
+	function c4:RegisterVariableListener(id, var)
+		record("RegisterVariableListener", id, var)
+		assert(fake.project.devices[id], "C4:RegisterVariableListener: no device " .. tostring(id))
+		c4.listeners[tostring(id) .. ":" .. tostring(var)] = true
+		if type(env.OnWatchedVariableChanged) == "function" then
+			env.OnWatchedVariableChanged(id, var, fake.variable_value(id, var))
+		end
+	end
+
+	function c4:UnregisterVariableListener(id, var)
+		record("UnregisterVariableListener", id, var)
+		c4.listeners[tostring(id) .. ":" .. tostring(var)] = nil
+	end
+
 	-- id -> name of the devices using that driver file [verified: API 25/_4
 	-- documents "a table of device ids"; Snap One's common lib reads it as
 	-- id -> name and lists rooms with "roomdevice.c4i", as the hardware does].
@@ -1346,6 +1369,47 @@ function fake.delete_room(id)
 		assert(rec.room_id ~= id, "fake.delete_room: room " .. tostring(id) .. " still holds device " .. tostring(device_id))
 	end
 	fake.project.rooms[id] = nil
+end
+
+-- A light of another driver, as a light_v2 proxy device in a room (the
+-- default room unless given), its Light State (variable 1000) "0". Returns
+-- its id. The fan driver's own light proxy is in the project already.
+function fake.add_light(name, room_id)
+	local id = fake.project.next_proxy_id
+	fake.project.next_proxy_id = id + 1
+	fake.project.devices[id] = { name = name, room_id = room_id or DEFAULT_ROOM_ID, c4i = "light_v2.c4i",
+		driver_name = name, variables = { [1000] = "0" } }
+	return id
+end
+
+-- A device variable's value as Director would report it: what
+-- fake.set_variable set, else "0" for a light_v2 proxy's Light State (1000),
+-- else "".
+function fake.variable_value(id, var)
+	local rec = fake.project.devices[id]
+	local vars = rec and rec.variables
+	if vars and vars[var] ~= nil then
+		return vars[var]
+	end
+	if rec and rec.c4i == "light_v2.c4i" and var == 1000 then
+		return "0"
+	end
+	return ""
+end
+
+-- Change a device variable; every loaded driver watching it hears
+-- OnWatchedVariableChanged(id, var, value), with its globals in place.
+function fake.set_variable(id, var, value)
+	local rec = assert(fake.project.devices[id], "fake.set_variable: unknown device " .. tostring(id))
+	rec.variables = rec.variables or {}
+	rec.variables[var] = value
+	for _, env in ipairs(envs) do
+		local c4 = env.C4
+		if not c4.removed and c4.listeners and c4.listeners[tostring(id) .. ":" .. tostring(var)]
+			and type(env.OnWatchedVariableChanged) == "function" then
+			as(env, env.OnWatchedVariableChanged, id, var, value)
+		end
+	end
 end
 
 -- Move a device (by its protocol or proxy id) and its other half to a room.

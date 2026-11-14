@@ -132,11 +132,10 @@ does.
 
 Control4 hands a driver its commands without a sender the driver can
 check (`ExecuteCommand` carries none): the fan item's programming commands
-(Breeze On and the rest), the Breeze fan's messages and the keypad's
-ambient reading all arrive that way, and any driver in the project, or
-programming, can send the fan device such a command. The driver cannot
-authenticate them. The controller, and whoever can change its project in
-Composer, are inside the trust boundary. Since 1.10 (#214) two rules keep
+(Breeze On and the rest) and the Breeze fan's messages arrive that way, and
+any driver in the project, or programming, can send the fan device such a
+command. The driver cannot authenticate them. The controller, and whoever
+can change its project in Composer, are inside the trust boundary. Since 1.10 (#214) two rules keep
 the surface small:
 
 - **Composer's actions** (the six on the fan item's Actions tab) run only
@@ -149,19 +148,22 @@ the surface small:
 
 The programming commands are unchanged: any driver can still send them.
 
-The reading on the **Ambient Light Level (Follower)** input (1.9, #207)
-arrives as one such command, `AMBIENT_LIGHT_LEVEL`, which Control4 does not
-document for drivers
-([`docs/ambient-pause-design.md`](docs/ambient-pause-design.md)). The driver
-takes a reading that is a whole number from 0 to 255. Once it knows which
-keypad is bound (from the binding, and after a restart by asking Director,
-`C4:GetBoundProviderDevice`), only a reading that carries that keypad's
-device id counts; one without an id, or from another device, is ignored
-(since 1.10; until then a reading without an id passed). While no bound
-keypad is known, any sender's reading counts. A reading only pauses or
-resumes the keypad LED animations (the speed chase and the Breeze gusts),
-which **Keypad Links** reports. It changes nothing on the fan or the light,
-no setting and no other LED, and nothing of it is stored.
+**The room's lights** (1.11, #233). To pause the keypad LED animations at
+night ([`docs/room-dark-pause-design.md`](docs/room-dark-pause-design.md)),
+the driver reads which lights are in the fan item's room
+(`C4:RoomGetId`, `C4:GetDevices`) and watches each one's Light State
+variable (1000) with `C4:RegisterVariableListener`; Director reports each
+change to `OnWatchedVariableChanged`. All of these are documented driver
+interfaces. A report counts only for variable 1000 of a light the driver
+itself watches, and is read only as on, off or unknown (a value that is
+neither clearly on nor off is unknown, which can keep a pause from
+starting but never ends one); a report from any other device is ignored.
+Any driver or programming that switches a light in the room changes what
+the driver sees, and that is the point: the most a light's state can do
+is pause or resume the speed chase and the Breeze gusts, which **Keypad
+Links** reports. It changes nothing on the fan, its light or the other
+lights, no setting and no steady LED. The only thing this feature stores
+is whether the animations are paused, so that a pause survives a restart.
 
 ### The development loop
 
@@ -229,7 +231,8 @@ the packaging and release path, in three parts:
   of the local network.
 - **The Director surface:** what reaches the drivers from inside Control4:
   actions, programming commands, the Breeze fan's messages, the ambient
-  reading, bindings, properties, conditions and timers.
+  reading of 1.9 (withdrawn in 1.11, #233), bindings, properties,
+  conditions and timers.
 - **Packaging and install:** what a release package may contain, how it is
   checked before it is released and before it is installed, and how a
   development package is served.
@@ -250,9 +253,10 @@ The findings were handled privately, as this policy asks, and fixed in 1.10
 - **Composer's actions run only as Composer actions**, and every action
   and command waits for the driver's late initialisation
   ([above](#what-reaches-the-driver-from-inside-control4)).
-- **The ambient input** counts, once a keypad is bound, only readings that
-  carry that keypad's id, and finds the bound keypad again after a
-  restart.
+- **The ambient input** counted, once a keypad was bound, only readings
+  that carried that keypad's id, and found the bound keypad again after a
+  restart. The input was withdrawn whole in 1.11 (#233), with the pause it
+  fed.
 - **The light** caps a fade, ramp or rate at 24 hours, and a value that is
   no finite number acts at once.
 - **Add Breeze Fan:** when the Breeze fan is added but cannot be

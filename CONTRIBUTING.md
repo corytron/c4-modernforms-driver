@@ -81,9 +81,10 @@ optional.
   the driver. Only documented DriverWorks APIs; when a call's behaviour is
   uncertain, say in the PR what you verified on a controller and what you
   assumed, naming the documentation file. A departure is written down in
-  the feature's contract with what was measured on hardware, as the
-  Ambient Light Level connection of 1.9 is
-  (`docs/ambient-pause-design.md`).
+  the feature's contract with what was measured on hardware. The driver
+  has none today: the last one, the keypad's Ambient Light Level
+  connection of 1.9 and 1.10 (`docs/ambient-pause-design.md`), was
+  withdrawn in 1.11 (#233).
 - **The fan's interface.** Only fields and commands with a source: a public
   open-source client of the interface (file and version) or a read-only
   query of a fan (date, model, firmware). The API research

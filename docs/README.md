@@ -8,7 +8,7 @@ Two kinds of document live here. **The pages of the present**
 ([`status.md`](status.md), [`design.md`](design.md) and the two checklists)
 are kept true for today's code and today's house. **Contracts, research and
 edge-case notes** record what was decided when, and are not rewritten: where
-a later release changed a decision, a short "Since 1.N (#NNN)" note (in
+a later release changed a decision, a short "Since 1.N (#233)" note (in
 older notes a dated "Superseded" or "Current" line) says so beside the old
 text. Where any note and `status.md` disagree about the present, `status.md`
 and the code win ([`doc-coherence-design.md`](doc-coherence-design.md)).
@@ -115,9 +115,17 @@ specification, and `status.md` says what of them is live. In release order:
   who owns which file.
 - [`ambient-pause-design.md`](ambient-pause-design.md): pausing the speed
   chase and the Breeze animation while the keypad's LEDs are dark (#207,
-  1.9): what the house probe measured on the keypad's Ambient Light Level
-  (Source) output, the dark and lit rules, the pause and resume in both
-  engines, and who owns which file.
+  1.9; #223, 1.10): what the house probe measured on the keypad's Ambient
+  Light Level (Source) output, the dark and lit rules, the pause and resume
+  in both engines, and who owns which file. **Withdrawn whole in 1.11
+  (#233)**, after the chase stayed paused in a sunny room; kept as the
+  record.
+- [`room-dark-pause-design.md`](room-dark-pause-design.md): the pause that
+  replaced it (#233, 1.11): the speed chase and the Breeze animation pause
+  once every light in the fan's room is off after sunset and come back when
+  any light comes on; the room's lights and their Light State, night at the
+  project's location, the pause kept over a restart, the property `Pause
+  LED Animations`, the edge cases and who owns which file.
 
 ## Research and edge cases
 
@@ -217,7 +225,7 @@ or forbidden without a click. By feature:
 - [`edge-cases-led-dimming.md`](edge-cases-led-dimming.md): the same from
   both sides (#198): 81 cases of the dark state starting and ending during a
   chase or a gust, neighbouring sensors, presses, restarts and message cost;
-  its variant (a) became the pause of #207.
+  its variant (a) became the pause of #207, withdrawn in 1.11 (#233).
 
 **The light (#141, #195):**
 

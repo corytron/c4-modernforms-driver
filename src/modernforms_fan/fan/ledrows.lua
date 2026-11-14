@@ -1,12 +1,12 @@
 -- fan/ledrows.lua: the keypad LED rows shown only while a keypad can use them (#178). The contract is
 -- docs/keypad-leds-visibility-design.md: decisions KL-D1 to KL-D10 and this module's interface (section 2.1); the
 -- reasons are docs/edge-cases-keypad-leds-visibility.md (KF1 onward, KV1 to KV48) and
--- docs/keypad-leds-visibility-sdk-research.md. `Pause LED Animations Below` joined them with #207
--- (docs/ambient-pause-design.md AP-D10).
+-- docs/keypad-leds-visibility-sdk-research.md. `Pause LED Animations` joined them with #233
+-- (docs/room-dark-pause-design.md RD-D2).
 --
--- The rows (KL-D1, AP-D10): the 21 rows of ROWS, in driver.xml order: KL-D1's 20 and `Pause LED Animations
--- Below`, which pauses both animations and so follows the gate alone, like `Breeze LED Bottom`. `Keypad Links`
--- is never one of them.
+-- The rows (KL-D1, RD-D2): the 21 rows of ROWS, in driver.xml order: KL-D1's 20 and `Pause LED Animations`,
+-- which pauses both animations and so follows the gate alone, like `Breeze LED Bottom`. `Keypad Links` is never
+-- one of them.
 --
 -- The gate (KL-D2): the rows are shown while at least one device is bound to a fan speed link 301 to 306
 -- (`speed_bound`), whatever the device. Breeze (KL-D3): the three rows of BREEZE also need a fan that has Breeze;
@@ -57,7 +57,7 @@
 
 local ledrows = {}
 
--- KL-D1 and AP-D10: the managed rows, in driver.xml order (tests/spec/ledrows_spec.lua checks it against the
+-- KL-D1 and RD-D2: the managed rows, in driver.xml order (tests/spec/ledrows_spec.lua checks it against the
 -- file).
 ledrows.ROWS = {
 	"Speed 1 Link Also Lit At",
@@ -80,11 +80,11 @@ ledrows.ROWS = {
 	"Breeze LED Night Brightness (%)",
 	"Speed LED Animation",
 	"Speed LED Rest (s)",
-	"Pause LED Animations Below", -- AP-D2, AP-D10 (#207): both animations, so not a Breeze-only row
+	"Pause LED Animations", -- RD-D2 (#233): both animations, so not a Breeze-only row
 }
 
--- KL-D3: the rows only Breeze uses (`Breeze LED Bottom` also orders the chase, and `Pause LED Animations Below`
--- also pauses it: both follow the gate alone).
+-- KL-D3: the rows only Breeze uses (`Breeze LED Bottom` also orders the chase, and `Pause LED Animations` also
+-- pauses it: both follow the gate alone).
 ledrows.BREEZE = {
 	["Breeze LED Animation"] = true,
 	["Breeze LED Step (ms)"] = true,

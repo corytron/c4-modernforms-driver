@@ -19,6 +19,11 @@
 > ([`ambient-pause-design.md`](ambient-pause-design.md), #207). Everything
 > else here holds.
 
+> **Since 1.11 (#233).** The pause by the keypad's ambient reading is
+> withdrawn; the chase now pauses while every light in the fan's room is
+> off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 The owner asked: at a fixed speed of 2, 3, 4 or 5, a simple animation runs
 across the keypad's speed LEDs, one after the other, in the direction the fan
 blows, at even intervals. Between animations the selected speed's LED is lit;

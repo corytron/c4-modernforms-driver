@@ -21,6 +21,11 @@
 > forbids ([`ambient-pause-design.md`](ambient-pause-design.md)). LF19's
 > active and inactive brightness does not exist (see that row).
 
+> **Since 1.11 (#233).** The pause by the keypad's reading is withdrawn;
+> both animations now pause while every light in the fan's room is off
+> after sunset ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+> The driver again uses neither the keypad's output nor its input.
+
 > **Research (2026-11-08) for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137)**,
 > read-only: nothing here was tried on the house. The owner asked that,
 > while the fan is in Breeze mode, the keypad buttons bound to the fan play

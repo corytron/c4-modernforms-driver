@@ -13,6 +13,11 @@
 > #178); since 1.9 the animation pauses while the keypad is dark
 > ([`ambient-pause-design.md`](ambient-pause-design.md), #207).
 
+> **Since 1.11 (#233).** The pause by the keypad's ambient reading is
+> withdrawn; the gusts now pause while every light in the fan's room is
+> off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 The owner's request (2026-11-08) and decisions (2026-11-08 and 2026-11-09):
 while the fan is in Breeze mode, the keypad buttons bound to the fan's speed
 links play an animation in blues, teals and whites, rising from the bottom

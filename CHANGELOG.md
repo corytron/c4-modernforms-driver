@@ -11,6 +11,11 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Changed
+
+- The keypad LED animations (the speed chase and the Breeze gusts) now pause in a simpler way: once every light in the fan's room is off after sunset, both stop and send nothing, and as soon as any light in the room comes on they play again. Sunrise alone does not restart them, so a dark bedroom stays quiet in the morning, and a pause is kept over a driver update or a restart. The lights are every Control4 light in the fan item's room, the fan's own light included; sunset comes from the project's location. A new row, `Pause LED Animations` (`Room lights off after sunset` by default, or `Never`), turns it off, and `Keypad Links` says `LED animations paused: room dark at night` while paused (#233).
+- Withdrawn: the pause by the keypad's ambient light reading of 1.9 and 1.10, whole: the input `Ambient Light Level (Follower)`, the row `Pause LED Animations Below`, the reconnection of the keypad after each start and the 12-hour safety net. It kept the chase stopped in a sunny room. Composer drops the keypad's connection to the removed input by itself; the keypads' own LED dimming settings are untouched (#233).
+
 ## 1.10 "Shield Wall", build 236 (2026-11-13)
 
 ### Fixed

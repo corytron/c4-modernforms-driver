@@ -12,6 +12,16 @@
 > DM1 to DM81, variant (a)). The probe that settled the route ran on the
 > house on 2026-11-12 (Discussion #208 and the issue).
 
+> **Status (2026-11-14, #233).** Withdrawn in 1.11: the owner had it
+> removed whole after the chase stayed paused in a sunny room. Gone from
+> the driver: the input `Ambient Light Level (Follower)` (500), the
+> command `AMBIENT_LIGHT_LEVEL`, `Pause LED Animations Below`,
+> `fan/ambient.lua`, the keypad rebind after a start and the 12 h safety
+> net (section 1a). The animations now pause while every light in the
+> fan's room is off after sunset; see
+> [`room-dark-pause-design.md`](room-dark-pause-design.md). The notes
+> below, and the rest of this file, are the record of 1.9 and 1.10.
+
 > **Status (2026-11-13, #213).** Shipped in 1.9 "Sandwalk" (build 220) and
 > holds today. On the house the keypad dimmer bound to the fan's speed
 > links is bound to the new input and `Pause LED Animations Below` is 10;

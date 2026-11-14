@@ -18,6 +18,11 @@
 > ([`ambient-pause-design.md`](ambient-pause-design.md)). The code line
 > numbers are those of 2026-11-09.
 
+> **Since 1.11 (#233).** The pause by the keypad's ambient reading is
+> withdrawn; the chase now pauses while every light in the fan's room is
+> off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 > **Research (2026-11-09) for [issue #159](https://github.com/corytron/c4-modernforms-driver/issues/159)**,
 > read-only: nothing here was tried on the house and nothing is built. The
 > owner asked for a second keypad animation, for the fan's **fixed speeds**:

@@ -1387,54 +1387,18 @@ end
 -- The note after Keypad Links' first row (keypad-leds-visibility-design KL-D7);
 -- no comma, since the row is one item of a list.
 --
--- `dark` (ambient-pause-design AP-D10, #207): true while the keypad bound to
--- Ambient Light Level (Follower) is dark and the LED animations are paused.
--- Only `true` counts, so a call without it reads as before. While the rows
--- are shown, the pause takes the place of "LED settings shown" rather than
--- following it: the rows are shown whenever it is said, and both together
--- (83 characters with "13 of 13") would pass the 75 Composer clips at, so
--- that the row would lose its end. While they are hidden no speed link is
--- bound, nothing animates and nothing can be paused: the binding hint stays.
---
--- `last` (#223, AP-D17), optional: { level = n, at_s = epoch seconds, now_s =
--- epoch seconds }, the last counted reading and the present. While paused,
--- the note names it: "; LED animations paused: the keypad read 1 at 23:51",
--- the time as texts.clock gives it (with the date once over a day old), or
--- without " at ..." when that is "". Only a whole-number level 0 to 255 with
--- a number at_s counts; any other `last` gives the text without one. Every
--- first row stays at or under ROW_CUT with every link bound ("13 of 13 links
--- bound"): when the note would pass that, "the" goes, and nothing else. Only
--- the date form needs it: "keypad read 255 at 11-12 23:51" makes 75.
-local function reading_note(last)
-	if type(last) ~= "table" then
-		return nil
-	end
-	local level, at = last.level, last.at_s
-	if type(level) ~= "number" or level ~= math.floor(level) or level < 0 or level > 255
-		or type(at) ~= "number" then
-		return nil
-	end
-	local now = type(last.now_s) == "number" and last.now_s or nil
-	-- texts.clock is only asked about a time os.date could format.
-	local when = ""
-	if at == at and at ~= math.huge and at ~= -math.huge then
-		when = texts.clock(at, now)
-	end
-	local tail = string.format("read %d", level)
-	if when ~= "" then
-		tail = tail .. " at " .. when
-	end
-	local budget = texts.ROW_CUT - #string.format("%d of %d links bound", texts.LINK_COUNT, texts.LINK_COUNT)
-	local note = "; LED animations paused: the keypad " .. tail
-	if #note > budget then
-		note = "; LED animations paused: keypad " .. tail
-	end
-	return note
-end
-
-function texts.keypad_leds_note(shown, dark, last)
-	if shown and dark == true then
-		return reading_note(last) or "; LED animations paused: the keypad is dark"
+-- `paused` (room-dark-pause-design RD-D10, #233): true while the speed chase
+-- and the Breeze animation are paused because every light in the fan's room
+-- is off after sunset. Only `true` counts, so a call without it reads as in
+-- 1.8. While the rows are shown, the pause takes the place of "LED settings
+-- shown" rather than following it (the rows are shown whenever it is said);
+-- with every link bound the row reads "13 of 13 links bound; LED animations
+-- paused: room dark at night", 63 characters, under ROW_CUT. While they are
+-- hidden no speed link is bound, nothing animates and nothing can be paused:
+-- the binding hint stays.
+function texts.keypad_leds_note(shown, paused)
+	if shown and paused == true then
+		return "; LED animations paused: room dark at night"
 	end
 	if shown then
 		return "; LED settings shown"

@@ -15,11 +15,11 @@ It has served two rounds:
 - **#207, 2026-11-12:** the checks H4 and H5 of
   [`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md),
   whether a driver can get a keypad's ambient light reading, in an empty
-  room (Discussion #208). For them it gained the input **Ambient Light
-  Level (Follower)** on 500 and the helper `P.ambient`. The results are
-  section 0 of [`ambient-pause-design.md`](../docs/ambient-pause-design.md):
-  H5's input works and is what 1.9 ships; H4's request does not reach a
-  driver.
+  room (Discussion #208). The research and its results are recorded in
+  section 0 of [`ambient-pause-design.md`](../docs/ambient-pause-design.md).
+  The input and the helper the probe gained for that round were removed in
+  1.11 (#233), with the ambient pause they led to; the probe is back to its
+  1.8 text.
 
 - **Its own identity.** The file is `mf_probe.c4z`, the driver name
   "MF Probe (delete after M1)" (from M1, kept for later rounds), the model
@@ -36,10 +36,6 @@ It has served two rounds:
   - Links: "Light Top Button Link" on 200 *with* `proxybindingid="5002"`,
     and "Fan Off Button Link" on 300 *without* it. Both are `BUTTON_LINK`
     providers.
-  - The input "Ambient Light Level (Follower)" on 500 (#207, H5): a
-    control connection (type 1), consumer, class `AMBIENT_LEVEL`, for a
-    keypad's "Ambient Light Level (Source)" output. The class and its
-    messages are in no SDK file; the probe logs whatever arrives.
   - One property, **Echo LED On Press** (Off/On), and two actions, **Run
     mDNS Probe** and **Dump State**.
   - No network connection in XML: K10 makes bindings 6001 to 6003 at run
@@ -135,8 +131,8 @@ of order; the numbers restore the order.
   quoted, so their type shows (`SPEED="4"` is a string, `SPEED=4` a
   number).
 - **Bindings are named.** 5001 is "fan proxy", 5002 "light proxy", 200
-  "light link, proxybindingid 5002", 300 "fan link", 500 "ambient
-  follower, #207 H5", and 6001 to 6003 "mDNS …". Any other id reads "not
+  "light link, proxybindingid 5002", 300 "fan link", and 6001 to 6003
+  "mDNS …". Any other id reads "not
   declared by the probe", which is how a link the fan proxy made itself
   (K5) would show.
 - **Only live lines show** in Composer's Lua output pane, those that arrive
@@ -174,7 +170,6 @@ it could not.
 | `P.mdns(mode, qu)` | K10: no mode runs MULTICAST, then UDP; `"MULTICAST"`, `"UDP"` or `"UDP_MIRROR"` runs one way; `qu = true` sets the question's unicast-response bit |
 | `P.vars(target)` | `C4:GetDeviceVariables` of the fan proxy (`5001`, the default), the light proxy (`5002`) or any device id |
 | `P.watch(target, id, …)` / `P.unwatch(…)` | listen to those variables; each change is logged as `OnWatchedVariableChanged` |
-| `P.ambient(id, how)` | #207 H4: `GET_AMBIENT_LEVEL` to a keypad by its device id. `how` is `"ui"` (the default: `C4:SendUIRequest`, whose return is logged) or `"send"` (`C4:SendToDevice`, which returns nothing, so an answer could only arrive at an entry point, which logs it) |
 | `P.dump()` | the Dump State action: driver, Director and Lua versions, Echo LED On Press, the proxies' ids, what is bound to 5001, 5002, 200 and 300, `C4:GetBindingsByDevice` for the device and each proxy, the K10 bindings' addresses, and how often each entry point was called |
 | `P.history(n)` | the last `n` kept lines again (all 400 without `n`) |
 
@@ -415,54 +410,11 @@ This shows how much V3's run-time check has to carry.
    reports the texts. If a device was created, the session deletes it at
    once (hard to undo; named here).
 
-## The #207 checks (H4 and H5)
-
-Can a driver get a keypad's ambient light reading? These are checks H4 and
-H5 of
-[`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md)
-(its H labels are its own, not those of the M1 references below), run on
-2026-11-12 with the probe in an empty room and a keypad dimmer whose Device
-ID is read from the tree's tooltip (rule 11). No fan device and no keypad
-setting is changed.
-
-### H5: what arrives on an Ambient Light Level input
-
-1. In Connections, bind the keypad's output **Ambient Light Level
-   (Source)** to the probe's input **Ambient Light Level (Follower)** (500),
-   dragging as for a button link, and read the binding back (a Connections
-   change, named here). Read the `OnBindingChanged binding=500 (ambient
-   follower, #207 H5) …` line and the keypad's Sensing in Composer.
-2. With the probe's Lua tab open for a few minutes while the room's light
-   changes (a lamp the **owner** switches on and off gives changes on
-   demand), read every line that arrives: its entry point (`ExecuteCommand`
-   or `ReceivedFromProxy`), command, parameters and `+seconds` column.
-3. Disconnect the binding, read the `OnBindingChanged` line, and check that
-   the keypad's Sensing reads **Independent** again.
-
-### H4: a driver asking for the reading
-
-1. Type `P.ambient(<keypad Device ID>)`: `C4:SendUIRequest` with
-   `GET_AMBIENT_LEVEL`, the request Composer's profile editor uses. The log
-   shows what it returned.
-2. Type `P.ambient(<keypad Device ID>, "send")`: the same over
-   `C4:SendToDevice`, which returns nothing. Watch the log for anything
-   arriving afterwards.
-
-**What they showed** (section 0 of
-[`ambient-pause-design.md`](../docs/ambient-pause-design.md), Discussion
-#208): H5 works. The keypad's reading arrives in `ExecuteCommand` as
-`AMBIENT_LIGHT_LEVEL` with `GROUP`, `LEVEL` and `TARGET`, on change only;
-the first message after the bind is not a reading; while bound the keypad's
-Sensing reads Source. H4 does not: the answer goes to Composer, never to
-the driver. Release 1.9 builds on H5.
-
 ## Deleting it after a round
 
-1. **Disconnect** every binding to the probe's links and to its Ambient
-   Light Level input in Connections. Restore a borrowed Up or Down button
-   as described above, or set the other keypad's button's LED Behavior back
-   to what it was. A keypad that was bound to the Ambient Light Level input
-   reads Sensing **Independent** again.
+1. **Disconnect** every binding to the probe's links in Connections.
+   Restore a borrowed Up or Down button as described above, or set the
+   other keypad's button's LED Behavior back to what it was.
 2. **Delete** any K14 script line still there, the "MF Probe Fan" device
    (with its light), and the K9 device if one is left. These deletes are
    hard to undo and are named here. The probe's dynamic network bindings go
@@ -489,4 +441,4 @@ the driver. Release 1.9 builds on H5.
   probes H1 to H7.
 - [`keypad-led-dimming-sdk-research.md`](../docs/keypad-led-dimming-sdk-research.md)
   and [`ambient-pause-design.md`](../docs/ambient-pause-design.md): the #207
-  checks H4 and H5 and what they showed.
+  checks H4 and H5, run with the probe of 1.9, and what they showed.

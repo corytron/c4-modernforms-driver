@@ -35,7 +35,8 @@ worth running on a new house or a new controller OS.
 | 1.6, 1.7 (#159, #177) | the speed chase | section L, 84 to 87 |
 | 1.7 (#178, #185) | the keypad LED rows only while a speed link is bound | 8; section M, 88 to 90 |
 | 1.8 (#195) | `Light Min On (%)` | 8; section N, 91 and 92 |
-| 1.9 (#207) | the pause in the dark: `Pause LED Animations Below` and the Ambient Light Level (Follower) input | 8, 17; section O, 93 to 95 |
+| 1.9 (#207) | the pause in the dark: `Pause LED Animations Below` and the Ambient Light Level (Follower) input (withdrawn in 1.11) | 8, 17; section O.1, 93 to 95 (**superseded** by 1.11) |
+| 1.11 (#233) | the pause at night: `Pause LED Animations`, from the room's lights and the sun; the ambient input and `Pause LED Animations Below` are gone | 2, 8, 17; section O, 96 to 101 |
 
 ## Before you start
 
@@ -58,7 +59,7 @@ worth running on a new house or a new controller OS.
   Breeze switch (step 59), the Breeze fan that Add Breeze Fan adds (step
   60), the Sets on the Click Rates and the Default Brightness Rate (steps 72
   and 73), the throw-away programming line of step 79, the Sets of sections
-  L to O and the ambient binding and unbinding of section O.
+  L to O and the same-build update of step 101.
 - **The test buttons.** Since the cutover (2026-11-04) the house keypad's
   fan and light buttons are bound to this driver's links
   ([`status.md`](status.md)), so the steps press those buttons themselves:
@@ -105,11 +106,12 @@ worth running on a new house or a new controller OS.
   Brightness 100, the Preset Level Level 3, `Speed 2 Link Also Lit At`
   Speed 1 and `Speed 5 Link Also Lit At` Speed 6 with the others at `No
   other speed`, `Light Min On (%)` 10, `Speed LED Animation` Speeds 2 to 5,
-  `Pause LED Animations Below` 10, `Follow Address Changes` On and `Debug
-  Mode` Off), `Fan Address` the fan's address, the test buttons and the
-  ambient binding as they were, the two items' names as they were before
-  step 6 (the driver changes them in steps 6 and 7; they are put back by
-  hand in step 48), the fan's Breeze as it was (steps 56, 63 and 70), and
+  `Pause LED Animations` Room lights off after sunset, `Follow Address
+  Changes` On and `Debug Mode` Off), `Fan Address` the fan's address, the
+  test buttons and the room's lights (section O) as they were, the two
+  items' names as they were before step 6 (the driver changes them in steps
+  6 and 7; they are put back by hand in step 48), the fan's Breeze as it
+  was (steps 56, 63 and 70), and
   the Breeze LED rows as section J.3 leaves them. The Breeze switch of step
   51 stayed until step 59 deleted it; the Breeze fan of step 60 stays.
 
@@ -157,20 +159,22 @@ installed, the keypad moved to its links and the stock device was deleted
    connections and every programming line that names it are gone.
    - **Expect:** `Driver Version` shows the new build; `Fan Address`, `Poll
      Interval (s)`, `Light Min On (%)`, every `Speed N Link Also Lit At`,
-     the LED colour and animation rows, `Pause LED Animations Below`,
+     the LED colour and animation rows, `Pause LED Animations`,
      `Follow Address Changes`, `Fan ID`, `Debug Mode`, the preset speed and
      the light's settings read as before (an update from a build without a
      row shows the new row at its default); `Status` reads `Online: …`
      again within a minute; `Keypad Links` still lists every binding, every
-     connection (the Breeze fan's and the ambient binding included) is
-     still there, and the Navigators still show every tile.
+     connection (the Breeze fan's included) is still there, and the
+     Navigators still show every tile. An update from 1.9 or 1.10 drops
+     the withdrawn Ambient Light Level (Follower) input, and the keypad's
+     binding to it, by itself (step 96).
    - **If Composer asked "Restart Director?"**: reboot the controller as
      described under "Before you start", wait until Composer has Director
      again, choose File » Refresh Navigators, then check this step again.
    - **Done:** every release install since 1.0 has been an update in place,
      with the settings and bindings kept (the rounds are listed in
-     [`status.md`](status.md#release-history)); the newest, 1.9 build 220 on
-     the night of 2026-11-12 (deploy issue #211).
+     [`status.md`](status.md#release-history)); the newest, 1.10 build 236
+     on 2026-11-13 (deploy issue #226).
 
 ## B. Adding the fan
 
@@ -296,17 +300,19 @@ installed, the keypad moved to its links and the stock device was deleted
      `Breeze LED Bottom` `Lowest speed`, `Breeze LED Step (ms)` 120 (60 to
      400), `Breeze LED Night Brightness (%)` 50 (10 to 100) (#137); `Speed
      LED Animation` `Off` (`Off`, `Speeds 2 to 5`, `Speeds 1 to 6`), `Speed
-     LED Rest (s)` 5 (5 to 60) (#159, #177); `Pause LED Animations Below` 10
-     (0 to 255; #207). Last `Debug Mode` Off. A release build has no `Dev
+     LED Rest (s)` 5 (5 to 60) (#159, #177); `Pause LED Animations` `Room
+     lights off after sunset` (`Room lights off after sunset`, `Never`;
+     #233). Last `Debug Mode` Off. A release build has no `Dev
      Server` or `Dev State` row; there is no `Migration` or `Stock Device`
      row (gone since #45). On a fan without Breeze, `Breeze LED Animation`,
      `Breeze LED Step (ms)` and `Breeze LED Night Brightness (%)` stay hidden
      even with a speed link bound.
    - **Done:** 2026-11-10, build 193 (Discussion #184): all 35 rows of that
      build with the house keypad bound, and 15 on a scratch device with
-     nothing bound (the 20 LED rows of 1.7 hidden). 1.8 and 1.9 added
-     `Light Min On (%)` and `Pause LED Animations Below`; the whole list has
-     not been read in order since.
+     nothing bound (the 20 LED rows of 1.7 hidden). 1.8 added `Light Min
+     On (%)`, 1.9 `Pause LED Animations Below` and 1.11 `Pause LED
+     Animations` in its place; the whole list has not been read in order
+     since.
 9. **The Actions tab.**
    - **Expect:** six actions in this order: `Use Selected Fan`, `Name Items
      After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive
@@ -385,10 +391,10 @@ installed, the keypad moved to its links and the stock device was deleted
       **Fan Breeze Button Link** (Fan Breeze since #111); the three light
       links **Light Top**, **Light Bottom** and **Light Toggle Button
       Link**; and **Breeze Switch**, the output a Breeze switch (#111) and,
-      since #121, the Breeze fan is connected to (the name stays); and, as
-      an input, **Ambient Light Level (Follower)**, which a keypad's Ambient
-      Light Level (Source) binds to (since 1.9, #207; section O). The light
-      item lists the same thirteen links in this per-item view. In the lower
+      since #121, the Breeze fan is connected to (the name stays). No
+      input: the **Ambient Light Level (Follower)** of 1.9 and 1.10 is
+      gone since 1.11 (#233). The light item lists the same thirteen links
+      in this per-item view. In the lower
       list of a keypad's
       Connections they appear under the fan item only (seen with the probe
       on 2026-10-27).
@@ -995,9 +1001,10 @@ the Modern Forms app. Since 1.4 is released, steps 66 to 71 run on a release
 build too, with the Windows session setting the rows; only step 65 needs the
 dev command `Dev Link`. The build adds property rows only, so no controller
 reboot. The brief carries the standing-approval sentence and names the Sets
-on the Breeze LED rows. Since 1.9 (#207) the gusts also pause while the
-keypad bound to Ambient Light Level (Follower) is dark (section O): run
-these steps with the room lit, or with that binding absent.
+on the Breeze LED rows. Since 1.11 (#233) the gusts also pause at night
+while every light in the fan's room is off (section O): run these steps by
+day, with a light in the room on, or with `Pause LED Animations` at
+`Never`.
 
 64. **The keypad's button order (HB1).** Read only. The Windows session
     reads where the house keypad's buttons sit in Composer, where it shows
@@ -1042,8 +1049,10 @@ these steps with the room lit, or with that binding absent.
       dark and Up and Down unchanged. In a dim room the whole animation dims
       with the keypad's other LEDs, and white, ice, teal and sky blue stay
       visible; below the keypad's Dark Room (on the house since #198) every
-      LED of the keypad is dark, the gusts included, and since 1.9 the
-      gusts pause there (section O). Record, in the owner's words, how each
+      LED of the keypad is dark, the gusts included. Since 1.11, at night
+      with every light in the fan's room off, the gusts pause (section O),
+      so keep one light on or use a hand over the sensor. Record, in the
+      owner's words, how each
       colour looked both times, and whether the gusts ran the way the fan
       blows (step 64, BL-D30).
     - **Done:** in part, 2026-11-09, at night through the dev loop (#137):
@@ -1351,7 +1360,8 @@ Written 2026-11-13 from the checks of
 (section 4). The 21 keypad LED rows (`Speed 1` to `Speed 6 Link Also Lit
 At`, `Speed LED Colors`, `Speed 1` to `Speed 6 LED Color`, `Speed LED Off
 Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED Rest
-(s)` and `Pause LED Animations Below`; 20 before 1.9) show only while at
+(s)` and `Pause LED Animations`, `Pause LED Animations Below` in 1.9 and
+1.10; 20 before 1.9) show only while at
 least one device is bound to a Fan Speed link (301 to 306). They show at
 once and hide when nothing has been bound for 8 seconds; hidden values are
 kept and still apply. The Windows session alone runs this section, on a
@@ -1424,53 +1434,115 @@ build is enough; no controller reboot. The brief names the Sets on the row.
       driver does not change the fan's level.
     - **Done:** open.
 
-## O. The pause in the dark (#207)
+## O. The pause at night (#233)
 
-Written 2026-11-13 from [`ambient-pause-design.md`](ambient-pause-design.md)
-(section 5, and the decisions AP-D1 to AP-D11). A keypad's **Ambient Light
-Level (Source)** output, bound to the fan's **Ambient Light Level
-(Follower)** input, sends the keypad's reading (0 to 255) whenever it
-changes. While it reads below `Pause LED Animations Below` (0 to 255,
-default 10; 0 never pauses), the speed chase and the Breeze gusts send
-nothing; the steady LEDs still follow the fan, and a new run starts after
-10 seconds of light. Unbound, nothing changes. Set it to the keypad's
-profile's Dark Room value, with that profile's Status LED Min Brightness at
-0 (the house: Dark Room below 10, Min 0 since #198). The connection is
-measured, not documented (the contract's section 0). A release build is
-enough; no controller reboot. The brief names the binding and the Set.
+Written 2026-11-14 from
+[`room-dark-pause-design.md`](room-dark-pause-design.md) (the decisions
+RD-D1 to RD-D11 and the cases RE1 to RE14). With `Pause LED Animations` at
+`Room lights off after sunset` (the default), the speed chase and the
+Breeze gusts pause once every light in the fan item's room is off after
+sunset at the project's location, and come back as soon as any light in the
+room comes on. The room's lights are every Control4 light (`light_v2`) in
+that room, the fan's own light too when it is there. Sunrise does not end
+the pause, and a pause is kept over a driver update or a restart. While
+paused, the steady LEDs still follow the fan and `Keypad Links` ends `; LED
+animations paused: room dark at night`; the pause and its end are written
+to the Lua tab whatever `Debug Mode` says. It replaces the pause in the dark of 1.9
+and 1.10 (section O.1). A release build is enough; no controller reboot.
+The brief names the Sets on `Pause LED Animations` and the update of step
+101. Steps 98 to 101 run after sunset with the chase running (section L);
+the room's lights are switched from a Navigator or by hand, and left as
+they were found.
+
+96. **After the update: the new row, no ambient input.** After the first
+    install of 1.11 in place, read the fan item's Properties and
+    Connections, and the house keypad dimmer's Connections and Sensing.
+    - **Expect:** `Pause LED Animations` right after `Speed LED Rest (s)`,
+      reading `Room lights off after sunset` (the list offers that and
+      `Never`), and no `Pause LED Animations Below` row. The fan item has no
+      **Ambient Light Level (Follower)** input, and the keypad's **Ambient
+      Light Level (Source)** is bound to nothing of the fan. The keypad's
+      LED curve is unchanged; record what its Sensing reads (it read
+      "Source" while bound). No `[ERROR]` line in the Lua tab.
+    - **Done:** open.
+97. **By day nothing pauses (RD-D5, RE6).** By day, with the chase
+    running, turn every light in the fan's room off for a minute, then back
+    as they were. The Windows session reads `Keypad Links`.
+    - **Expect:** the chase keeps running; `Keypad Links` keeps `; LED
+      settings shown`, and no `LED animations paused` line shows in the Lua
+      tab.
+    - **Done:** open.
+98. **Every light off at night pauses (RD-D6, RD-D10, RD-D11).** After
+    sunset, turn off every light in the fan's room, the fan's own light
+    included. The Windows session reads `Keypad Links` and the fan item's
+    Lua tab.
+    - **Expect:** at the last light's off the chase stops at once (a chase
+      in progress settles; the selected speed's LED stays lit), `Keypad
+      Links` ends `; LED animations paused: room dark at night`, and the Lua
+      tab shows `LED animations paused: all <n> lights in the room are off
+      after sunset` (`both lights …` for two, `the only light …` for one). A
+      speed picked meanwhile still lights its button, with no chase.
+    - **Done:** open.
+99. **A light on brings the chase back (RD-D7).** While paused, turn one
+    lamp in the room on.
+    - **Expect:** `Keypad Links` is back to `; LED settings shown`, the Lua
+      tab shows `LED animations resumed: <lamp> (<id>) came on`, and a
+      chase starts about 2.5 seconds later at the fan's speed. Turning the
+      lamp off again pauses again, as in step 98.
+    - **Done:** open.
+100. **`Never` turns it off (RD-D7, RE14).** While paused, set `Pause LED
+     Animations` to `Never` (Set); then set it back to `Room lights off
+     after sunset` (Set), every light still off.
+     - **Expect:** at `Never` the pause ends at once (`LED animations
+       resumed: Pause LED Animations is Never`, a chase about 2.5 seconds
+       later); back at `Room lights off after sunset`, the pause starts
+       again at once, as in step 98.
+     - **Done:** open.
+101. **The pause survives an update (RD-D8, RE10).** While paused, update
+     the fan driver in place with the same build (Composer: "Versions are
+     equal", overwrite Yes), read `Keypad Links` and the Lua tab for a
+     minute, then turn one light on.
+     - **Expect:** after the reload the chase stays stopped: the Lua tab
+       shows `LED animations paused: restored after a restart` and
+       `Keypad Links` keeps the note. The light on ends the pause as in
+       step 99. (A restart by day with every light off does not pause
+       until sunset, RE11.)
+     - **Done:** open.
+
+### O.1 The pause in the dark of 1.9 and 1.10 (#207, #223): the record
+
+Written 2026-11-13 from [`ambient-pause-design.md`](ambient-pause-design.md).
+A keypad's **Ambient Light Level (Source)** output, bound to the fan's
+**Ambient Light Level (Follower)** input, sent the keypad's reading (0 to
+255) when it changed, and the animations paused while it read below `Pause
+LED Animations Below` (default 10). **Since 1.11 (#233) this subsection is
+the record of 1.9 and 1.10.** The owner had the pause withdrawn whole after
+the chase stayed paused in a sunny room: the input, the row and the command
+are gone from the driver, and steps 93 to 95 are superseded by section O.
 
 93. **Bind the keypad's ambient output.** In Connections, bind the house
-    keypad dimmer's **Ambient Light Level (Source)** to the fan item's
-    **Ambient Light Level (Follower)**; read the keypad's Sensing, its LED
-    curve and the fan's `Pause LED Animations Below`.
+    keypad dimmer's Ambient Light Level (Source) to the fan item's Ambient
+    Light Level (Follower).
     - **Expect:** both lists show the binding; the keypad's Sensing reads
       "Source" and its LED curve is unchanged; `Pause LED Animations Below`
-      reads 10. Nothing on the keypad changes at the bind (the first report
-      after a bind is ignored, AP3).
+      reads 10.
     - **Done:** the night of 2026-11-12, build 220 (#207): bound, Sensing
       "Source", the curve unchanged, `Pause LED Animations Below` 10.
-94. **Dark pauses, light resumes.** With the chase running (section L), make
-    the room dark (the lights off, or a hand over the keypad's sensor) for a
-    minute, then light it (a lamp on) and watch for 20 seconds. With `Debug
-    Mode` On, the Windows session reads the fan's Lua tab and `Keypad Links`
-    throughout, then sets `Debug Mode` Off.
-    - **Expect:** once the keypad reports a reading below 10, `Keypad Links`
-      ends `; LED animations paused: the keypad is dark` and the chase stops
-      sending (the debug log says so); a speed picked meanwhile still lights
-      its button. About 10 seconds after the keypad reports light, the note
-      is back to `; LED settings shown` and a new chase starts. The keypad
-      sends only when its reading changes, so a steady room may send nothing
-      for minutes: record each reading the log shows and when.
-    - **Done:** open. On the night of 2026-11-12 `Keypad Links` did not show
-      the pause in the 3¾ minutes after the bind; whether the keypad sent
-      any reading is being read from the debug log (#207, `status.md`).
-95. **Unbind.** Disconnect the binding of step 93 (only on a test, never on
-    the house without the owner's word), read `Keypad Links` and the
-    keypad's Sensing, then bind it again.
-    - **Expect:** after the unbind the animations run as without the
-      feature (state unknown), `Keypad Links` drops the pause note, and the
-      keypad's Sensing reads "Independent" again; after the bind, as step 93.
-    - **Done:** open.
+      **Superseded** by step 96 since 1.11.
+94. **Dark pauses, light resumes.** With the chase running, make the room
+    dark for a minute, then light it.
+    - **Expect:** below 10, `Keypad Links` ends `; LED animations paused:
+      the keypad is dark` and the chase stops; about 10 seconds after a
+      light reading the note goes back and a new chase starts.
+    - **Done:** never seen as expected. On the night of 2026-11-12 the
+      pause did not show in the 3¾ minutes after the bind (the keypad sends
+      a reading only when it changes), and under 1.10 the chase stayed
+      paused in a bright room (#223). **Superseded** by steps 98 and 99
+      since 1.11.
+95. **Unbind.** Disconnect the binding of step 93, then bind it again.
+    - **Expect:** unbound, the animations run as without the feature and
+      the keypad's Sensing reads "Independent" again.
+    - **Done:** never run. **Superseded** by step 96 since 1.11.
 
 ## What to paste back
 
