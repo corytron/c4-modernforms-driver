@@ -11,7 +11,7 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.11 "Hunter-Seeker", build 244** is being installed (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+**1.11 "Hunter-Seeker", build 244** is installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
@@ -94,8 +94,8 @@ to 5 (#178).
   Ambient Light Level (Source) was bound to the fan's Ambient Light Level
   (Follower) (#207). 1.11 withdraws that input (#233); Director kept it and
   the binding after the install (until a controller reboot), so the
-  binding is being disconnected in Connections. The keypad's own LED curve
-  was never changed by it.
+  binding was disconnected in Connections on 2026-11-14, and the keypad's
+  Sensing reads "Independent" again. Its LED curve was never changed by it.
 - **Its LED dimming** (#198, Discussions #199 and #205): the keypad dimmer
   and the two Control4 switches beside it share one Status LED curve with a
   night floor of 0 (Min 0, Max 255, Dark Room below 10, Bright Room above
@@ -130,8 +130,11 @@ Checks on the house that were never run or are still being read. None
 blocks a build or a release; each belongs to its closed issue, where its
 result goes as a comment:
 
-- **#233, the pause at night.** Not yet seen on the house: with every
-  light in the bedroom off after sunset the chase and the gusts should stop
+- **#233, the pause at night.** Not yet seen on the house. At the install
+  the driver found 8 lights in the fan's room (the keypad dimmer's load,
+  the two switches, four lights of the Hue driver and the fan's own light),
+  each reporting its Light State; the two switches read on by day. With
+  every one of them off after sunset the chase and the gusts should stop
   (`Keypad Links` reads `; LED animations paused: room dark at night`, and
   the Lua output has `LED animations paused: ...` whatever Debug Mode says),
   and the first light switched on should bring them back.
