@@ -144,9 +144,10 @@ Read:
    with every keypad binding; each Breeze fan still bound to its fan's
    `Breeze Switch` output (the output kept its 1.2 name)
    ([`composer-checklist.md`](composer-checklist.md), sections D to F).
-   Since 1.11 the fan item has no Ambient Light Level (Follower) input: the
-   first install of 1.11 over 1.9 or 1.10 drops it and the keypad's binding
-   to it (step 96 there).
+   Since 1.11 the driver declares no Ambient Light Level (Follower) input,
+   but after the first install of 1.11 over 1.9 or 1.10 Director keeps it,
+   and a keypad's binding to it, until a controller reboot: disconnect the
+   binding in Connections (step 96 there).
 7. **The first install of 1.3 or later on a fan with Breeze and no Breeze
    fan yet** (#121): the programming items read back, **Add Breeze Fan**
    clicked once on each fan that has Breeze, the new item placed after its
