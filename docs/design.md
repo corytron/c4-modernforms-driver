@@ -168,7 +168,7 @@ entry points, properties, actions and events; the layout is
 | `breezeleds.lua`, `sun.lua` | the Breeze animation on the speed links, and night at the project's location | 1.4 (#137) |
 | `speedleds.lua`, `ledhub.lua` | the speed chase, and the one owner of the speed links between the two engines | 1.6 (#159) |
 | `ledrows.lua` | showing the keypad LED rows only while a speed link is bound | 1.7 (#178) |
-| `roomdark.lua` | whether every light in the fan's room is off at night, which pauses the LED animations | 1.11 (#233) |
+| `roomdark.lua` | whether every light in the fan's room is off from sunset to 30 minutes after sunrise, which pauses the LED animations | 1.11 (#233, #240) |
 | `devcmds.lua` | the signed development commands, in `--dev` builds only | 1.0 |
 
 `src/common/` is the owner's own Apache-2.0 code shared with the Hue
@@ -378,25 +378,35 @@ animate.
   show only while at least one device is bound to a speed link 301 to 306:
   they show at once and hide when nothing has been bound for 8 s; the three
   Breeze-only rows also hide on a fan without Breeze. Display only: hidden
-  values are kept and still apply. 20 rows then, **21 since 1.9 (#207)**:
-  `Speed 1` to `Speed 6 Link Also Lit At`, `Speed LED Colors`, `Speed 1` to
-  `Speed 6 LED Color`, `Speed LED Off Color`, the four `Breeze LED` rows,
-  `Speed LED Animation`, `Speed LED Rest (s)` and, since 1.11 (#233),
-  `Pause LED Animations` (`Pause LED Animations Below` before). The pause
-  row hides with the others but is not Breeze-only.
+  values are kept and still apply. 20 rows then, **21 since 1.9 (#207)**,
+  **22 since 1.11 (#240)**: `Speed 1` to `Speed 6 Link Also Lit At`,
+  `Speed LED Colors`, `Speed 1` to `Speed 6 LED Color`, `Speed LED Off
+  Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED
+  Rest (s)` and, since 1.11 (#233), `Pause LED Animations` (`Pause LED
+  Animations Below` before) and (#240) `Pause Ignores Lights`. The pause
+  rows hide with the others but are not Breeze-only.
 - **Since 1.11 (#233):** the animations pause at night in a dark room
   (`fan/roomdark.lua`, [`room-dark-pause-design.md`](room-dark-pause-design.md)).
   The room's lights are every `light_v2` proxy in the fan item's room
   (`C4:GetDevices` and `C4:RoomGetId`, read again at the start, when
   `Pause LED Animations` is set, at sunrise, at sunset and every 6 hours),
   and each one's Light State (variable 1000) is watched with
-  `C4:RegisterVariableListener`. With `Pause LED Animations` at `Room
-  lights off after sunset` (the default), the pause starts when it is
-  night at the project's location (`fan/sun.lua`, the look the Breeze
-  night brightness takes) and every light is known off; it ends when any
-  light reports on, when the row is set to `Never`, or when the room has
-  no light. Sunrise does not end it, and it is persisted, so a driver
-  update or a restart keeps a dark room's animations stopped. While
+  `C4:RegisterVariableListener`; the lights picked in `Pause Ignores
+  Lights` (a multi-select `DEVICE_SELECTOR` of lights, empty by default,
+  #240) do not count, and a change to it reads the room again. Since #240
+  the pause is a condition, not a latch: with `Pause LED Animations` at
+  `Room lights off after sunset` (the default), the animations are paused
+  exactly while it is inside the window from sunset to 30 minutes after
+  sunrise at the project's location (`fan/sun.lua`'s `night` with a
+  1800 s delay on sunrise; the Breeze night brightness keeps plain sunset
+  to sunrise) and the room has lights and every one is known off. It is
+  decided again whenever a light reports, the window opens or closes, a
+  scan runs or the row is set, so a light on resumes at once, the last
+  light off inside the window pauses again, and 30 minutes after sunrise
+  the animations resume with every light still off. Nothing is saved:
+  after a driver update or a restart the condition decides again within
+  moments as the lights' listeners report (build 244 latched and saved
+  the pause; #240 withdrew that). While
   paused, the chase and the gusts send nothing (a chase in progress
   settles, the gusts end with no wipe); the steady LEDs still follow the
   fan. On resume they start again as when a speed is picked (the first

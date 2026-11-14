@@ -130,8 +130,8 @@ Read:
    still existed, kept build 115, the last that made its package.)
 2. The Properties page: no development-only rows (those between the
    `DEV-ONLY` markers of `driver.xml`: `Dev Server`, `Dev State`). On the
-   fan item 37 rows while a button is bound to a Fan Speed link, 16 without
-   one (the 21 keypad LED rows hidden); on the Breeze fan 3 rows
+   fan item 38 rows while a button is bound to a Fan Speed link, 16 without
+   one (the 22 keypad LED rows hidden); on the Breeze fan 3 rows
    ([`composer-checklist.md`](composer-checklist.md), steps 8 and 88). A
    row new in the release reads its default, except where the brief sets it.
 3. The Actions tab: the six actions section 0 counts; none on the Breeze
@@ -190,7 +190,8 @@ Read:
 9. **A release that brings a new setting the house uses** sets it in the
    brief and reads it back (1.6 set `Speed LED Animation`, 1.8 `Light Min
    On (%)`; 1.11 reads `Pause LED Animations` back at its default, `Room
-   lights off after sunset`); the values the house keeps are under
+   lights off after sunset`, and sets `Pause Ignores Lights` to the
+   room's lights that stay on); the values the house keeps are under
    "Settings" in [`status.md`](status.md#settings).
 
 ## 3. The owner, on the phone, the keypads and the fan
@@ -218,7 +219,8 @@ Each under a minute, when the release changes what they cover
    the switch of 1.2).
 6. The LED animations, where the release touches them: the Breeze gusts
    (section J.3), the speed chase (section L), and since 1.11 their pause
-   at night while every light in the fan's room is off (section O).
+   from sunset to 30 minutes after sunrise while every light in the fan's
+   room is off (section O).
 
 ## 4. After a controller OS upgrade
 

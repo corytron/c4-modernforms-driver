@@ -23,7 +23,11 @@
 --   sun.events(lat, lon, epoch)       -> sorted { { at = epoch_s, kind = "rise" | "set" }, ... }: every sunrise
 --                                        and sunset within the UTC day containing epoch and the UTC days on
 --                                        either side of it; a day of polar day or polar night has none
---   sun.night(lat, lon, epoch)        -> is_night, next_change (epoch_s, or nil when no event follows)
+--   sun.night(lat, lon, epoch [, rise_delay_s])
+--                                     -> is_night, next_change (epoch_s, or nil when no event follows); with
+--                                        rise_delay_s (seconds, 0 to 6 h), every sunrise counts that much later,
+--                                        so night runs from sunset to sunrise + rise_delay_s (#240: the LED
+--                                        pause's window, docs/room-dark-pause-design.md RD-D5)
 --
 -- night() decides by the last event at or before epoch ("set" is night, "rise"
 -- is day), so it flips exactly at each event's second, and next_change is the
@@ -212,13 +216,25 @@ function sun.events(lat, lon, epoch)
 	return list
 end
 
--- Whether it is night at epoch, and when that next changes.
-function sun.night(lat, lon, epoch)
+-- The longest rise_delay_s night() takes: a sunrise moved further could pass
+-- the next sunset at high latitudes.
+local RISE_DELAY_MAX = 6 * 3600
+
+-- Whether it is night at epoch, and when that next changes. With rise_delay_s,
+-- each sunrise is moved that much later before deciding (#240), and the polar
+-- fallback is unchanged.
+function sun.night(lat, lon, epoch, rise_delay_s)
 	if not (finite(lat) and finite(lon) and finite(epoch)) then
 		return false, nil
 	end
-	local before, after
+	local delay = finite(rise_delay_s) and math.max(0, math.min(RISE_DELAY_MAX, floor(rise_delay_s))) or 0
+	local list = {}
 	for _, ev in ipairs(sun.events(lat, lon, epoch)) do
+		list[#list + 1] = { at = ev.kind == "rise" and ev.at + delay or ev.at, kind = ev.kind }
+	end
+	table.sort(list, earlier)
+	local before, after
+	for _, ev in ipairs(list) do
 		if ev.at <= epoch then
 			before = ev
 		elseif not after then

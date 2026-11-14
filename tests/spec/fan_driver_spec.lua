@@ -215,7 +215,8 @@ describe("Modern Forms Fan driver", function()
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
 					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
-					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations", "Debug Mode", "Dev Server",
+					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations", "Pause Ignores Lights", "Debug Mode",
+					"Dev Server",
 					"Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
@@ -700,13 +701,14 @@ describe("Modern Forms Fan driver", function()
 			assert.equal("Nothing to use: pick a fan in Found Fans, or enter Fan Address", env.Properties["Last Action"])
 		end)
 
-		it("late init deletes the Migration Report's persisted verdict, which went with the report (#45)", function()
+		it("late init deletes the Migration Report's persisted verdict, which went with the report (#45), and the"
+			.. " pause build 244 saved (#240)", function()
 			local env, c4 = fake.load_driver(DRIVER, {})
 			env.OnDriverInit("DIT_STARTUP")
 			env.OnDriverLateInit("DIT_STARTUP")
 			local deleted = {}
 			for _, call in ipairs(c4.calls_to("PersistDeleteValue")) do deleted[#deleted + 1] = call[1] end
-			assert.same({ "mf_migration" }, deleted)
+			assert.same({ "mf_migration", "mf_room_dark_pause" }, deleted)
 		end)
 
 		it("Reboot Fan with no fan refuses", function()
@@ -1540,19 +1542,76 @@ describe("Modern Forms Fan driver", function()
 					end)
 				end)
 
-				it("keeps a pause over a restart, by day, until a light comes on (RD-D7, RD-D8)", function()
+				-- #240: the window runs to 30 minutes after sunrise (RD-D5); this is the
+				-- morning's sunrise at the grid location of NIGHT_AT.
+				local function sunrise_after(epoch)
+					for _, ev in ipairs(require("fan.sun").events(40.7, -74.0, epoch)) do
+						if ev.kind == "rise" and ev.at > epoch then
+							return ev.at
+						end
+					end
+				end
+
+				it("stays paused just after sunrise and resumes 30 minutes after it with every light still off"
+					.. " (#240, RD-D5 to RD-D7)", function()
+						local rise = sunrise_after(NIGHT_AT)
+						local clock = rise + 600
+						local real_time = os.time
+						os.time = function(t) -- luacheck: ignore 122
+							if t == nil then
+								return clock
+							end
+							return real_time(t)
+						end
+						local ok, err = pcall(function()
+							local env, c4 = dark_room()
+							assert.truthy(note(env):find(PAUSED, 1, true), "10 min after sunrise: " .. note(env))
+							assert.is_false(chases(c4))
+							-- The next look at the sun, 31 min after sunrise (any Breeze or pause row starts one).
+							clock = rise + 1860
+							env.OnPropertyChanged("Breeze LED Night Brightness (%)")
+							assert.truthy(note(env):find(SHOWN, 1, true), "31 min after sunrise: " .. note(env))
+							assert.is_true(chases(c4), "back with every light off")
+						end)
+						os.time = real_time -- luacheck: ignore 122
+						assert(ok, err)
+					end)
+
+				it("decides again after a restart: build 244's saved pause is dropped (#240, RD-D8)", function()
 					at_clock(DAY_AT, function()
-						local env, c4, lamp = dark_room(nil, function(_, c4)
+						local env, c4 = dark_room(nil, function(_, c4)
 							c4:PersistSetValue("mf_room_dark_pause", true)
 						end)
-						assert.truthy(note(env):find(PAUSED, 1, true), note(env))
-						assert.is_false(chases(c4), "sunrise alone does not end it")
-						fake.set_variable(lamp, 1000, "true")
 						assert.truthy(note(env):find(SHOWN, 1, true), note(env))
-						assert.is_true(chases(c4))
-						assert.equal(false, c4:PersistGetValue("mf_room_dark_pause"))
+						assert.is_true(chases(c4), "by day with every light off: no pause")
+						assert.is_nil(c4:PersistGetValue("mf_room_dark_pause"), "the old key is deleted")
+					end)
+					at_clock(NIGHT_AT, function()
+						local env = dark_room()
+						assert.truthy(note(env):find(PAUSED, 1, true), "at night it pauses again at once: " .. note(env))
 					end)
 				end)
+
+				it("leaves out the lights picked in Pause Ignores Lights, by proxy or device id (#240, RD-D13)",
+					function()
+						at_clock(NIGHT_AT, function()
+							local relay
+							local env, c4 = dark_room(nil, function(env)
+								relay = fake.add_light("Example Relay Switch")
+								fake.set_variable(relay, 1000, "1")
+								env.Properties["Pause Ignores Lights"] = tostring(relay)
+							end)
+							local watched = {}
+							for _, args in ipairs(c4.calls_to("RegisterVariableListener")) do
+								watched[args[1]] = true
+							end
+							assert.is_nil(watched[relay], "the picked light is not watched")
+							assert.truthy(note(env):find(PAUSED, 1, true), "the always-on relay does not count: " .. note(env))
+							env.Properties["Pause Ignores Lights"] = ""
+							env.OnPropertyChanged("Pause Ignores Lights")
+							assert.truthy(note(env):find(SHOWN, 1, true), "counted again, it is on: " .. note(env))
+						end)
+					end)
 
 				it("pauses nothing at night when Pause LED Animations is Never (RD-D2)", function()
 					at_clock(NIGHT_AT, function()

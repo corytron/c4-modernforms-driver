@@ -511,8 +511,19 @@ ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
 -- [API 36_variable/_10-RegisterVariableListener.md, _11]. fan/roomdark.lua
 -- decides and logs; nothing reaches it before late init.
 local LIGHT_STATE_VARIABLE = 1000
-local ROOM_DARK_KEY = "mf_room_dark_pause"
+local ROOM_DARK_KEY = "mf_room_dark_pause" -- build 244 saved the pause; deleted at the start since #240 (RD-D8)
 local room_started = false
+
+-- RD-D13 (#240): the lights picked in Pause Ignores Lights, by proxy or
+-- device id (a DEVICE_SELECTOR value is a comma list of ids [FUND
+-- 15_composerpro_interface_into_the_sdk/_3.1-DEVICESELECTOR.md]).
+local function ignored_lights()
+	local out = {}
+	for id in tostring(Properties["Pause Ignores Lights"] or ""):gmatch("%d+") do
+		out[tonumber(id)] = true
+	end
+	return out
+end
 roomdark = roomdark_mod.new({
 	lights = function()
 		local room = tonumber(C4:RoomGetId())
@@ -520,10 +531,17 @@ roomdark = roomdark_mod.new({
 			return nil, "the driver's room is unknown"
 		end
 		local devices = C4:GetDevices({ C4iNames = "light_v2.c4i" }, tostring(room))
+		local ignored = ignored_lights()
 		local out = {}
 		for id, info in pairs(type(devices) == "table" and devices or {}) do
 			local n = tonumber(id)
-			if n then
+			local skip = n == nil or ignored[n]
+			if not skip and type(info) == "table" and type(info.protocol) == "table" then
+				for protocol_id in pairs(info.protocol) do
+					skip = skip or ignored[tonumber(protocol_id)] == true
+				end
+			end
+			if not skip then
 				out[n] = type(info) == "table" and type(info.deviceName) == "string" and info.deviceName
 					or ("device " .. n)
 			end
@@ -536,12 +554,6 @@ roomdark = roomdark_mod.new({
 	end,
 	unlisten = function(id)
 		C4:UnregisterVariableListener(id, LIGHT_STATE_VARIABLE)
-	end,
-	load = function()
-		return store.get(ROOM_DARK_KEY) == true
-	end,
-	save = function(paused)
-		store.set(ROOM_DARK_KEY, paused == true)
 	end,
 	on_change = function(paused)
 		sleds:configure({ paused = paused })
@@ -908,6 +920,7 @@ end
 -- pause hears night or day, and the room's lights are read again at each look
 -- (RD-D3).
 local NIGHT_RECHECK_MS = 6 * 3600 * 1000
+local PAUSE_AFTER_SUNRISE_S = 1800 -- RD-D5 (#240): the pause's window ends 30 min after sunrise
 local CLOCK_SET_S = 1577836800 -- 2020-01-01: before it the controller's clock is not set
 local night_timer, night_said = nil, nil
 
@@ -928,9 +941,11 @@ local function cancel_night_timer()
 end
 
 -- Each different line once, so the 6-hourly look does not repeat itself.
+-- A line dropped because Debug Mode was Off is not remembered, so it is
+-- written at the next look once Debug Mode is On (#240).
 local function say_night(template, ...)
 	local line = string.format(template, ...)
-	if line ~= night_said then
+	if line ~= night_said and log.enabled("info") then
 		night_said = line
 		log.info("Night: %s", line)
 	end
@@ -948,6 +963,7 @@ apply_night = function()
 		return
 	end
 	local night, next_change = false, nil
+	local window = false
 	local now = os.time()
 	local lat, lon_or_why = sun_mod.location(project_property("Latitude"), project_property("Longitude"))
 	if not lat then
@@ -956,14 +972,22 @@ apply_night = function()
 		say_night("never night: the controller's clock is not set")
 	else
 		night, next_change = sun_mod.night(lat, lon_or_why, now)
+		-- RD-D5 (#240): the pause's window ends 30 minutes after sunrise.
+		local window_change
+		window, window_change = sun_mod.night(lat, lon_or_why, now, PAUSE_AFTER_SUNRISE_S)
 		if next_change then
-			say_night("%s until %s", night and "night" or "day", os.date("%H:%M", next_change))
+			say_night("%s until %s; the LED pause's window %s until %s", night and "night" or "day",
+				os.date("%H:%M", next_change), window and "open" or "closed",
+				window_change and os.date("%H:%M", window_change) or "?")
 		else
 			say_night("%s: the sun neither rises nor sets today", night and "night" or "day")
 		end
+		if window_change and (not next_change or window_change < next_change) then
+			next_change = window_change
+		end
 	end
 	bleds:configure({ night = gusts and night == true, night_percent = percent })
-	roomdark:set_night(night == true)
+	roomdark:set_night(window == true)
 	if room_started then
 		roomdark:scan("the look at the sun")
 	end
@@ -1030,6 +1054,12 @@ dispatch.properties["Speed_LED_Rest_(s)"] = apply_speed_leds
 dispatch.properties["Pause_LED_Animations"] = function(value)
 	roomdark:configure({ enabled = value ~= "Never" })
 	apply_night()
+end
+-- RD-D13 (#240): the lights that do not count, applied by reading the room again.
+dispatch.properties["Pause_Ignores_Lights"] = function()
+	if room_started then
+		roomdark:scan("Pause Ignores Lights")
+	end
 end
 dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds
@@ -1451,7 +1481,8 @@ function OnDriverLateInit()
 	-- The keypad LED rows, once the links have read their keypads (#178, KL-D6).
 	update_rows()
 	lrows:start()
-	-- RD-D8: the pause as it was before the start, then the room's lights.
+	-- RD-D8 (#240): nothing is restored; the room's lights decide as they report.
+	pcall(C4.PersistDeleteValue, C4, ROOM_DARK_KEY)
 	room_started = true
 	roomdark:start()
 	write_keypad_links(keypad_raw)

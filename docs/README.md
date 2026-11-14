@@ -122,10 +122,12 @@ specification, and `status.md` says what of them is live. In release order:
   record.
 - [`room-dark-pause-design.md`](room-dark-pause-design.md): the pause that
   replaced it (#233, 1.11): the speed chase and the Breeze animation pause
-  once every light in the fan's room is off after sunset and come back when
-  any light comes on; the room's lights and their Light State, night at the
-  project's location, the pause kept over a restart, the property `Pause
-  LED Animations`, the edge cases and who owns which file.
+  while every light in the fan's room is off from sunset to 30 minutes
+  after sunrise, and come back when any light comes on or the window ends
+  (#240: a condition, nothing saved over a restart); the room's lights and
+  their Light State, the window at the project's location, the properties
+  `Pause LED Animations` and `Pause Ignores Lights`, the edge cases and who
+  owns which file.
 
 ## Research and edge cases
 
