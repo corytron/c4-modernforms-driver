@@ -1,4 +1,4 @@
-# Status of the Modern Forms fan driver (2026-11-13)
+# Status of the Modern Forms fan driver (2026-11-14)
 
 The single page that says what runs on the house, what is open and what
 each release brought. Contracts and design notes keep their history; where
@@ -11,7 +11,7 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.10 "Shield Wall", build 236** is installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+**1.11 "Hunter-Seeker", build 244** is being installed (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
@@ -56,7 +56,7 @@ brings is the first entry of the
 | Fan item | `Follow Address Changes` | On |
 | | `Poll Interval (s)` | 15 |
 | | `Light Min On (%)` | 10 (since 1.8, #195; a first setting, the first glow was not measured) |
-| | `Keypad Links` | `7 of 13 links bound; LED settings shown` (`; LED animations paused: the keypad is dark` while the bound keypad reads dark) |
+| | `Keypad Links` | `7 of 13 links bound; LED settings shown` (`; LED animations paused: room dark at night` while paused, 1.11) |
 | | `Speed 2 Link Also Lit At` | Speed 1 |
 | | `Speed 5 Link Also Lit At` | Speed 6 (every other `Speed N Link Also Lit At`: No other speed) |
 | | `Speed LED Colors` | Per speed (since beta.3) |
@@ -67,7 +67,7 @@ brings is the first entry of the
 | | `Breeze LED Night Brightness (%)` | 50 |
 | | `Speed LED Animation` | Speeds 2 to 5 |
 | | `Speed LED Rest (s)` | 5 (the owner's choice, and the default since 1.7) |
-| | `Pause LED Animations Below` | 10 |
+| | `Pause LED Animations` | Room lights off after sunset (the default, 1.11; `Pause LED Animations Below` 10 until 1.10) |
 | | `Debug Mode` | Off on both devices (`deploy/house.yaml`) |
 | | Preset Level (the fan's settings page) | Level 3 |
 | Light item | Default On Brightness | 100 |
@@ -90,10 +90,10 @@ to 5 (#178).
   before the cutover. No button is bound to Fan Breeze: while Breeze blows
   no fan LED shows a steady state (Off is dark, and the speed buttons play
   the gusts).
-- **Its ambient reading** goes to the fan: since the 1.9 install its
-  Ambient Light Level (Source) is bound to the fan's Ambient Light Level
-  (Follower), and its Sensing reads "Source" with its LED curve unchanged
-  (#207).
+- **Its ambient reading** went to the fan from the 1.9 install: its
+  Ambient Light Level (Source) was bound to the fan's Ambient Light Level
+  (Follower) (#207). 1.11 removes that input (#233), and the binding with
+  it; the keypad's own LED curve was never changed by it.
 - **Its LED dimming** (#198, Discussions #199 and #205): the keypad dimmer
   and the two Control4 switches beside it share one Status LED curve with a
   night floor of 0 (Min 0, Max 255, Dark Room below 10, Bright Room above
@@ -128,13 +128,11 @@ Checks on the house that were never run or are still being read. None
 blocks a build or a release; each belongs to its closed issue, where its
 result goes as a comment:
 
-- **#207, the pause in the dark.** Not yet seen on the house. Measured on
-  2026-11-12 (Discussion #208 and the issue): the keypad sends its reading
-  only when it changes, and with its LEDs dark at night the bedroom's
-  reading stayed at 1, so nothing arrived after the bind; the readings that
-  flickered during the probe came every 5 s, the chase's rest, and were
-  probably the chase's own light on the sensor. The pause starts at the
-  next change of the room's light (lights going off).
+- **#233, the pause at night.** Not yet seen on the house: with every
+  light in the bedroom off after sunset the chase and the gusts should stop
+  (`Keypad Links` reads `; LED animations paused: room dark at night`, and
+  the Lua output has `LED animations paused: ...` whatever Debug Mode says),
+  and the first light switched on should bring them back.
 - **#195, Light Min On.** The fan light's first glow was not measured; 10 is
   a first setting. The contract's checks (a hold from off and a Navigator ON
   lit from the first moment, the slider at 1 % glowing) wait for a
@@ -163,6 +161,20 @@ Newest first; one paragraph per release, with its issues and Discussions.
 Release dates are those of `CHANGELOG.md` and GitHub (UTC); the house
 rounds of the evening of 2026-11-12, local time, fall on 2026-11-13 there.
 What every release changed, in full, is in [`CHANGELOG.md`](../CHANGELOG.md).
+
+### 1.11 "Hunter-Seeker", build 244 (2026-11-14)
+
+The ambient pause of 1.9 and 1.10 is withdrawn whole, at the owner's word,
+after the chase stayed stopped in a sunny bedroom (#233, PR #234, the
+agents' reports in Discussion #235). The LED engines are back to their 1.8
+text. In its place, both animations pause once every Control4 light in the
+fan item's room is off after sunset, and come back when any light comes
+on; sunrise alone does not end a pause, and a pause is kept over a restart
+([`room-dark-pause-design.md`](room-dark-pause-design.md)). One row,
+`Pause LED Animations` (`Room lights off after sunset` or `Never`); the
+input `Ambient Light Level (Follower)` and `Pause LED Animations Below` are
+gone. No controller reboot. The keypads' own LED curves (#198) are
+unchanged.
 
 ### 1.10 "Shield Wall", build 226 (2026-11-13)
 

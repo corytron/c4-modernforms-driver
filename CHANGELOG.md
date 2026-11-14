@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.11 "Hunter-Seeker", build 244 (2026-11-14)
+
 ### Changed
 
 - The keypad LED animations (the speed chase and the Breeze gusts) now pause in a simpler way: once every light in the fan's room is off after sunset, both stop and send nothing, and as soon as any light in the room comes on they play again. Sunrise alone does not restart them, so a dark bedroom stays quiet in the morning, and a pause is kept over a driver update or a restart. The lights are every Control4 light in the fan item's room, the fan's own light included; sunset comes from the project's location. A new row, `Pause LED Animations` (`Room lights off after sunset` by default, or `Never`), turns it off, and `Keypad Links` says `LED animations paused: room dark at night` while paused (#233).
