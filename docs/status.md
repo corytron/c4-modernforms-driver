@@ -11,7 +11,7 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.11 "Hunter-Seeker", build 251** is being installed (#240: the pause only from sunset to 30 minutes after sunrise while every room light is off, nothing saved; the new row `Pause Ignores Lights` set to the two always-on switches beside the keypad dimmer). Before it, **build 244**, installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+**1.11 "Hunter-Seeker", build 251** is installed in place (2026-11-14; deployment 7793489079, success, "Driver Version 251 on 2 devices"; the round in Discussion #245; no controller reboot) (#240: the pause only from sunset to 30 minutes after sunrise while every room light is off, nothing saved; the new row `Pause Ignores Lights` set to the two always-on switches beside the keypad dimmer). Before it, **build 244**, installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
@@ -131,10 +131,13 @@ Checks on the house that were never run or are still being read. None
 blocks a build or a release; each belongs to its closed issue, where its
 result goes as a comment:
 
-- **#233, the pause at night.** Not yet seen on the house. At the install
-  the driver found 8 lights in the fan's room (the keypad dimmer's load,
-  the two switches, four lights of the Hue driver and the fan's own light),
-  each reporting its Light State; the two switches read on by day. With
+- **#233 and #240, the pause at night.** Not yet seen on the house. The
+  driver finds 8 lights in the fan's room (the keypad dimmer's load, the two
+  switches, four lights of the Hue driver and the fan's own light), each
+  reporting its Light State. The two switches are always-on relays (Light
+  State 1 day and night), so since build 251 `Pause Ignores Lights` leaves
+  them out: 6 lights count, all off at the install. On the house the
+  window opened at 17:01 on 2026-11-14 (the driver's `Night:` line). With
   every one of them off after sunset the chase and the gusts should stop
   (`Keypad Links` reads `; LED animations paused: room dark at night`, and
   the Lua output has `LED animations paused: ...` whatever Debug Mode says),
