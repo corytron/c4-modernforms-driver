@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.11 "Hunter-Seeker", build 251 (2026-11-14)
+
 ### Added
 
 - `Pause Ignores Lights`, a device picker right after `Pause LED Animations`: the lights picked there do not count for the pause. It is for a light that is always on, such as a Control4 switch that stays on to power smart bulbs or an outlet; without it, such a room never counts as dark (#240).

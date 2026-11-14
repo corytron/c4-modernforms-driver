@@ -11,7 +11,7 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.11 "Hunter-Seeker", build 244** is installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+**1.11 "Hunter-Seeker", build 251** is being installed (#240: the pause only from sunset to 30 minutes after sunrise while every room light is off, nothing saved; the new row `Pause Ignores Lights` set to the two always-on switches beside the keypad dimmer). Before it, **build 244**, installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
@@ -68,6 +68,7 @@ brings is the first entry of the
 | | `Speed LED Animation` | Speeds 2 to 5 |
 | | `Speed LED Rest (s)` | 5 (the owner's choice, and the default since 1.7) |
 | | `Pause LED Animations` | Room lights off after sunset (the default, 1.11; `Pause LED Animations Below` 10 until 1.10) |
+| | `Pause Ignores Lights` | the two switches beside the keypad dimmer (relays that stay on to power Hue bulbs and an outlet; their Light State reads on day and night, #240) |
 | | `Debug Mode` | Off on both devices (`deploy/house.yaml`) |
 | | Preset Level (the fan's settings page) | Level 3 |
 | Light item | Default On Brightness | 100 |
@@ -166,6 +167,17 @@ Newest first; one paragraph per release, with its issues and Discussions.
 Release dates are those of `CHANGELOG.md` and GitHub (UTC); the house
 rounds of the evening of 2026-11-12, local time, fall on 2026-11-13 there.
 What every release changed, in full, is in [`CHANGELOG.md`](../CHANGELOG.md).
+
+### 1.11 "Hunter-Seeker", build 251 (2026-11-14)
+
+The pause becomes a condition (#240, PR #241): the animations pause only
+between sunset and 30 minutes after sunrise, and only while every light in
+the fan's room is off; nothing is saved over a restart. The install of
+build 244 had shown that the two switches beside the keypad dimmer are
+relays that stay on to power Hue bulbs and an outlet, set up as 2-button
+keypads (Light State 1 day and night), so the room could never count as
+dark: the new row `Pause Ignores Lights` leaves such lights out. The
+`Night:` log line is no longer lost while Debug Mode is Off.
 
 ### 1.11 "Hunter-Seeker", build 244 (2026-11-14)
 
