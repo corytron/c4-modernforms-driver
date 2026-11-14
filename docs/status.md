@@ -92,8 +92,10 @@ to 5 (#178).
   the gusts).
 - **Its ambient reading** went to the fan from the 1.9 install: its
   Ambient Light Level (Source) was bound to the fan's Ambient Light Level
-  (Follower) (#207). 1.11 removes that input (#233), and the binding with
-  it; the keypad's own LED curve was never changed by it.
+  (Follower) (#207). 1.11 withdraws that input (#233); Director kept it and
+  the binding after the install (until a controller reboot), so the
+  binding is being disconnected in Connections. The keypad's own LED curve
+  was never changed by it.
 - **Its LED dimming** (#198, Discussions #199 and #205): the keypad dimmer
   and the two Control4 switches beside it share one Status LED curve with a
   night floor of 0 (Min 0, Max 255, Dark Room below 10, Bright Room above

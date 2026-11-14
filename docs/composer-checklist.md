@@ -165,9 +165,10 @@ installed, the keypad moved to its links and the stock device was deleted
      row shows the new row at its default); `Status` reads `Online: …`
      again within a minute; `Keypad Links` still lists every binding, every
      connection (the Breeze fan's included) is still there, and the
-     Navigators still show every tile. An update from 1.9 or 1.10 drops
-     the withdrawn Ambient Light Level (Follower) input, and the keypad's
-     binding to it, by itself (step 96).
+     Navigators still show every tile. After an update from 1.9 or 1.10
+     the withdrawn Ambient Light Level (Follower) input and a keypad's
+     binding to it stay in Director until a controller reboot (measured
+     2026-11-14): disconnect the binding in Connections (step 96).
    - **If Composer asked "Restart Director?"**: reboot the controller as
      described under "Before you start", wait until Composer has Director
      again, choose File » Refresh Navigators, then check this step again.
@@ -393,7 +394,8 @@ installed, the keypad moved to its links and the stock device was deleted
       Link**; and **Breeze Switch**, the output a Breeze switch (#111) and,
       since #121, the Breeze fan is connected to (the name stays). No
       input: the **Ambient Light Level (Follower)** of 1.9 and 1.10 is
-      gone since 1.11 (#233). The light item lists the same thirteen links
+      withdrawn since 1.11 (#233); after an update from those, Director
+      still lists it until a controller reboot. The light item lists the same thirteen links
       in this per-item view. In the lower
       list of a keypad's
       Connections they appear under the fan item only (seen with the probe
@@ -1459,11 +1461,13 @@ they were found.
     Connections, and the house keypad dimmer's Connections and Sensing.
     - **Expect:** `Pause LED Animations` right after `Speed LED Rest (s)`,
       reading `Room lights off after sunset` (the list offers that and
-      `Never`), and no `Pause LED Animations Below` row. The fan item has no
-      **Ambient Light Level (Follower)** input, and the keypad's **Ambient
-      Light Level (Source)** is bound to nothing of the fan. The keypad's
-      LED curve is unchanged; record what its Sensing reads (it read
-      "Source" while bound). No `[ERROR]` line in the Lua tab.
+      `Never`), and no `Pause LED Animations Below` row. The withdrawn
+      **Ambient Light Level (Follower)** input and the keypad's binding to it
+      stay in Director until a controller reboot (measured on 2026-11-14):
+      disconnect the keypad's **Ambient Light Level (Source)** from it in
+      Connections, then read the keypad's Sensing (expected "Independent"
+      again; it read "Source" while bound). The keypad's LED curve is
+      unchanged. No `[ERROR]` line in the Lua tab.
     - **Done:** open.
 97. **By day nothing pauses (RD-D5, RE6).** By day, with the chase
     running, turn every light in the fan's room off for a minute, then back
