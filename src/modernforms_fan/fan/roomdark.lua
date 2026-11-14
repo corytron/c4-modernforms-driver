@@ -1,8 +1,8 @@
--- fan/roomdark.lua: the LED animations pause in a dark room at night (#233). The contract is
+-- fan/roomdark.lua: the LED animations pause in a dark room at night (#233, revised by #240). The contract is
 -- docs/room-dark-pause-design.md: decisions RD-D3 to RD-D8 and RD-D11, the edge cases RE1 to RE14 and this
 -- module's interface (section 3). It decides whether the speed LED chase and the Breeze LED animation are paused;
 -- the engines (fan/speedleds.lua, fan/breezeleds.lua) take that as configure{ paused } (RD-D9), and the driver
--- wires the Director calls, the look at the sun and the property.
+-- wires the Director calls, the look at the sun (it computes the window, RD-D5) and the property.
 --
 -- The room's lights (RD-D3) are what lights() returns, { [proxy_id] = name } for every light_v2 proxy in the fan
 -- item's room, read again at every scan (late init, the property set, sunrise, sunset and the 6-hourly look of
@@ -13,34 +13,50 @@
 -- number above 0 is on; "0", "false" or 0 is off; anything else, and a light that has not reported, is unknown.
 -- It keeps its last state until it reports again, so an offline light's last value counts (RE4).
 --
--- The pause is a latch:
---   starts  (RD-D6) when enabled (Pause LED Animations is "Room lights off after sunset"), it is night, the room
---           has at least one light and every light is known off. Checked at a light reporting off (RE5), every
---           set_night(true) (sunset, RE7, and every later look of the sun, which is harmless), the end of a scan,
---           configure and the start.
---   ends    (RD-D7) when a light reports on, when configure disables it (RE14), or when a scan reads the room and
---           finds no light in it (RE8). Sunrise never ends it, and an unknown light never ends it (RE13); a light
---           on and off again by day does not pause, since it is not night (RE6).
---   is kept (RD-D8) through a restart: save(paused) after every change, and start() restores it with load(), so
---           a driver update or a Director restart in the morning keeps a dark bedroom's chase stopped (RE10)
---           until a light reports on (Director reports every light right after its listener is set).
+-- The pause is a condition, not a latch (#240, RD-D6): paused exactly while
+--   - it is enabled (Pause LED Animations is "Room lights off after sunset"),
+--   - it is inside the window (RD-D5: sunset to 30 minutes after sunrise; the driver computes it and passes it in
+--     as set_night(bool), so only the meaning of "night" changed, and that is the driver's),
+--   - the room has at least one light, and
+--   - every light is known off (none on, none unknown).
+-- It is decided again whenever one of them may have changed:
+--   starts  (RD-D6) at a light reporting off (RE5: the last light off inside the window pauses at once, and again
+--           after a light on and off), every set_night(true) (sunset, RE7, and every later look of the sun inside
+--           the window, which is harmless), the end of a scan, configure and the start.
+--   ends    (RD-D7) when a light reports on, when set_night(false) closes the window (30 minutes after sunrise, even
+--           with every light still off), when configure disables it (RE14), or when a scan reads the room and finds
+--           no light in it (RE8). An unknown light never ends it (RE13), so a new light's first report causes no
+--           blip; a light on and off again outside the window does not pause (RE6).
+--   is not saved (RD-D8): start() restores nothing; it scans, then decides. Director reports every light right
+--           after its listener is set, so a restart inside the window with every light off pauses again within
+--           moments (RE10), and one outside it does not (RE11). Build 244 latched (sunrise did not end a pause, and
+--           load/save kept it over a restart); #240 withdrew both.
 --
 -- Re-entrance (RD-D4: Director calls OnWatchedVariableChanged right after a listener is set, so possibly inside
 -- listen): a light is marked watched, state unknown, before listen is called, and a report during a scan only
 -- records the light's state. The scan decides once, at its end, on the whole list: a report of on during a scan
--- ends a pause there, once, naming the first light that reported on; a room reporting all off at night pauses
--- there, once. on_change and save never nest: a change made inside on_change waits until it returns, so the
--- callbacks see every change in order and the last save is the state that holds.
+-- ends a pause there, once, naming the first light that reported on; a room reporting all off inside the window
+-- pauses there, once. on_change never nests: a change made inside on_change waits until it returns, so the
+-- driver sees every change in order and the last one it sees is the state that holds.
 --
--- The log (RD-D11): a pause and its end at always ("LED animations paused: ...", "LED animations resumed: ...");
--- a scan that changes the list (or its names) at info ("Room lights: ..."); a scan that changes nothing logs
--- nothing, since it runs every 6 hours; each light's report a debug line; a failure a warn line.
+-- The log (RD-D11): a pause and its end at always, "LED animations paused: <why>" and "LED animations resumed:
+-- <why>", where <why> is the phrase on_change gets:
+--   paused   "the only light in the room is off after sunset", "both lights in the room are off after sunset",
+--            "all <n> lights in the room are off after sunset"
+--   resumed  "<name> (<id>) came on", "30 minutes after sunrise" (#240), "Pause LED Animations is Never",
+--            "no light in the room"
+-- (build 244's "restored after a restart" is gone with the saved pause, #240). A scan that changes the list (or
+-- its names) logs at info ("Room lights: ..."); a scan that changes nothing logs nothing, since it runs every 6
+-- hours; each light's report is a debug line; a failure a warn line.
 --
 -- Choices where the contract is silent (each covered by tests/spec/roomdark_spec.lua):
 --   * enabled starts true, the property's default, until configure says otherwise; configure without an enabled
---     key changes nothing; only enabled == true enables.
---   * start() with a pause saved while the property is Never does not restore it: nothing changes, so on_change
---     is not called, and save(false) clears the stale value (info line).
+--     key changes nothing; only enabled == true enables. Likewise only set_night(true) is inside the window.
+--   * set_night(false) while paused ends the pause at once, wherever it comes from (inside a scan or inside
+--     on_change too, as configure's Never does), so the pause never outlasts the window; while not paused it does
+--     nothing: no on_change, no log line.
+--   * opts.load and opts.save, which build 244 took, are ignored: never called, so a driver that still passes
+--     them works.
 --   * listen returning false, or raising, is a failure; any other return (true, or none) is success. The first
 --     failure of a light warns; while it keeps failing, each later scan's retry logs at debug.
 --   * lights() raising, or returning anything but a table, is a failed read: the last list and the pause stay
@@ -49,7 +65,7 @@
 --   * A light report carrying a Lua boolean counts as on (true) or off (false), as its text would.
 --   * scan() before start() does nothing (start scans); scan() during a scan (re-entrant) is ignored.
 --   * stop() is final: every later call except paused(), counts() and debug() is ignored, and a change still
---     waiting inside on_change is dropped with its save.
+--     waiting inside on_change is dropped.
 --
 -- Pure: nothing here touches Director, no globals. Every option is called through pcall; a failure is logged at
 -- warn and the module goes on:
@@ -58,11 +74,13 @@
 --       lights = fn() -> { [id] = name, ... } | nil, err,  -- the room's light_v2 proxies now (RD-D3)
 --       listen = fn(id) -> true | false, err,              -- RegisterVariableListener(id, 1000); may call r:light
 --       unlisten = fn(id),                                 -- UnregisterVariableListener(id, 1000)
---       load = fn() -> bool | nil, save = fn(bool),        -- the persisted pause (RD-D8)
 --       on_change = fn(paused, why),                       -- only on a real change; why is RD-D11's phrase
 --       log = { always, info, warn, debug } })             -- common/log.lua's functions
---   r:configure({ enabled = bool }); r:set_night(bool); r:start(); r:scan(why); r:light(id, value)
---   r:paused() -> bool; r:counts() -> lights, on, unknown; r:stop(); r:debug() -> table
+--   r:configure({ enabled = bool })  -- Pause LED Animations is "Room lights off after sunset"
+--   r:set_night(bool)                -- inside the window or not (RD-D5); before start() it is only kept
+--   r:start()                        -- late init: scan, then decide (RD-D6); nothing is restored (RD-D8)
+--   r:scan(why); r:light(id, value); r:paused() -> bool; r:counts() -> lights, on, unknown; r:stop()
+--   r:debug() -> table
 --
 -- Lua 5.1: no goto, no integer division, no bit operators.
 
@@ -170,7 +188,7 @@ function roomdark.new(opts)
 		scanning = false,
 		first_on = nil, -- the first light to report on during the scan in progress
 		listed = nil, -- the list as last logged (RD-D11); nil before the first read
-		queue = {}, -- changes waiting for on_change and save, in order
+		queue = {}, -- changes waiting for on_change, in order
 		notifying = false,
 	}, Room)
 end
@@ -207,15 +225,15 @@ function Room:call(name, what, ...)
 	end
 end
 
--- A real change of the pause: logged at always (RD-D11), then on_change(paused, why) and save(paused) (RD-D8),
--- never nested: a change made inside on_change is passed on after it returns. A restore is not saved again.
-function Room:change(paused, why, restoring)
+-- A real change of the pause: logged at always (RD-D11), then on_change(paused, why), never nested: a change made
+-- inside on_change is passed on after it returns. Nothing is saved (RD-D8, #240).
+function Room:change(paused, why)
 	if self.stopped or self.is_paused == paused then
 		return
 	end
 	self.is_paused = paused
 	self:say("always", "LED animations %s: %s", paused and "paused" or "resumed", why)
-	self.queue[#self.queue + 1] = { paused = paused, why = why, save = not restoring }
+	self.queue[#self.queue + 1] = { paused = paused, why = why }
 	if self.notifying then
 		return
 	end
@@ -223,15 +241,12 @@ function Room:change(paused, why, restoring)
 	while self.queue[1] ~= nil and not self.stopped do
 		local c = table.remove(self.queue, 1)
 		self:call("on_change", c.paused and "passing on the pause" or "passing on the resume", c.paused, c.why)
-		if c.save and not self.stopped then
-			self:call("save", "saving the pause", c.paused)
-		end
 	end
 	self.queue = {}
 	self.notifying = false
 end
 
--- RD-D6: pause when enabled, at night, with at least one light and every light known off.
+-- RD-D6: pause when enabled, inside the window (night, RD-D5), with at least one light and every light known off.
 function Room:check_start()
 	if self.is_paused or not self.enabled or not self.night or not self.started or self.stopped
 			or self.scanning then
@@ -422,38 +437,31 @@ function Room:configure(cfg)
 	end
 end
 
--- RD-D5: the driver's look at the sun. Night beginning (and every later look at night) checks the start; day
--- never ends a pause (RD-D7: sunrise does not end it).
+-- RD-D5 (#240): the driver's look at the sun, true inside the window (sunset to 30 minutes after sunrise). The
+-- window opening, and every later look inside it, checks the start (RD-D6); the window closing ends a pause at
+-- once, even with every light still off (RD-D7), and does nothing while not paused. Before start() it is only kept.
 function Room:set_night(night)
 	if self.stopped then
 		return
 	end
 	self.night = night == true
-	if self.started and self.night then
+	if not self.started then
+		return
+	end
+	if self.night then
 		self:check_start()
+	else
+		self:change(false, "30 minutes after sunrise") -- RD-D7; nothing while not paused
 	end
 end
 
--- Late init: restore the pause (RD-D8), then the first scan, then decide (RD-D6, RD-D7).
+-- Late init: the first scan, then decide (RD-D6). Nothing is restored (RD-D8, #240): the lights report from inside
+-- their listen calls, so the decision is on the room as it is now.
 function Room:start()
 	if self.started or self.stopped then
 		return
 	end
 	self.started = true
-	local ok, saved = true, nil
-	if type(self.o.load) == "function" then
-		ok, saved = pcall(self.o.load)
-	end
-	if not ok then
-		self:say("warn", "Room lights: reading the saved pause failed: %s; starting not paused", tostring(saved))
-	elseif saved == true then
-		if self.enabled then
-			self:change(true, "restored after a restart", true)
-		else
-			self:say("info", "Room lights: the pause saved before the restart is dropped: Pause LED Animations is Never")
-			self:call("save", "saving the pause", false)
-		end
-	end
 	self:scan("start")
 	self:evaluate()
 end

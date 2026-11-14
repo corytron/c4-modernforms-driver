@@ -11,6 +11,18 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- `Pause Ignores Lights`, a device picker right after `Pause LED Animations`: the lights picked there do not count for the pause. It is for a light that is always on, such as a Control4 switch that stays on to power smart bulbs or an outlet; without it, such a room never counts as dark (#240).
+
+### Changed
+
+- The pause of the keypad LED animations is now a plain rule: they pause only between sunset and 30 minutes after sunrise, and only while every light in the fan's room is off. Any light coming on brings them back at once, the last light going off pauses them again, and 30 minutes after sunrise they come back by themselves even with every light still off. Nothing is kept over a restart: the driver decides again within moments as the lights report (#240).
+
+### Fixed
+
+- The `Night:` line of the Lua output (sunrise and sunset times, now with the pause's window) is written at the next look once Debug Mode is turned On; it used to wait for the next sunrise or sunset (#240).
+
 ## 1.11 "Hunter-Seeker", build 244 (2026-11-14)
 
 ### Changed

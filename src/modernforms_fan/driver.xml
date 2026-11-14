@@ -347,9 +347,9 @@
 				<default>5</default>
 				<readonly>false</readonly>
 			</property>
-			<!-- room-dark-pause-design RD-D2: the speed chase and the Breeze
-			     animation stop once every light in the fan's room is off after
-			     sunset, and start again when one comes on. -->
+			<!-- room-dark-pause-design RD-D2, RD-D6 (#240): the speed chase and the
+			     Breeze animation pause while every light in the fan's room is off
+			     between sunset and 30 minutes after sunrise. -->
 			<property>
 				<name>Pause LED Animations</name>
 				<type>LIST</type>
@@ -358,6 +358,18 @@
 					<item>Never</item>
 				</items>
 				<default>Room lights off after sunset</default>
+				<readonly>false</readonly>
+			</property>
+			<!-- room-dark-pause-design RD-D13 (#240): lights that do not count for
+			     the pause, for example a switch that stays on to power smart bulbs. -->
+			<property>
+				<name>Pause Ignores Lights</name>
+				<type>DEVICE_SELECTOR</type>
+				<items>
+					<item>light_v2.c4i</item>
+				</items>
+				<multiselect>true</multiselect>
+				<default></default>
 				<readonly>false</readonly>
 			</property>
 			<property>

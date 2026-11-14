@@ -75,7 +75,7 @@ brings is the first entry of the
 | | Click Rates Ramp Up and Ramp Down | 3 s each, live since a controller reboot between 2026-11-09 and 2026-11-12 (Discussion #199) |
 | | Hold Ramp Rates | 5 s each (unchanged) |
 
-All 21 keypad LED rows are shown, since the keypad is bound to Fan Speed 2
+All 22 keypad LED rows are shown (21 before #240), since the keypad is bound to Fan Speed 2
 to 5 (#178).
 
 ### The keypad and its neighbours

@@ -1,11 +1,13 @@
--- fan.roomdark on fakes: the LED animations pause in a dark room at night (#233, docs/room-dark-pause-design.md,
--- RD-D3 to RD-D8 and RD-D11, the edge cases RE1 to RE14 and the interface of section 3). The fakes stand in for
--- Director: lights() returns the room as { [proxy_id] = name }, listen(id) records the listener and, like
--- Director, reports the light's Light State at once from inside the call (r.values), unlisten(id) records the
--- removal, load/save keep the persisted pause, and on_change records every change with its why.
+-- fan.roomdark on fakes: the LED animations pause in a dark room at night (#233, revised by #240;
+-- docs/room-dark-pause-design.md, RD-D3 to RD-D8 and RD-D11, the edge cases RE1 to RE14 and the interface of
+-- section 3). The pause is a condition, not a latch: paused exactly while enabled, inside the window (set_night(true),
+-- sunset to 30 minutes after sunrise as the driver computes it), with at least one light and every light known off;
+-- nothing is saved. The fakes stand in for Director: lights() returns the room as { [proxy_id] = name }, listen(id)
+-- records the listener and, like Director, reports the light's Light State at once from inside the call
+-- (r.values), unlisten(id) records the removal, and on_change records every change with its why.
 --
 -- Unless a spec says otherwise: two lights in the room, Example Lamp (123) and Ceiling (456), both reporting
--- off ("0") when they are listened to; the module enabled; nothing saved.
+-- off ("0") when they are listened to; the module enabled; "at night" means inside the window.
 
 local roomdark = require("fan.roomdark")
 
@@ -50,16 +52,20 @@ end
 
 -- The module on fakes. r.room: what lights() returns; r.values: [id] = what Director reports from inside
 -- listen(id) (nil: no report); r.calls: { "lights" }, { "listen", id }, { "unlisten", id } in order;
--- r.listening: [id] = true while listened; r.changes: { paused, why } per on_change; r.saves: every save;
--- r.saved: what load() returns. Hooks: r.fail_lights (fn returning lights()'s results, or raising),
--- r.fail_listen(id) -> nil | "false" | "raise", r.fail_unlisten, r.fail_load, r.fail_save, r.fail_change,
--- r.on_change_hook(paused, why).
+-- r.listening: [id] = true while listened; r.changes: { paused, why } per on_change. r.load and r.save are busted
+-- spies passed as opts.load and opts.save, as build 244's driver passed them (r.load says a pause was saved): the
+-- module must never call them (RD-D8, #240). Hooks: r.fail_lights (fn returning lights()'s results, or raising),
+-- r.fail_listen(id) -> nil | "false" | "raise", r.fail_unlisten, r.fail_change, r.on_change_hook(paused, why).
 local function rig(opts)
 	opts = opts or {}
 	local r = {
 		room = { [123] = "Example Lamp", [456] = "Ceiling" },
 		values = { [123] = "0", [456] = "0" },
-		calls = {}, listening = {}, changes = {}, saves = {}, saved = opts.saved, log = fake_log(),
+		calls = {}, listening = {}, changes = {}, log = fake_log(),
+		load = spy.new(function()
+			return true
+		end),
+		save = spy.new(function() end),
 	}
 	local o = {
 		lights = function()
@@ -93,19 +99,8 @@ local function rig(opts)
 				error("unregister refused")
 			end
 		end,
-		load = function()
-			if r.fail_load then
-				error("persist broken")
-			end
-			return r.saved
-		end,
-		save = function(value)
-			r.saves[#r.saves + 1] = value
-			if r.fail_save then
-				error("persist full")
-			end
-			r.saved = value
-		end,
+		load = r.load,
+		save = r.save,
 		on_change = function(paused, why)
 			r.changes[#r.changes + 1] = { paused, why }
 			if r.on_change_hook then
@@ -153,6 +148,20 @@ end
 
 local function counts(rd)
 	return { rd:counts() }
+end
+
+-- RD-D8 (#240): the load and save build 244's driver passed are never called.
+local function untouched(r)
+	assert.spy(r.load).was_not_called()
+	assert.spy(r.save).was_not_called()
+end
+
+-- No line about a saved or restored pause, at any level (RD-D8, #240).
+local function no_restore_lines(r)
+	for _, line in ipairs(r.log.lines) do
+		assert.is_nil(line.text:find("saved", 1, true), line.text)
+		assert.is_nil(line.text:find("restor", 1, true), line.text)
+	end
 end
 
 describe("fan.roomdark", function()
@@ -205,17 +214,18 @@ describe("fan.roomdark", function()
 	end)
 
 	describe("before start()", function()
-		it("calls nothing: no lights read, no listener, no on_change, no save", function()
-			local r = rig({ saved = true })
+		it("calls nothing: no lights read, no listener, no on_change, no load or save", function()
+			local r = rig()
 			r.rd:configure({ enabled = true })
 			r.rd:set_night(true)
 			r.rd:scan("sunset")
 			r.rd:light(123, "1")
+			r.rd:set_night(false)
 			r.rd:configure({ enabled = false })
 			r.rd:configure({ enabled = true })
 			assert.are.same({}, r.calls)
 			assert.are.same({}, r.changes)
-			assert.are.same({}, r.saves)
+			untouched(r)
 			assert.is_false(r.rd:paused())
 			assert.are.same({ 0, 0, 0 }, counts(r.rd))
 		end)
@@ -231,6 +241,21 @@ describe("fan.roomdark", function()
 			assert.is_false(d.enabled)
 			assert.is_true(d.night)
 			assert.is_true(d.started)
+		end)
+
+		it("keeps only the last set_night for the start", function()
+			local r = rig()
+			r.rd:set_night(true)
+			r.rd:set_night(false)
+			r.rd:start()
+			assert.is_false(r.rd:paused())
+			assert.are.same({}, r.changes)
+			assert.is_false(r.rd:debug().night)
+			local again = rig()
+			again.rd:set_night(false)
+			again.rd:set_night(true)
+			again.rd:start()
+			assert.is_true(again.rd:paused())
 		end)
 
 		it("starts enabled (the property's default) when configure never came", function()
@@ -255,7 +280,6 @@ describe("fan.roomdark", function()
 			local r = started()
 			assert.is_true(r.rd:paused())
 			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
-			assert.are.same({ true }, r.saves)
 			assert.are.equal(1, r.log.count("always"))
 			assert.is_true(r.log.has("always", "LED animations paused: both lights in the room are off after sunset"))
 		end)
@@ -277,7 +301,6 @@ describe("fan.roomdark", function()
 			r.rd:light(123, "0")
 			assert.is_true(r.rd:paused())
 			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
-			assert.are.same({ true }, r.saves)
 		end)
 
 		it("at sunset when every light was off by day (RE7), not by day (RE11)", function()
@@ -295,7 +318,7 @@ describe("fan.roomdark", function()
 			r.rd:set_night(true)
 			r.rd:set_night(true)
 			assert.are.equal(1, #r.changes)
-			assert.are.same({ true }, r.saves)
+			assert.are.equal(1, r.log.count("always"))
 		end)
 
 		it("when the property is set back to Room lights off after sunset at night", function()
@@ -324,7 +347,6 @@ describe("fan.roomdark", function()
 			r.rd:light(123, "0")
 			r.rd:light(456, "false")
 			assert.are.equal(1, #r.changes)
-			assert.are.same({ true }, r.saves)
 		end)
 
 		it("when a scan drops the only light that was on", function()
@@ -344,7 +366,7 @@ describe("fan.roomdark", function()
 			r.rd:light(456, "1")
 			assert.is_false(r.rd:paused())
 			assert.are.same({ false, "Ceiling (456) came on" }, r.changes[2])
-			assert.are.same({ true, false }, r.saves)
+			assert.are.equal(2, #r.changes)
 			assert.is_true(r.log.has("always", "LED animations resumed: Ceiling (456) came on"))
 		end)
 
@@ -354,7 +376,6 @@ describe("fan.roomdark", function()
 			r.rd:light(456, "1")
 			r.rd:light(123, "100")
 			assert.are.equal(2, #r.changes)
-			assert.are.same({ true, false }, r.saves)
 		end)
 
 		it("does nothing when a light reports on while not paused", function()
@@ -362,40 +383,48 @@ describe("fan.roomdark", function()
 			r.rd:light(123, "1")
 			r.rd:light(456, "true")
 			assert.are.same({}, r.changes)
-			assert.are.same({}, r.saves)
 		end)
 
-		it("pauses again when the light goes off again at night", function()
+		it("inside the window, a light on then off pauses again, as often as it happens", function()
 			local r = started()
 			r.rd:light(123, "1")
 			r.rd:light(123, "0")
 			assert.is_true(r.rd:paused())
-			assert.are.same({ true, false, true }, r.saves)
+			r.rd:light(456, "1")
+			r.rd:light(456, "0")
+			assert.is_true(r.rd:paused())
+			assert.are.same({
+				{ true, "both lights in the room are off after sunset" },
+				{ false, "Example Lamp (123) came on" },
+				{ true, "both lights in the room are off after sunset" },
+				{ false, "Ceiling (456) came on" },
+				{ true, "both lights in the room are off after sunset" },
+			}, r.changes)
 		end)
 
-		it("not at sunrise (a latch); a light on by day ends it, off by day does not pause (RE6)", function()
-			local r = started()
-			r.rd:set_night(false)
-			assert.is_true(r.rd:paused())
-			r.rd:scan("sunrise")
-			assert.is_true(r.rd:paused())
-			assert.are.equal(1, #r.changes)
-			r.rd:light(123, "1")
-			assert.is_false(r.rd:paused())
-			r.rd:light(123, "0")
-			assert.is_false(r.rd:paused())
-			r.rd:set_night(true)
-			assert.is_true(r.rd:paused())
-			assert.are.same({ true, false, true }, r.saves)
-		end)
-
-		it("not when a light turns unknown (RE13)", function()
+		it("not when a light turns unknown during a pause (RE13)", function()
 			local r = started()
 			r.rd:light(123, "garbage")
 			r.rd:light(456, nil)
 			assert.is_true(r.rd:paused())
 			assert.are.same({ 2, 0, 2 }, counts(r.rd))
+			assert.are.equal(1, #r.changes)
 		end)
+
+		it("not when a scan finds a new light that has not reported, and its first report of off is no blip (RE13)",
+			function()
+				local r = started()
+				r.room = { [123] = "Example Lamp", [456] = "Ceiling", [789] = "Desk" }
+				r.rd:scan("6-hourly") -- Desk has no value: listened, no report from inside listen
+				assert.are.equal(1, r.count("listen", 789))
+				assert.are.same({ 3, 0, 1 }, counts(r.rd))
+				assert.is_true(r.rd:paused())
+				r.rd:light(789, "0")
+				assert.is_true(r.rd:paused())
+				assert.are.same({ 3, 0, 0 }, counts(r.rd))
+				assert.are.equal(1, #r.changes)
+				assert.are.equal(1, r.log.count("always"))
+			end)
 
 		it("when the property is set to Never while paused (RE14)", function()
 			local r = started()
@@ -428,81 +457,160 @@ describe("fan.roomdark", function()
 		end)
 	end)
 
-	describe("restore after a restart (RD-D8)", function()
-		it("restores a saved pause before the scan, without saving it again", function()
-			local r = rig({ saved = true })
-			r.values = {}
-			local order = {}
-			r.on_change_hook = function()
-				order[#order + 1] = r.count("lights")
-			end
-			r.rd:start()
+	describe("the window closes (RD-D5, RD-D7, #240)", function()
+		it("resumes at once with every light still off: 30 minutes after sunrise", function()
+			local r = started()
 			assert.is_true(r.rd:paused())
-			assert.are.same({ { true, "restored after a restart" } }, r.changes)
-			assert.are.same({ 0 }, order) -- on_change came before the room was read
-			assert.are.same({}, r.saves)
-			assert.is_true(r.log.has("always", "LED animations paused: restored after a restart"))
-		end)
-
-		it("stays paused by day with every light off (a restart at 7 in the morning, RE10)", function()
-			local r = rig({ saved = true })
 			r.rd:set_night(false)
-			r.rd:start()
-			assert.is_true(r.rd:paused())
-			assert.are.equal(1, #r.changes)
-			assert.are.same({}, r.saves)
-		end)
-
-		it("ends when a light reports on afterwards", function()
-			local r = rig({ saved = true })
-			r.values = {}
-			r.rd:start()
-			r.rd:light(123, "1")
 			assert.is_false(r.rd:paused())
-			assert.are.same({ { true, "restored after a restart" }, { false, "Example Lamp (123) came on" } }, r.changes)
-			assert.are.same({ false }, r.saves)
-		end)
-
-		it("ends once when a light reports on from inside listen during the start's scan", function()
-			local r = rig({ saved = true })
-			r.values = { [123] = "0", [456] = "1" }
-			r.rd:start()
-			assert.is_false(r.rd:paused())
-			assert.are.same({ { true, "restored after a restart" }, { false, "Ceiling (456) came on" } }, r.changes)
-			assert.are.same({ false }, r.saves)
+			assert.are.same({ 2, 0, 0 }, counts(r.rd))
+			assert.are.same({
+				{ true, "both lights in the room are off after sunset" },
+				{ false, "30 minutes after sunrise" },
+			}, r.changes)
+			assert.is_true(r.log.has("always", "LED animations resumed: 30 minutes after sunrise"))
 			assert.are.equal(1, r.log.count("always", "resumed"))
 		end)
 
-		it("names the first light to report on during the scan", function()
-			local r = rig({ saved = true })
-			r.room = { [123] = "Example Lamp", [456] = "Ceiling", [789] = "Desk" }
-			r.values = { [123] = "0", [456] = "1", [789] = "1" }
-			r.rd:start()
-			assert.are.same({ false, "Ceiling (456) came on" }, r.changes[2])
+		it("once: later looks of the sun outside the window change nothing more", function()
+			local r = started()
+			r.rd:set_night(false)
+			r.rd:set_night(false)
+			r.rd:set_night(nil)
+			assert.is_false(r.rd:paused())
+			assert.are.equal(2, #r.changes)
+			assert.are.equal(1, r.log.count("always", "resumed"))
+		end)
+
+		it("does nothing while not paused: no on_change, no log line", function()
+			local lit = started({ values = { [123] = "1", [456] = "0" } })
+			assert.is_false(lit.rd:paused())
+			lit.log.clear()
+			lit.rd:set_night(false)
+			lit.rd:set_night(false)
+			assert.are.same({}, lit.changes)
+			assert.are.same({}, lit.log.lines)
+			local day = started({ night = false })
+			day.log.clear()
+			day.rd:set_night(false)
+			assert.are.same({}, day.changes)
+			assert.are.same({}, day.log.lines)
+			local never = started({ enabled = false })
+			never.log.clear()
+			never.rd:set_night(false)
+			assert.are.same({}, never.changes)
+			assert.are.same({}, never.log.lines)
+		end)
+
+		it("afterwards a light on and off does not pause (RE6), nor does a scan or the property set", function()
+			local r = started()
+			r.rd:set_night(false)
+			r.rd:light(123, "1")
+			assert.is_false(r.rd:paused())
+			r.rd:light(123, "0")
+			assert.is_false(r.rd:paused())
+			r.rd:scan("sunrise")
+			r.rd:configure({ enabled = true })
+			assert.is_false(r.rd:paused())
+			assert.are.same({ 2, 0, 0 }, counts(r.rd))
 			assert.are.equal(2, #r.changes)
 		end)
 
-		it("is kept when an unknown light never reports", function()
-			local r = rig({ saved = true })
-			r.values = { [123] = "0" }
-			r.rd:start()
+		it("the next set_night(true) with every light off pauses again (RE7)", function()
+			local r = started()
+			r.rd:set_night(false)
+			r.rd:light(123, "1")
+			r.rd:light(123, "0")
+			r.rd:set_night(true)
 			assert.is_true(r.rd:paused())
-			assert.are.equal(1, #r.changes)
+			assert.are.same({
+				{ true, "both lights in the room are off after sunset" },
+				{ false, "30 minutes after sunrise" },
+				{ true, "both lights in the room are off after sunset" },
+			}, r.changes)
 		end)
 
-		it("is not restored under Never: no on_change, the stale value cleared", function()
-			local r = rig({ saved = true })
+		it("the next set_night(true) with a light on does not pause; that light off then does", function()
+			local r = started()
+			r.rd:set_night(false)
+			r.rd:light(456, "1")
+			r.rd:set_night(true)
+			assert.is_false(r.rd:paused())
+			r.rd:light(456, "0")
+			assert.is_true(r.rd:paused())
+			assert.are.equal(3, #r.changes)
+		end)
+
+		it("ends a pause at once when it closes inside a scan, and the scan's end does not pause again", function()
+			local r = started()
+			r.room = { [123] = "Example Lamp", [456] = "Ceiling", [789] = "Desk" }
+			r.values[789] = "0"
+			r.fail_listen = function(id)
+				if id == 789 then
+					r.rd:set_night(false)
+				end
+			end
+			r.rd:scan("sunrise")
+			assert.is_false(r.rd:paused())
+			assert.are.same({ 3, 0, 0 }, counts(r.rd))
+			assert.are.same({ false, "30 minutes after sunrise" }, r.changes[2])
+			assert.are.equal(2, #r.changes)
+		end)
+
+		it("ends a pause the property's Never would have ended: Never afterwards changes nothing", function()
+			local r = started()
+			r.rd:set_night(false)
 			r.rd:configure({ enabled = false })
+			r.rd:configure({ enabled = true })
+			assert.is_false(r.rd:paused())
+			assert.are.equal(2, #r.changes)
+			assert.are.equal(0, r.log.count("always", "Pause LED Animations is Never"))
+		end)
+	end)
+
+	describe("nothing is saved (RD-D8, #240)", function()
+		it("start() never calls a load or save passed in opts, and pauses as the scan decides", function()
+			local r = rig()
+			r.rd:set_night(true)
+			r.rd:start()
+			assert.is_true(r.rd:paused())
+			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
+			assert.are.same({ { "lights" }, { "listen", 123 }, { "listen", 456 } }, r.calls)
+			untouched(r)
+			no_restore_lines(r)
+			-- nor does anything later
+			r.rd:light(123, "1")
+			r.rd:light(123, "0")
+			r.rd:set_night(false)
+			r.rd:configure({ enabled = false })
+			r.rd:scan("6-hourly")
+			r.rd:stop()
+			untouched(r)
+		end)
+
+		it("restores nothing: a restart outside the window with every light off does not pause (RE11)", function()
+			local r = rig() -- r.load would say a pause was saved
+			r.rd:set_night(false)
+			r.rd:start()
+			assert.is_false(r.rd:paused())
+			assert.are.same({}, r.changes)
+			untouched(r)
+			no_restore_lines(r)
+			r.rd:set_night(true) -- sunset
+			assert.is_true(r.rd:paused())
+		end)
+
+		it("a restart inside the window with a light on does not pause (RE10)", function()
+			local r = rig()
+			r.values = { [123] = "0", [456] = "1" }
 			r.rd:set_night(true)
 			r.rd:start()
 			assert.is_false(r.rd:paused())
 			assert.are.same({}, r.changes)
-			assert.are.same({ false }, r.saves)
-			assert.is_true(r.log.has("info", "the pause saved before the restart is dropped"))
 		end)
 
-		it("starts not paused when nothing was saved, and RD-D6 decides as the lights report", function()
-			local r = rig({ saved = false })
+		it("a restart inside the window pauses once the last light that had not reported reports off (RE10)", function()
+			local r = rig()
 			r.values = {}
 			r.rd:set_night(true)
 			r.rd:start()
@@ -511,25 +619,18 @@ describe("fan.roomdark", function()
 			assert.is_false(r.rd:paused())
 			r.rd:light(456, "0")
 			assert.is_true(r.rd:paused())
+			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
 		end)
 
-		it("warns and starts not paused when load raises", function()
-			local r = rig({ saved = true })
-			r.fail_load = true
-			r.values = {}
+		it("a restart under Never: nothing, and no line about a saved pause", function()
+			local r = rig()
+			r.rd:configure({ enabled = false })
 			r.rd:set_night(true)
 			r.rd:start()
 			assert.is_false(r.rd:paused())
-			assert.is_true(r.log.has("warn", "reading the saved pause failed"))
-			assert.are.equal(2, r.count("listen"))
-		end)
-
-		it("ends a restored pause when the room has no light", function()
-			local r = rig({ saved = true })
-			r.room = {}
-			r.rd:start()
-			assert.is_false(r.rd:paused())
-			assert.are.same({ { true, "restored after a restart" }, { false, "no light in the room" } }, r.changes)
+			assert.are.same({}, r.changes)
+			untouched(r)
+			no_restore_lines(r)
 		end)
 	end)
 
@@ -668,27 +769,38 @@ describe("fan.roomdark", function()
 			assert.is_true(r.log.has("warn", "register refused"))
 		end)
 
-		it("does not let a failed listen's report of on end a restored pause", function()
-			local r = rig({ saved = true })
-			r.values = { [123] = "0", [456] = "1" }
+		it("does not let a failed listen's report of on end a pause", function()
+			local r = started()
+			r.room = { [123] = "Example Lamp", [456] = "Ceiling", [789] = "Desk" }
+			r.values[789] = "1"
 			r.fail_listen = function(id)
-				return id == 456 and "false" or nil
+				return id == 789 and "false" or nil
 			end
-			r.rd:start()
+			r.rd:scan("6-hourly")
 			assert.is_true(r.rd:paused())
 			assert.are.equal(1, #r.changes)
+			assert.are.same({ 2, 0, 0 }, counts(r.rd))
 		end)
 
 		it("keeps the pause and starts none when every listen fails", function()
-			local r = rig({ saved = true })
+			local r = started()
+			r.room = { [901] = "Example Sconce", [902] = "Desk" }
 			r.fail_listen = function()
 				return "false"
 			end
-			r.rd:set_night(true)
-			r.rd:start()
+			r.rd:scan("property")
 			assert.is_true(r.rd:paused())
 			assert.are.same({ 0, 0, 0 }, counts(r.rd))
+			assert.are.equal(1, #r.changes)
 			assert.is_true(r.log.has("info", "Room lights: none of the 2 in this room could be watched"))
+			local fresh = rig()
+			fresh.fail_listen = function()
+				return "false"
+			end
+			fresh.rd:set_night(true)
+			fresh.rd:start()
+			assert.is_false(fresh.rd:paused())
+			assert.are.same({}, fresh.changes)
 		end)
 
 		it("counts a listen that returns nothing as success", function()
@@ -733,20 +845,32 @@ describe("fan.roomdark", function()
 			assert.are.equal(1, #r.changes)
 		end)
 
-		it("keeps a restored pause when the start's read fails", function()
-			local r = rig({ saved = true })
+		it("keeps the pause through a failed read, and the window closing still ends it", function()
+			local r = started()
+			r.fail_lights = function()
+				return nil, "no room"
+			end
+			r.rd:scan("sunrise")
+			assert.is_true(r.rd:paused())
+			r.rd:set_night(false)
+			assert.is_false(r.rd:paused())
+			assert.are.same({ false, "30 minutes after sunrise" }, r.changes[2])
+		end)
+
+		it("decides nothing when the start's read fails; the next scan decides", function()
+			local r = rig()
 			r.fail_lights = function()
 				return nil, "too early"
 			end
 			r.rd:set_night(true)
 			r.rd:start()
-			assert.is_true(r.rd:paused())
-			assert.are.equal(1, #r.changes)
+			assert.is_false(r.rd:paused())
+			assert.are.same({}, r.changes)
 			assert.is_false(r.rd:debug().read)
 			r.fail_lights = nil
 			r.rd:scan("6-hourly")
-			assert.is_true(r.rd:paused()) -- all off at night: still paused, no new change
-			assert.are.equal(1, #r.changes)
+			assert.is_true(r.rd:paused()) -- every light off inside the window
+			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
 			assert.is_true(r.rd:debug().read)
 		end)
 	end)
@@ -782,11 +906,12 @@ describe("fan.roomdark", function()
 			r.rd:light(123, "0")
 			r.rd:scan("sunset")
 			r.rd:configure({ enabled = true })
+			r.rd:set_night(false)
 			r.rd:start()
 			r.rd:stop()
 			assert.are.equal(before, #r.calls)
 			assert.are.same({}, r.changes)
-			assert.are.same({}, r.saves)
+			untouched(r)
 			assert.is_false(r.rd:paused())
 			assert.are.same({ 0, 0, 0 }, counts(r.rd))
 			assert.is_true(r.rd:debug().stopped)
@@ -796,6 +921,7 @@ describe("fan.roomdark", function()
 			local r = started()
 			r.rd:stop()
 			r.rd:light(123, "1")
+			r.rd:set_night(false)
 			r.rd:configure({ enabled = false })
 			assert.is_true(r.rd:paused())
 			assert.are.equal(1, #r.changes)
@@ -816,48 +942,38 @@ describe("fan.roomdark", function()
 			assert.are.same({}, r.calls)
 		end)
 
-		it("inside on_change: the save of that change and every later callback are dropped", function()
+		it("inside on_change: a change still waiting and every later callback are dropped", function()
 			local r = rig()
-			r.on_change_hook = function()
-				r.rd:stop()
+			r.on_change_hook = function(paused)
+				if paused then
+					r.rd:set_night(false) -- waits for this on_change to return
+					r.rd:stop()
+				end
 			end
 			r.rd:set_night(true)
 			r.rd:start()
-			assert.are.equal(1, #r.changes)
-			assert.are.same({}, r.saves)
+			assert.are.same({ { true, "both lights in the room are off after sunset" } }, r.changes)
 			assert.are.equal(2, r.count("unlisten"))
+			untouched(r)
 		end)
 	end)
 
 	describe("callbacks", function()
-		it("contains an error in on_change: logged at warn, the state right, save still called", function()
+		it("contains an error in on_change: logged at warn, the state right", function()
 			local r = rig()
 			r.fail_change = true
 			r.rd:set_night(true)
 			r.rd:start()
 			assert.is_true(r.rd:paused())
-			assert.are.same({ true }, r.saves)
 			assert.is_true(r.log.has("warn", "Room lights: passing on the pause failed"))
 			assert.is_true(r.log.has("warn", "driver broke"))
 			r.rd:light(123, "1")
 			assert.is_false(r.rd:paused())
-			assert.are.same({ true, false }, r.saves)
+			assert.are.equal(2, #r.changes)
 			assert.is_true(r.log.has("warn", "Room lights: passing on the resume failed"))
 		end)
 
-		it("contains an error in save", function()
-			local r = rig()
-			r.fail_save = true
-			r.rd:set_night(true)
-			r.rd:start()
-			assert.is_true(r.rd:paused())
-			assert.is_true(r.log.has("warn", "Room lights: saving the pause failed: "))
-			r.rd:light(456, "1")
-			assert.is_false(r.rd:paused())
-			assert.are.equal(2, #r.changes)
-		end)
-
-		it("passes on a change made inside on_change after it returns, in order, the last save the state", function()
+		it("passes on a change made inside on_change after it returns, in order", function()
 			local r = rig()
 			local inside = {}
 			r.on_change_hook = function(paused)
@@ -873,8 +989,25 @@ describe("fan.roomdark", function()
 				{ true, "both lights in the room are off after sunset" },
 				{ false, "Pause LED Animations is Never" },
 			}, r.changes)
-			assert.are.same({ true, false }, r.saves)
-			assert.are.equal(false, r.saved)
+			assert.is_false(r.rd:paused())
+		end)
+
+		it("passes on the window closing inside on_change after it returns, in order", function()
+			local r = rig()
+			local inside = {}
+			r.on_change_hook = function(paused)
+				if paused then
+					r.rd:set_night(false)
+					inside[#inside + 1] = #r.changes
+				end
+			end
+			r.rd:set_night(true)
+			r.rd:start()
+			assert.are.same({ 1 }, inside)
+			assert.are.same({
+				{ true, "both lights in the room are off after sunset" },
+				{ false, "30 minutes after sunrise" },
+			}, r.changes)
 			assert.is_false(r.rd:paused())
 		end)
 
@@ -917,9 +1050,24 @@ describe("fan.roomdark", function()
 		it("writes the pause and its end at always, whatever else is logged", function()
 			local r = started()
 			r.rd:light(123, "1")
+			r.rd:light(123, "0")
+			r.rd:set_night(false)
+			r.rd:configure({ enabled = false })
+			r.rd:configure({ enabled = true })
+			r.rd:set_night(true)
+			r.rd:configure({ enabled = false })
+			r.rd:configure({ enabled = true })
+			r.room = {}
+			r.rd:scan("6-hourly")
 			assert.are.same({
 				"LED animations paused: both lights in the room are off after sunset",
 				"LED animations resumed: Example Lamp (123) came on",
+				"LED animations paused: both lights in the room are off after sunset",
+				"LED animations resumed: 30 minutes after sunrise",
+				"LED animations paused: both lights in the room are off after sunset",
+				"LED animations resumed: Pause LED Animations is Never",
+				"LED animations paused: both lights in the room are off after sunset",
+				"LED animations resumed: no light in the room",
 			}, r.log.texts("always"))
 		end)
 

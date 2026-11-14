@@ -135,16 +135,19 @@ Each driver's **Documentation** tab in Composer is its full manual
     across the speed buttons, faster at higher speeds, 2.5 seconds after a
     speed is chosen and then after every **Speed LED Rest (s)** (5 by
     default).
-- **A pause at night.** Once every light in the fan's room is off after
-  sunset, both animations pause and send nothing; as soon as any light in
-  the room comes on, they play again. Sunrise alone does not end the
-  pause, and a pause is kept over a driver update or a restart. The
-  lights are every Control4 light in the fan item's room (the fan's own
-  light too, when it is there), and sunset comes from the project's
-  location. The selected speed's LED still follows the fan. **Pause LED
-  Animations** (`Room lights off after sunset` by default, or `Never`)
-  turns it off, and **Keypad Links** says when the animations are paused.
-- **Only what is needed shows.** The 21 keypad LED rows (the Also Lit At
+- **A pause at night.** From sunset to 30 minutes after sunrise, while
+  every light in the fan's room is off, both animations pause and send
+  nothing. As soon as any light in the room comes on they play again, and
+  30 minutes after sunrise they come back by themselves. Nothing is kept
+  over a restart: the driver decides again within moments as the lights
+  report. The lights are every Control4 light in the fan item's room (the
+  fan's own light too, when it is there), less those picked in **Pause
+  Ignores Lights** (for a switch that stays on to power smart bulbs), and
+  sunset and sunrise come from the project's location. The selected
+  speed's LED still follows the fan. **Pause LED Animations** (`Room
+  lights off after sunset` by default, or `Never`) turns it off, and
+  **Keypad Links** says when the animations are paused.
+- **Only what is needed shows.** The 22 keypad LED rows (the Also Lit At
   rows, the colours, the animations and the pause) show in Composer only
   while a button is bound to a Fan Speed link; hidden, they keep their
   values. **Keypad Links** lists the bindings and says which case applies.

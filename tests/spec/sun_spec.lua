@@ -358,6 +358,44 @@ describe("fan.sun", function()
 			end
 		end)
 
+		-- #240 (room-dark-pause-design RD-D5): the LED pause's window runs from
+		-- sunset to sunrise + 30 min; the sunsets do not move.
+		it("moves each sunrise by rise_delay_s and leaves the sunsets alone (#240)", function()
+			local list = sun.events(40, -74, utc(2026, 6, 21, 12))
+			local delay = 1800
+			for i = 2, #list - 1 do
+				local ev = list[i]
+				local nxt = list[i + 1]
+				local nxt_at = nxt.kind == "rise" and nxt.at + delay or nxt.at
+				if ev.kind == "rise" then
+					assert.same({ true, ev.at + delay }, { sun.night(40, -74, ev.at, delay) }, "still night at sunrise")
+					assert.same({ true, ev.at + delay }, { sun.night(40, -74, ev.at + delay - 1, delay) })
+					assert.same({ false, nxt_at }, { sun.night(40, -74, ev.at + delay, delay) }, "day 30 min later")
+				else
+					assert.same({ false, ev.at }, { sun.night(40, -74, ev.at - 1, delay) })
+					assert.same({ true, nxt_at }, { sun.night(40, -74, ev.at, delay) }, "night at sunset, as before")
+				end
+			end
+		end)
+
+		it("takes no delay for nil, 0 or a value that is not a number, and caps it at 6 h (#240)", function()
+			local epoch = utc(2026, 6, 21, 12)
+			local plain = { sun.night(40, -74, epoch) }
+			assert.same(plain, { sun.night(40, -74, epoch, nil) })
+			assert.same(plain, { sun.night(40, -74, epoch, 0) })
+			assert.same(plain, { sun.night(40, -74, epoch, -600) })
+			assert.same(plain, { sun.night(40, -74, epoch, 0 / 0) })
+			assert.same(plain, { sun.night(40, -74, epoch, "1800") })
+			local rise
+			for _, ev in ipairs(sun.events(40, -74, epoch)) do
+				if ev.kind == "rise" and ev.at > epoch then
+					rise = ev.at
+					break
+				end
+			end
+			assert.same({ true, rise + 6 * 3600 }, { sun.night(40, -74, rise + 3600, 24 * 3600) })
+		end)
+
 		it("finds the next change across UTC midnight west of Greenwich (170W)", function()
 			-- There the June sun sets about 06:52 UTC, the morning after its local date.
 			local before = { sun.night(40, -170, utc(2026, 6, 21, 23, 59, 59)) }

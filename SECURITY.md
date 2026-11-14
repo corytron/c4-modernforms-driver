@@ -162,8 +162,10 @@ Any driver or programming that switches a light in the room changes what
 the driver sees, and that is the point: the most a light's state can do
 is pause or resume the speed chase and the Breeze gusts, which **Keypad
 Links** reports. It changes nothing on the fan, its light or the other
-lights, no setting and no steady LED. The only thing this feature stores
-is whether the animations are paused, so that a pause survives a restart.
+lights, no setting and no steady LED. This feature stores nothing of its
+own: after a restart the driver decides the pause again from the lights'
+reports, and the lights picked in `Pause Ignores Lights` are a property,
+kept with the project like any other.
 
 ### The development loop
 
