@@ -46,7 +46,7 @@ local ledhub_mod = require("fan.ledhub")
 local ledrows_mod = require("fan.ledrows")
 local fanmode = require("fan.mode")
 local sun_mod = require("fan.sun")
-local ambient_mod = require("fan.ambient")
+local roomdark_mod = require("fan.roomdark")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -201,7 +201,7 @@ end
 -- The modules ------------------------------------------------------------------
 
 local model, fan, links, light, discovery, names_job, follower, search, found_list, breeze, bleds, sleds, ledhub, lrows
-local ambient -- #207: the bound keypad dark or lit (ambient-pause-design)
+local roomdark -- the room dark at night pauses the LED animations (room-dark-pause-design)
 local keypad_items = {} -- the Keypad Links list as written; a pick snaps back to its first row
 local keypad_raw = {} -- the same list as links.lua gave it, before the LED settings note (#178)
 local update_rows -- the keypad LED rows follow the bindings and the fan (#178); defined with the links
@@ -427,15 +427,8 @@ local function write_keypad_links(items)
 		for index, item in ipairs(items) do
 			copy[index] = item
 		end
-		-- #223 (AP-D17): while paused, the note names the last reading and its time.
-		local dark, last = ambient ~= nil and ambient:dark(), nil
-		if dark and ambient.last then
-			local level, at_s = ambient:last()
-			if level ~= nil then
-				last = { level = level, at_s = at_s, now_s = os.time() }
-			end
-		end
-		copy[1] = items[1] .. texts.keypad_leds_note(shown, dark, last)
+		-- RD-D10: while the room is dark at night, the note says the animations are paused.
+		copy[1] = items[1] .. texts.keypad_leds_note(shown, roomdark ~= nil and roomdark:paused())
 		items = copy
 	end
 	keypad_items = items
@@ -510,35 +503,49 @@ sleds = speedleds_mod.new({
 })
 ledhub = ledhub_mod.new({ breeze = bleds, speed = sleds, log = log })
 
--- #223 (ambient-pause-design AP-D20): after the driver starts (an update, a
--- Director restart), the keypad no longer sends its readings to this driver
--- although the binding is still listed (measured on the house, 2026-11-13),
--- until the binding is made again. So, AMBIENT_REBIND_MS after late init, the
--- driver makes it again itself, as Composer's Connections would [API
--- 9_helper/_19-unbind.md, 9_helper/_1-bind.md]: the same keypad, the same
--- output. The output comes from the last OnBindingChanged (persisted), else
--- 400, the Ambient Light Level (Source) of Control4's keypad dimmers and
--- switches (measured).
-local AMBIENT_REBIND_MS = 30000
-local AMBIENT_SOURCE_KEY = "mf_ambient_source"
-local AMBIENT_SOURCE_BINDING = 400
-
--- #207 (ambient-pause-design AP-D1 to AP-D6): the keypad bound to the
--- Ambient Light Level (Follower) input pushes its reading; while it reads
--- dark, both LED engines pause and send nothing. on_change is never called
--- before late init: readings wait for it like every other message.
-local AMBIENT_BINDING = 500
--- #223 (ambient-pause-design AP-D16): a dark verdict lapses 12 h after the
--- last dark reading (ambient.lua's default), a safety net for a report the
--- keypad never sent; the pause otherwise follows the keypad's readings only.
-ambient = ambient_mod.new({
-	epoch = os.time,
-	now = now_ms,
-	timer = timer,
-	on_change = function(dark, why)
-		log.debug("LED animations %s: %s", dark and "paused" or "resumed", tostring(why))
-		sleds:configure({ dark = dark })
-		bleds:configure({ dark = dark })
+-- room-dark-pause-design (#233): the speed chase and the Breeze animation
+-- pause once every light in this room is off after sunset, and resume when one
+-- comes on (RD-D3 to RD-D9). The room's lights are its light_v2 proxies [API
+-- 22_miscellaneous/_9-GetDevices.md, _33-RoomGetID.md]; each one's Light State
+-- (variable 1000, light_v2 proxy protocol 30_Light_v2_variables) is watched
+-- [API 36_variable/_10-RegisterVariableListener.md, _11]. fan/roomdark.lua
+-- decides and logs; nothing reaches it before late init.
+local LIGHT_STATE_VARIABLE = 1000
+local ROOM_DARK_KEY = "mf_room_dark_pause"
+local room_started = false
+roomdark = roomdark_mod.new({
+	lights = function()
+		local room = tonumber(C4:RoomGetId())
+		if not room then
+			return nil, "the driver's room is unknown"
+		end
+		local devices = C4:GetDevices({ C4iNames = "light_v2.c4i" }, tostring(room))
+		local out = {}
+		for id, info in pairs(type(devices) == "table" and devices or {}) do
+			local n = tonumber(id)
+			if n then
+				out[n] = type(info) == "table" and type(info.deviceName) == "string" and info.deviceName
+					or ("device " .. n)
+			end
+		end
+		return out
+	end,
+	listen = function(id)
+		C4:RegisterVariableListener(id, LIGHT_STATE_VARIABLE)
+		return true
+	end,
+	unlisten = function(id)
+		C4:UnregisterVariableListener(id, LIGHT_STATE_VARIABLE)
+	end,
+	load = function()
+		return store.get(ROOM_DARK_KEY) == true
+	end,
+	save = function(paused)
+		store.set(ROOM_DARK_KEY, paused == true)
+	end,
+	on_change = function(paused)
+		sleds:configure({ paused = paused })
+		bleds:configure({ paused = paused })
 		write_keypad_links(keypad_raw)
 	end,
 	log = log,
@@ -893,11 +900,13 @@ local function apply_colors()
 	links:set_colors(mode, colors, read("Speed LED Off Color"))
 end
 
--- Night for the Breeze LEDs (breeze-leds-design BL-D28, BL-D29): from the
--- project's location, the one Director computes its own sunrise and sunset
--- from [API 24_properties/_2], worked out again at every sunrise and sunset
--- (and every 6 h) while the animation is on. Only the animation's colours are
--- scaled; nothing outside Breeze changes.
+-- Night for the Breeze LEDs (breeze-leds-design BL-D28, BL-D29) and for the
+-- pause in a dark room (room-dark-pause-design RD-D5): from the project's
+-- location, the one Director computes its own sunrise and sunset from [API
+-- 24_properties/_2], worked out again at every sunrise and sunset (and every
+-- 6 h) while either needs it. The Breeze animation's colours are scaled; the
+-- pause hears night or day, and the room's lights are read again at each look
+-- (RD-D3).
 local NIGHT_RECHECK_MS = 6 * 3600 * 1000
 local CLOCK_SET_S = 1577836800 -- 2020-01-01: before it the controller's clock is not set
 local night_timer, night_said = nil, nil
@@ -923,16 +932,19 @@ local function say_night(template, ...)
 	local line = string.format(template, ...)
 	if line ~= night_said then
 		night_said = line
-		log.info("Breeze LEDs: %s", line)
+		log.info("Night: %s", line)
 	end
 end
 
-local apply_breeze_night
-apply_breeze_night = function()
+local apply_night
+apply_night = function()
 	cancel_night_timer()
 	local percent = tonumber(Properties["Breeze LED Night Brightness (%)"]) or 50
-	if Properties["Breeze LED Animation"] ~= "Gusts" then
+	local gusts = Properties["Breeze LED Animation"] == "Gusts"
+	local pause = Properties["Pause LED Animations"] ~= "Never"
+	if not gusts and not pause then
 		bleds:configure({ night = false, night_percent = percent })
+		roomdark:set_night(false)
 		return
 	end
 	local night, next_change = false, nil
@@ -950,12 +962,16 @@ apply_breeze_night = function()
 			say_night("%s: the sun neither rises nor sets today", night and "night" or "day")
 		end
 	end
-	bleds:configure({ night = night == true, night_percent = percent })
+	bleds:configure({ night = gusts and night == true, night_percent = percent })
+	roomdark:set_night(night == true)
+	if room_started then
+		roomdark:scan("the look at the sun")
+	end
 	local wait_ms = NIGHT_RECHECK_MS
 	if next_change then
 		wait_ms = math.min(wait_ms, math.max(1000, (next_change - now + 5) * 1000))
 	end
-	night_timer = timer(wait_ms, apply_breeze_night)
+	night_timer = timer(wait_ms, apply_night)
 end
 
 -- Breeze LED Animation, Bottom, Step and Night Brightness (breeze-leds-design
@@ -970,7 +986,7 @@ local function apply_breeze_leds()
 		bottom = Properties["Breeze LED Bottom"] == "Highest speed" and 6 or 1,
 		step = tonumber(Properties["Breeze LED Step (ms)"]) or breezeleds_mod.STEP_DEFAULT,
 	})
-	apply_breeze_night()
+	apply_night()
 	-- L42 for a change the owner makes, not for the late-init replay.
 	if enabled and not per_speed and started then
 		result("breeze_leds_need_per_speed")
@@ -1009,16 +1025,11 @@ dispatch.properties["Breeze_LED_Bottom"] = function()
 end
 dispatch.properties["Speed_LED_Animation"] = apply_speed_leds
 dispatch.properties["Speed_LED_Rest_(s)"] = apply_speed_leds
-dispatch.properties["Pause_LED_Animations_Below"] = function(value)
-	ambient:set_threshold(tonumber(value))
-end
--- #207 AP1: the bound keypad's reading arrives as a command, on change only.
-dispatch.commands["AMBIENT_LIGHT_LEVEL"] = function(params)
-	ambient:reading(params)
-	-- #223: a reading while paused updates the note's last reading.
-	if ambient:dark() then
-		write_keypad_links(keypad_raw)
-	end
+-- RD-D2: the pause in a dark room at night, on unless set to Never; the
+-- look at the sun follows, and with it a scan of the room's lights.
+dispatch.properties["Pause_LED_Animations"] = function(value)
+	roomdark:configure({ enabled = value ~= "Never" })
+	apply_night()
 end
 dispatch.properties["Breeze_LED_Step_(ms)"] = apply_breeze_leds
 dispatch.properties["Breeze_LED_Night_Brightness_(%)"] = apply_breeze_leds
@@ -1370,8 +1381,8 @@ end
 -- #214: every action and command waits for late init, like the proxy and
 -- link messages (on() above): before it, UpdateProperty, SendToDevice and the
 -- model are not ready [API 22_miscellaneous/_25.2-SafeUsageTable.md]. A
--- Breeze fan's MF_BREEZE_HELLO at a Director restart, an early ambient
--- reading or an action sent by another driver are buffered and run in order
+-- Breeze fan's MF_BREEZE_HELLO at a Director restart or an action sent by
+-- another driver are buffered and run in order
 -- right after late init (common/device.lua, at most 200).
 for _, handlers in ipairs({ dispatch.actions, dispatch.commands }) do
 	for name, handler in pairs(handlers) do
@@ -1411,54 +1422,6 @@ local function show_restored()
 	end
 end
 
--- The keypad bound to the Ambient Light Level (Follower) input, or nil
--- [API 32_serial_network_device/_4-GetBoundProviderDevice.md: an id; nothing
--- bound reads 0 or nil on the house].
-local function ambient_provider()
-	local ok, id = pcall(C4.GetBoundProviderDevice, C4, C4:GetDeviceID(), AMBIENT_BINDING)
-	if ok and type(id) == "table" then
-		id = next(id)
-	end
-	id = ok and tonumber(id) or nil
-	return (id and id > 0) and id or nil
-end
-
-local ambient_rebind_timer = nil
-local function cancel_ambient_rebind()
-	if ambient_rebind_timer then
-		pcall(function()
-			ambient_rebind_timer:Cancel()
-		end)
-		ambient_rebind_timer = nil
-	end
-end
-
--- #223 (AP-D20): unbind and bind the same keypad output again, so it reports
--- to this driver; nothing when nothing is bound any more.
-local function ambient_rebind()
-	ambient_rebind_timer = nil
-	local provider = ambient_provider()
-	if not provider then
-		return
-	end
-	local saved, output = tostring(store.get(AMBIENT_SOURCE_KEY) or ""):match("^(%d+):(%d+)$")
-	output = (tonumber(saved) == provider and tonumber(output)) or AMBIENT_SOURCE_BINDING
-	local me = C4:GetDeviceID()
-	log.always("Ambient light: binding the keypad (device %d, output %d) again after the start, so it reports to"
-		.. " this driver", provider, output)
-	local ok, err = pcall(function()
-		C4:Unbind(me, AMBIENT_BINDING)
-		C4:Bind(provider, output, me, AMBIENT_BINDING, "AMBIENT_LEVEL")
-	end)
-	if not ok then
-		log.warn("Ambient light: binding the keypad again failed: %s", tostring(err))
-	end
-	if ambient_provider() ~= provider then
-		log.warn("Ambient light: the keypad (device %d) is no longer bound to Ambient Light Level (Follower):"
-			.. " connect its Ambient Light Level (Source) again in Composer's Connections", provider)
-	end
-end
-
 function OnDriverLateInit()
 	dev.load_settings()
 	dev.load_colors()
@@ -1488,6 +1451,9 @@ function OnDriverLateInit()
 	-- The keypad LED rows, once the links have read their keypads (#178, KL-D6).
 	update_rows()
 	lrows:start()
+	-- RD-D8: the pause as it was before the start, then the room's lights.
+	room_started = true
+	roomdark:start()
 	write_keypad_links(keypad_raw)
 	-- Dev builds: the dev loop starts last, so a reload pushed through it sees
 	-- a fully initialised driver.
@@ -1498,19 +1464,6 @@ function OnDriverLateInit()
 		end
 	end
 	dev.replay_bindings()
-	-- #207, #214: after a restart, the keypad bound to Ambient Light Level
-	-- (Follower) is read from Director, so only its readings count from the
-	-- start [API 32_serial_network_device/_4-GetBoundProviderDevice.md; not
-	-- before init, SafeUsageTable]. The state stays unknown until it reports.
-	local provider = ambient_provider()
-	if provider and ambient:debug().bound == nil and ambient:state() == "unknown" then
-		ambient:bound(provider)
-	end
-	-- #223 (AP-D20): make the keypad's binding again once the other drivers have started.
-	if provider then
-		cancel_ambient_rebind()
-		ambient_rebind_timer = timer(AMBIENT_REBIND_MS, ambient_rebind)
-	end
 end
 
 -- A Button Link's binding changes (a keypad button bound or unbound): the
@@ -1537,15 +1490,6 @@ OnBindingChanged = dev.binding_changed(function(binding, _, bound, other_device,
 	if binding == BREEZE_BINDING then
 		contained("the Breeze fan", function()
 			breeze:binding_changed(bound)
-		end)
-	end
-	if binding == AMBIENT_BINDING then
-		contained("the ambient input", function()
-			ambient:bound(bound and other_device or nil)
-			-- #223: which keypad output feeds the input, for the rebind after a start.
-			if bound and tonumber(other_device) and tonumber(other_binding) then
-				store.set(AMBIENT_SOURCE_KEY, string.format("%d:%d", other_device, other_binding))
-			end
 		end)
 	end
 end)
@@ -1592,6 +1536,20 @@ function ReceivedFromNetwork(binding, port, data, from)
 	end
 end
 
+-- RD-D4: Director reports a watched Light State here, right after its
+-- listener is set and at every change [API 36_variable/_10]. Only variable
+-- 1000 of the room's lights is watched, and only after late init; a failure is
+-- logged, never raised into Director.
+function OnWatchedVariableChanged(device_id, variable_id, value)
+	if tonumber(variable_id) ~= LIGHT_STATE_VARIABLE then
+		return
+	end
+	local ok, err = pcall(roomdark.light, roomdark, tonumber(device_id), value)
+	if not ok then
+		log.error("OnWatchedVariableChanged failed: %s", tostring(err))
+	end
+end
+
 -- Composer deletes the device: nothing to tell the fan, which keeps its state
 -- (section 8: delete and re-add loses links and programming, the manual says
 -- never to do it).
@@ -1613,8 +1571,7 @@ function OnDriverDestroyed()
 	names_job:stop()
 	breeze:stop()
 	cancel_night_timer()
-	ambient:stop()
-	cancel_ambient_rebind()
+	roomdark:stop()
 	cancel_keep_timer()
 	ledhub:stop() -- both LED engines, before the links (breeze-leds-design BL-D17)
 	lrows:stop()

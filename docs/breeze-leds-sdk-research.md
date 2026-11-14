@@ -20,6 +20,11 @@
 > measured on the house ([`ambient-pause-design.md`](ambient-pause-design.md)
 > section 0).
 
+> **Since 1.11 (#233).** The driver no longer takes the keypad's reading:
+> that route and the pause it fed are withdrawn. The animations now pause
+> while every light in the fan's room is off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 Research for [issue #137](https://github.com/corytron/c4-modernforms-driver/issues/137),
 written 2026-11-08. The owner wants the keypad buttons bound to the fan to
 play a bottom-to-top animation in blues, teals and whites while Breeze

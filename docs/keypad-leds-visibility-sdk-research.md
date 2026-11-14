@@ -13,6 +13,10 @@
 > ([`status.md`](status.md)). Since 1.9 (#207) `Pause LED Animations Below`
 > is a managed row too. The code line numbers are those of 2026-11-10.
 
+> **Since 1.11 (#233).** That row is `Pause LED Animations`, in place of
+> `Pause LED Animations Below`, withdrawn with the ambient pause
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md) RD-D2).
+
 Research for issue #178, written 2026-11-10. The owner asked that the
 keypad LED rows (colours, the Breeze animation, the speed chase) show only
 when a configurable keypad is linked to the driver, that the driver say

@@ -18,6 +18,12 @@
 > hid by themselves about 15 s after the add and the house fan kept every
 > row ([`status.md`](status.md)).
 
+> **Since 1.11 (#233).** The 21st row is `Pause LED Animations` in place
+> of `Pause LED Animations Below`, still following the gate alone, and
+> while the animations pause the note reads `; LED animations paused: room
+> dark at night` ([`room-dark-pause-design.md`](room-dark-pause-design.md)
+> RD-D2, RD-D10).
+
 The owner asked that the keypad LED work (the per-speed colours, the Breeze
 animation, the speed chase) show up in Composer only when a keypad is linked
 to the driver, with clear instructions for both cases, easy to disable, and

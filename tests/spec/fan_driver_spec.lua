@@ -178,18 +178,13 @@ describe("Modern Forms Fan driver", function()
 			assert.same({ "5001:FAN", "5002:LIGHT_V2", "200:BUTTON_LINK", "201:BUTTON_LINK", "202:BUTTON_LINK",
 				"300:BUTTON_LINK", "301:BUTTON_LINK", "302:BUTTON_LINK", "303:BUTTON_LINK", "304:BUTTON_LINK",
 				"305:BUTTON_LINK", "306:BUTTON_LINK", "307:BUTTON_LINK", "308:BUTTON_LINK", "311:BUTTON_LINK",
-				"400:MODERNFORMS_BREEZE", "500:AMBIENT_LEVEL" }, ids)
+				"400:MODERNFORMS_BREEZE" }, ids)
 			assert.is_nil(bare:find("<connection proxybindingid", 1, true), "no link carries proxybindingid (K4)")
 			for body in bare:gmatch("<connection>(.-)</connection>") do
 				if field(body, "id") == "400" then
 					assert.equal("Breeze Switch", field(body, "connectionname"))
 					assert.equal("1", field(body, "type"))
 					assert.equal("False", field(body, "consumer"))
-				end
-				if field(body, "id") == "500" then -- #207 AP-D1
-					assert.equal("Ambient Light Level (Follower)", field(body, "connectionname"))
-					assert.equal("1", field(body, "type"))
-					assert.equal("True", field(body, "consumer"))
 				end
 			end
 		end)
@@ -220,7 +215,7 @@ describe("Modern Forms Fan driver", function()
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
 					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
-					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations Below", "Debug Mode", "Dev Server",
+					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations", "Debug Mode", "Dev Server",
 					"Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
 				assert.truthy(block and block:find("<name>Dev Server</name>", 1, true))
@@ -328,7 +323,6 @@ describe("Modern Forms Fan driver", function()
 			function()
 				local env, c4 = fake.load_driver(DRIVER, { ["Fan Address"] = "10.0.2.151" })
 				env.ExecuteCommand("LUA_ACTION", { ACTION = "Reboot Fan" })
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { LEVEL = "3" })
 				assert.same({}, c4.transfers, "nothing runs before late init")
 				env.OnDriverLateInit("DIT_STARTUP")
 				local before = #c4.transfers
@@ -1122,10 +1116,13 @@ describe("Modern Forms Fan driver", function()
 					return real_time(t)
 				end
 				local ok, env, c4 = pcall(function()
+					-- The room's only light (the fan's own) is off: without Never, the
+					-- night would pause the animation (room-dark-pause-design RD-D6).
 					local props = {
 						["Fan Address"] = FAN,
 						["Speed LED Colors"] = "Per speed",
 						["Breeze LED Animation"] = "Gusts",
+						["Pause LED Animations"] = "Never",
 					}
 					for speed = 1, 6 do
 						props["Speed " .. speed .. " LED Color"] = "128,0,255"
@@ -1450,6 +1447,143 @@ describe("Modern Forms Fan driver", function()
 					assert.same({}, sent(c4, link, "BUTTON_COLORS"), link .. " takes no colour")
 				end
 			end)
+
+			-- room-dark-pause-design (#233): every light in the fan's room off after
+			-- sunset pauses both animations; any light coming on brings them back.
+			describe("pauses the animations while the room is dark at night (#233, RD-D3 to RD-D10)", function()
+				-- At a grid location (no one's home): 05:00 UTC in January is night, 17:00 UTC day.
+				local NIGHT_AT, DAY_AT = 1768453200, 1768496400
+				local PAUSED = "; LED animations paused: room dark at night"
+				local SHOWN = "; LED settings shown"
+
+				-- Runs fn with os.time() fixed at `epoch`, so every look at the sun agrees.
+				local function at_clock(epoch, fn)
+					local real_time = os.time
+					os.time = function(t) -- luacheck: ignore 122
+						if t == nil then
+							return epoch
+						end
+						return real_time(t)
+					end
+					local ok, err = pcall(fn)
+					os.time = real_time -- luacheck: ignore 122
+					assert(ok, err)
+				end
+
+				-- A fan at speed 3 with the chase on, a lamp in its room (off), started.
+				-- before_start(env, c4, lamp) runs after the load, before OnDriverInit.
+				local function dark_room(extra, before_start)
+					local props = {
+						["Fan Address"] = FAN,
+						["Speed LED Colors"] = "Per speed",
+						["Speed LED Animation"] = "Speeds 2 to 5",
+					}
+					for speed = 1, 6 do
+						props["Speed " .. speed .. " LED Color"] = "128,0,255"
+					end
+					for name, value in pairs(extra or {}) do
+						props[name] = value
+					end
+					local env, c4 = fake.load_driver(DRIVER, props)
+					c4.GetProjectProperty = function(_, name)
+						return ({ Latitude = "40.7", Longitude = "-74.0" })[name]
+					end
+					local lamp = fake.add_light("Example Lamp")
+					if before_start then
+						before_start(env, c4, lamp)
+					end
+					env.OnDriverInit("DIT_STARTUP")
+					env.OnDriverLateInit("DIT_STARTUP")
+					answer(c4, mf.INFO)
+					answer(c4, mf.state(FWD3))
+					for index, link in ipairs({ 302, 303, 304, 305, 300, 311 }) do
+						fake.link_keypad(env, link, 456, 10 + index)
+					end
+					return env, c4, lamp
+				end
+
+				local function note(env)
+					return env.Properties["Keypad Links"]
+				end
+
+				local function chases(c4)
+					c4.calls = {}
+					hold_state(c4, FWD3, 4500)
+					return first(shows(c4, { [303] = PURPLE }), 303, "dark") ~= nil
+				end
+
+				it("sends no chase at night with every light off, plays it again when a light comes on, and pauses"
+					.. " again when the last light goes off", function()
+						at_clock(NIGHT_AT, function()
+							local env, c4, lamp = dark_room()
+							assert.truthy(note(env):find(PAUSED, 1, true), note(env))
+							c4.calls = {}
+							hold_state(c4, FWD3, 12000)
+							assert.same({}, shows(c4, { [303] = PURPLE }), "nothing is sent while paused")
+							fake.set_variable(lamp, 1000, "1")
+							assert.truthy(note(env):find(SHOWN, 1, true), note(env))
+							assert.is_true(chases(c4), "the chase is back")
+							fake.set_variable(lamp, 1000, "0")
+							assert.truthy(note(env):find(PAUSED, 1, true), note(env))
+							assert.is_false(chases(c4), "paused again")
+						end)
+					end)
+
+				it("pauses nothing by day with every light off (RD-D6)", function()
+					at_clock(DAY_AT, function()
+						local env, c4, lamp = dark_room()
+						assert.truthy(note(env):find(SHOWN, 1, true), note(env))
+						assert.is_true(chases(c4))
+						fake.set_variable(lamp, 1000, "1")
+						fake.set_variable(lamp, 1000, "0")
+						assert.is_true(chases(c4), "on and off again by day pauses nothing")
+					end)
+				end)
+
+				it("keeps a pause over a restart, by day, until a light comes on (RD-D7, RD-D8)", function()
+					at_clock(DAY_AT, function()
+						local env, c4, lamp = dark_room(nil, function(_, c4)
+							c4:PersistSetValue("mf_room_dark_pause", true)
+						end)
+						assert.truthy(note(env):find(PAUSED, 1, true), note(env))
+						assert.is_false(chases(c4), "sunrise alone does not end it")
+						fake.set_variable(lamp, 1000, "true")
+						assert.truthy(note(env):find(SHOWN, 1, true), note(env))
+						assert.is_true(chases(c4))
+						assert.equal(false, c4:PersistGetValue("mf_room_dark_pause"))
+					end)
+				end)
+
+				it("pauses nothing at night when Pause LED Animations is Never (RD-D2)", function()
+					at_clock(NIGHT_AT, function()
+						local env, c4 = dark_room({ ["Pause LED Animations"] = "Never" })
+						assert.truthy(note(env):find(SHOWN, 1, true), note(env))
+						assert.is_true(chases(c4))
+					end)
+				end)
+
+				it("watches the Light State of every light in its room, its own light included, and no other room's"
+					.. " (RD-D3, RD-D4)", function()
+						at_clock(NIGHT_AT, function()
+							local hall
+							local env, c4, lamp = dark_room(nil, function()
+								fake.add_room(77, "Other Room")
+								hall = fake.add_light("Hall Light", 77)
+							end)
+							local watched = {}
+							for _, args in ipairs(c4.calls_to("RegisterVariableListener")) do
+								watched[args[1]] = args[2]
+							end
+							assert.equal(1000, watched[lamp])
+							assert.equal(1000, watched[fake.proxy_id(env, 5002)], "the fan's own light")
+							assert.is_nil(watched[hall], "another room's light")
+							fake.set_variable(hall, 1000, "1")
+							assert.truthy(note(env):find(PAUSED, 1, true), "a light elsewhere changes nothing")
+							env.OnWatchedVariableChanged(lamp, 1001, "50")
+							assert.truthy(note(env):find(PAUSED, 1, true), "only variable 1000 counts")
+						end)
+					end)
+			end)
 		end)
 
 		it("Add Breeze Fan adds the Breeze fan in the fan's room, named after the fan item, and binds it (BF-D10)",
@@ -1630,83 +1764,6 @@ describe("Modern Forms Fan driver", function()
 					1, true))
 				assert.is_nil(env.Properties["Keypad Links"]:find(",", 1, true))
 			end)
-
-		it("says the LED animations are paused while the keypad bound to Ambient Light Level reads dark"
-			.. " (#207 AP-D4, AP-D10)", function()
-				local env, c4 = rows_driver()
-				run(c4, 11000)
-				fake.link_keypad(env, 303, 456, 12)
-				run(c4, 2000)
-				env.OnBindingChanged(500, "AMBIENT_LEVEL", true, 1155, 400)
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "0", TARGET = "1" })
-				run(c4, 1000)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "the bind's 0 is no reading")
-				run(c4, 5000)
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "3", TARGET = "3" })
-				run(c4, 100)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad read 3 at ", 1, true))
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "40", TARGET = "5" })
-				run(c4, 5000)
-				assert.truthy(env.Properties["Keypad Links"]:find("paused", 1, true), "still paused inside the 10 s hold")
-				run(c4, 6000)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "resumed after the hold")
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "3", TARGET = "3" })
-				run(c4, 100)
-				env.OnBindingChanged(500, "AMBIENT_LEVEL", false, 1155, 400)
-				run(c4, 100)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "unbound runs as today")
-			end)
-
-		it("ends a pause by itself 12 h after the last dark reading when no bright one comes (#223, AP-D16)",
-			function()
-			local env, c4 = rows_driver()
-			run(c4, 11000)
-			fake.link_keypad(env, 303, 456, 12)
-			run(c4, 2000)
-			env.OnBindingChanged(500, "AMBIENT_LEVEL", true, 1155, 400)
-			run(c4, 6000)
-			env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "1", TARGET = "2" })
-			run(c4, 100)
-			assert.truthy(env.Properties["Keypad Links"]:find("; LED animations paused: the keypad read 1", 1, true))
-			-- The 12 h safety net, shortened to 2 min here so the spec stays fast; nothing more arrives.
-			local ambient_mod = package.loaded["fan.ambient"]
-			local saved = ambient_mod.LAPSE_DEFAULT_MS
-			ambient_mod.LAPSE_DEFAULT_MS = 120000
-			local ok, err = pcall(function()
-				env.ExecuteCommand("AMBIENT_LIGHT_LEVEL", { GROUP = "1155", LEVEL = "1", TARGET = "2" })
-				run(c4, 110000)
-				assert.truthy(env.Properties["Keypad Links"]:find("paused", 1, true), "still paused before it lapses")
-				run(c4, 15000)
-				assert.truthy(env.Properties["Keypad Links"]:find("; LED settings shown", 1, true), "the pause lapsed")
-			end)
-			ambient_mod.LAPSE_DEFAULT_MS = saved
-			assert(ok, err)
-		end)
-
-		it("binds the keypad's ambient output again 30 s after a start, the same output (#223, AP-D20)", function()
-			-- A start with the binding already listed (an update, a Director restart).
-			local env, c4 = fake.load_driver(DRIVER, { ["Fan Address"] = FAN })
-			c4:Bind(1155, 400, c4:GetDeviceID(), 500, "AMBIENT_LEVEL")
-			env.OnDriverInit("DIT_UPDATING")
-			env.OnDriverLateInit("DIT_UPDATING")
-			answer(c4, mf.INFO)
-			answer(c4, mf.state(STATE))
-			local before = #c4.calls_to("Bind")
-			run(c4, 29000)
-			assert.equal(before, #c4.calls_to("Bind"), "not before 30 s")
-			assert.same({}, c4.calls_to("Unbind"))
-			run(c4, 2000)
-			assert.same({ { c4:GetDeviceID(), 500 } }, c4.calls_to("Unbind"))
-			local binds = c4.calls_to("Bind")
-			assert.equal(before + 1, #binds)
-			assert.same({ 1155, 400, c4:GetDeviceID(), 500, "AMBIENT_LEVEL" }, binds[#binds])
-		end)
-
-		it("binds nothing after a start when the ambient input is not bound (#223)", function()
-			local _, c4 = rows_driver()
-			run(c4, 40000)
-			assert.same({}, c4.calls_to("Unbind"))
-		end)
 
 		it("shows them at once when a button is bound to Fan Speed 3 (L44) and hides them 8 s after it is"
 			.. " unbound (L45) (KL-D2, KL-D4, KL-D7)", function()

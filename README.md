@@ -11,7 +11,7 @@
 [Security policy](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) ·
 [License](LICENSE) and [notice](NOTICE)
 
-> **1.9 "Sandwalk" (build 220) is the latest release:**
+> **1.10 "Shield Wall" (build 236) is the latest release:**
 > [get the latest release](https://github.com/corytron/c4-modernforms-driver/releases/latest).
 > It is a personal project, tried on one fan (a Gen 3) and one controller;
 > [`docs/status.md`](docs/status.md) says what runs there and what is open.
@@ -135,13 +135,15 @@ Each driver's **Documentation** tab in Composer is its full manual
     across the speed buttons, faster at higher speeds, 2.5 seconds after a
     speed is chosen and then after every **Speed LED Rest (s)** (5 by
     default).
-- **A pause in the dark.** Connect a keypad's **Ambient Light Level
-  (Source)** to the fan's **Ambient Light Level (Follower)** in Composer's
-  Connections, and both animations pause while that keypad reads darker
-  than **Pause LED Animations Below** (10 by default), so they stop sending
-  messages over Zigbee for LEDs nobody can see; they start again after 10
-  seconds of light. The selected speed's LED still follows the fan. With
-  nothing connected, nothing changes.
+- **A pause at night.** Once every light in the fan's room is off after
+  sunset, both animations pause and send nothing; as soon as any light in
+  the room comes on, they play again. Sunrise alone does not end the
+  pause, and a pause is kept over a driver update or a restart. The
+  lights are every Control4 light in the fan item's room (the fan's own
+  light too, when it is there), and sunset comes from the project's
+  location. The selected speed's LED still follows the fan. **Pause LED
+  Animations** (`Room lights off after sunset` by default, or `Never`)
+  turns it off, and **Keypad Links** says when the animations are paused.
 - **Only what is needed shows.** The 21 keypad LED rows (the Also Lit At
   rows, the colours, the animations and the pause) show in Composer only
   while a button is bound to a Fan Speed link; hidden, they keep their
@@ -216,7 +218,7 @@ Each driver's **Documentation** tab in Composer is its full manual
 One Gen 3 fan, an Aviator 5, with its light, on one controller running OS
 3.4.3 and managed with Composer Pro 3.4.2. The driver has run the author's
 house since 2026-11-04, a prerelease first and releases since 1.0; today
-1.9, build 220.
+1.10, build 236.
 
 - **Checked on the house by the owner:** keypad presses, the LEDs
   following the fan in their per-speed colours, the double taps, the
@@ -226,10 +228,7 @@ house since 2026-11-04, a prerelease first and releases since 1.0; today
   house keypad with the owner watching (1.4), and the speed chase (1.6,
   1.7).
 - **Shipped without a hardware round of its own**, at the owner's word:
-  the light's fades (1.5) and **Light Min On (%)** (1.8). The pause in the
-  dark (1.9) rests on a connection that Control4 does not document for
-  drivers, measured with a probe on one Control4 keypad dimmer on the
-  house.
+  the light's fades (1.5) and **Light Min On (%)** (1.8).
 - **Not tried:** a Gen 1 or Gen 2 fan; OS 4.x. Following a new address
   relies on an answer seen from Gen 3 fans only. What the fan does with
   the remote's power button during Breeze, and its direction in Breeze,
@@ -421,7 +420,7 @@ src/common/          the author's shared Lua modules (log, dispatch, device, dev
 src/modernforms_fan/ the fan driver: driver.lua, driver.xml, www/ (its Documentation tab and icons)
                      and fan/ (the wire and transport, the state model, the fan and light proxies
                      with the light's fades and Min On, the Button Links, the keypad LED colours and
-                     animations and their pause in the dark, finding fans and following a new
+                     animations and their pause at night, finding fans and following a new
                      address, the item names, Breeze)
 src/modernforms_breeze_fan/ the Breeze fan (#121): a small fan driver with the speeds Breeze 1 to 3,
                      its Documentation tab and icons, bound to the fan driver (it replaced 1.2's

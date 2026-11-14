@@ -20,7 +20,7 @@ files["src/modernforms_fan/driver.lua"] = {
 	globals = {
 		"OnDriverInit", "OnDriverLateInit", "OnDriverDestroyed", "OnDriverRemovedFromProject",
 		"ExecuteCommand", "OnPropertyChanged", "ReceivedFromProxy", "OnBindingChanged", "OnBindingValidate",
-		"OnSystemEvent", "TestCondition", "ReceivedFromNetwork", "OnNetworkBindingChanged",
+		"OnSystemEvent", "TestCondition", "ReceivedFromNetwork", "OnNetworkBindingChanged", "OnWatchedVariableChanged",
 		"OnConnectionStatusChanged",
 	},
 }

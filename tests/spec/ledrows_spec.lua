@@ -1,6 +1,6 @@
 -- fan.ledrows on fakes: the keypad LED rows shown only while a keypad can use them (#178,
 -- docs/keypad-leds-visibility-design.md: KL-D1 to KL-D10, the interface of section 2.1, the tests of section 3;
--- #207, docs/ambient-pause-design.md AP-D10: `Pause LED Animations Below` is one of them).
+-- #233, docs/room-dark-pause-design.md RD-D2: `Pause LED Animations` is one of them).
 -- set_hidden records every call with the clock; the timer records its ms and callback, and advance() moves the fake
 -- clock, firing every timer that falls due on the way in the order it falls due. changed() records its arguments.
 --
@@ -11,7 +11,7 @@ local ledrows = require("fan.ledrows")
 local ROWS = ledrows.ROWS
 local HIDE_MS = 8000
 local BREEZE_ONLY = { "Breeze LED Animation", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)" }
-local PAUSE = "Pause LED Animations Below"
+local PAUSE = "Pause LED Animations"
 
 local function fake_log()
 	local l = { lines = {} }
@@ -222,12 +222,11 @@ describe("fan.ledrows", function()
 			assert.is_nil(ledrows.BREEZE["Breeze LED Bottom"])
 		end)
 
-		it("end with Pause LED Animations Below, after Speed LED Rest (s), not a Breeze-only row (AP-D2, AP-D10)",
-			function()
-				assert.equal(PAUSE, ROWS[#ROWS])
-				assert.equal("Speed LED Rest (s)", ROWS[#ROWS - 1])
-				assert.is_nil(ledrows.BREEZE[PAUSE])
-			end)
+		it("end with Pause LED Animations, after Speed LED Rest (s), not a Breeze-only row (RD-D2)", function()
+			assert.equal(PAUSE, ROWS[#ROWS])
+			assert.equal("Speed LED Rest (s)", ROWS[#ROWS - 1])
+			assert.is_nil(ledrows.BREEZE[PAUSE])
+		end)
 
 		it("hide after 8 s and are sent at 400 ms and 1,500 ms (KL-D4, KL-D6)", function()
 			assert.equal(8000, ledrows.HIDE_MS)
@@ -449,9 +448,9 @@ describe("fan.ledrows", function()
 		end)
 	end)
 
-	-- #207 (docs/ambient-pause-design.md AP-D2, AP-D10): the threshold below which both animations pause is a
-	-- keypad LED row like the others: the gate alone decides it, whatever the fan says about Breeze.
-	describe("Pause LED Animations Below (AP-D10)", function()
+	-- #233 (docs/room-dark-pause-design.md RD-D2): the choice that pauses both animations in a dark room at night
+	-- is a keypad LED row like the others: the gate alone decides it, whatever the fan says about Breeze.
+	describe("Pause LED Animations (RD-D2)", function()
 		-- The state the last send gave the Pause row.
 		local function pause_sent(r)
 			local last

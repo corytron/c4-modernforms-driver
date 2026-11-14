@@ -17,7 +17,10 @@
 > ([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md),
 > #178); 1.8 `Light Min On (%)` ([`min-on-design.md`](min-on-design.md),
 > #195); 1.9 connection 500 and `Pause LED Animations Below`
-> ([`ambient-pause-design.md`](ambient-pause-design.md), #207). So the lists
+> ([`ambient-pause-design.md`](ambient-pause-design.md), #207), both
+> withdrawn in 1.11, which pauses the LED animations while every light in
+> the fan's room is off after sunset, with `Pause LED Animations`
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md), #233). So the lists
 > of §2.5 (properties), §7.2 (Last Action), §9.1 (modules) and §12 (dev
 > commands) are longer today: `driver.xml`, `fan/texts.lua` and
 > [`dev-loop.md`](dev-loop.md) hold the current ones, and
@@ -250,7 +253,7 @@ Not declared: `click_rate_min`/`_max` (declared since 1.5, V19), `supports_color
 | 308 | Fan Cycle Button Link | 1 | False | `BUTTON_LINK` | True | |
 | 311 | Fan Breeze Button Link | 1 | False | `BUTTON_LINK` | True | since #111 (V31): handled as 307, its LED lit while Breeze blows (§5.1) |
 | 400 | Breeze Switch | 1 | False | `MODERNFORMS_BREEZE` | False | since #111 (V31): a provider control binding, not a Button Link; a Breeze switch's consumer binding 1 is bound to it, by Add Breeze Switch or by hand (§9.15); since #121 (V32) the Breeze fan's consumer binding 1, by Add Breeze Fan or by hand, with the name and class unchanged (connections are never redefined) |
-| 500 | Ambient Light Level (Follower) | 1 | True | `AMBIENT_LEVEL` | False | since 1.9 (#207): a keypad's Ambient Light Level (Source) binds here ([`ambient-pause-design.md`](ambient-pause-design.md) AP-D1) |
+| 500 | Ambient Light Level (Follower) | 1 | True | `AMBIENT_LEVEL` | False | 1.9 and 1.10 only (#207): a keypad's Ambient Light Level (Source) bound here ([`ambient-pause-design.md`](ambient-pause-design.md) AP-D1); withdrawn in 1.11 (#233) |
 
 Each link is the Hue Light's pattern (`facing` 6, `audiosource` and
 `videosource` False; HUE `src/hue_light/driver.xml`): a provider control
@@ -315,7 +318,8 @@ Rows added since, in `driver.xml`'s order: `Light Min On (%)` after `Poll
 Interval (s)` (1.8, #195); after `Speed LED Off Color`, `Breeze LED
 Animation`, `Breeze LED Bottom`, `Breeze LED Step (ms)`, `Breeze LED Night
 Brightness (%)` (1.4, #137), `Speed LED Animation`, `Speed LED Rest (s)`
-(1.6, #159) and `Pause LED Animations Below` (1.9, #207). Since 1.7 (#178)
+(1.6, #159) and `Pause LED Animations Below` (1.9, #207; `Pause LED
+Animations` since 1.11, #233). Since 1.7 (#178)
 the keypad LED rows (15 to 28 here and the seven LED rows after them, 21 in
 all) show only while a button is bound to a fan speed link
 ([`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)).
@@ -1216,7 +1220,7 @@ call, ECR 5.5), and anything posted to GitHub gets the placeholders.
 | Last Seen | `2026-10-27 18:02:10, answered in 0.31 s`, written at most every 10 s |
 | Last Change By | `<who> at 14:05`, written on each change Control4 did not make. `<who>` from `userData`: `ble` → `Remote or wall control`; `local_wifi` → `Modern Forms app or another local client`; `cloud` → `Modern Forms cloud (app away, voice assistant)`; `sleep_timer` → `The fan's sleep timer`; `away_mode` → `The fan's away mode`; `schedule` → `A schedule in the Modern Forms app`; anything else, `none` or absent (Gen 1/2) → `Outside Control4 (source not reported)` (VERIFIED values: AIO `const.py`, MFR §2.2; what an RF remote reports is K16) |
 | Fan Automations | `None`, or `Active: ` and the items joined by `, `: `schedule`, `away mode`, `adaptive learning`, `fan timer 25 min`, `light timer 10 min` (Gen 3, minutes rounded up), `fan timer set`, `light timer set` (Gen 1/2). Written when the text changes. `schedule` counts when the field is a non-empty string (ASSUMED: empty means none; one read-only VM read of the house fan's value, while the app shows no schedule, settles it, §16) |
-| Keypad Links | items: `5 of 12 links bound` (since #111 `5 of 13 links bound`, V31), then one per bound keypad, `Fan Speed 3: Example Keypad (456)` or `Fan Breeze: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id). Since 1.7 (#178) the first item ends `; LED settings shown` or `; LED settings hidden: bind a button to a Fan Speed link`, and since 1.9 (#207) `; LED animations paused: the keypad is dark` while the animations pause |
+| Keypad Links | items: `5 of 12 links bound` (since #111 `5 of 13 links bound`, V31), then one per bound keypad, `Fan Speed 3: Example Keypad (456)` or `Fan Breeze: Example Keypad (456)` (link name without "Button Link", the keypad's display name, its device id). Since 1.7 (#178) the first item ends `; LED settings shown` or `; LED settings hidden: bind a button to a Fan Speed link`, and since 1.9 (#207) `; LED animations paused: the keypad is dark` while the animations pause (since 1.11, #233, `; LED animations paused: room dark at night`) |
 | Found Fans | since #102 (V30): the first item, and the value while no pick waits, is a summary of the searches (`Looking for Modern Forms fans on the network...`, `2 fans found: pick one and click Set to use it`, `This device's fan answered; no other fan found` and the others of the contract's section 3.1); then the items `MF_Fan_005302 at 10.0.2.152`, the pinned fan first with ` (this device: Aviator 5)`, or ` (this device's fan)` without a product name; at most 16 item rows, the 16th `... and 3 more: enter the address in Fan Address` when there are more. Until #102: the items only, with ` (this device's fan)`, at most 16, filled by Find Fans |
 | Speed N Link Also Lit At | the dealer's choice among `No other speed`, `Speed 1` … `Speed 6`; no driver text |
 | Speed LED Colors (V27) | the dealer's choice among `Keypad's own`, `Per speed`; no driver text |
@@ -1286,7 +1290,9 @@ Added since, each in its contract: `fan/breezeleds.lua` and `fan/sun.lua`
 `fan/speedleds.lua` and `fan/ledhub.lua` (1.6,
 [`speed-leds-design.md`](speed-leds-design.md)), `fan/ledrows.lua` (1.7,
 [`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md)) and
-`fan/ambient.lua` (1.9, [`ambient-pause-design.md`](ambient-pause-design.md)).
+`fan/ambient.lua` (1.9, [`ambient-pause-design.md`](ambient-pause-design.md);
+replaced in 1.11 by `fan/roomdark.lua`,
+[`room-dark-pause-design.md`](room-dark-pause-design.md)).
 
 `require("fan.x")` resolves inside the package and in the specs (`.busted`
 puts `src/modernforms_fan/` on the path; `tests/helpers/fake_c4.lua`

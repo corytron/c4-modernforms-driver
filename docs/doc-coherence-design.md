@@ -8,6 +8,11 @@
 > organized." Five agents review disjoint sets of files at the same time;
 > this page is the rules they share.
 
+> **Since 1.11 (#233, 2026-11-14)** the animations' pause in the dark of
+> 1.9 is withdrawn, and with it the `Ambient Light Level (Follower)` input
+> named below; they pause at night while every light in the fan's room is
+> off ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 ## 1. What is true
 
 - **The code is the truth**, then `driver.xml`, then [`status.md`](status.md)
@@ -31,7 +36,7 @@
 | Kind | Files | Rule |
 | --- | --- | --- |
 | **Reader-facing** | The two Documentation tabs, `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `docs/README.md`, `docs/status.md`, `docs/design.md`, `docs/composer-checklist.md`, `docs/release-checklist.md`, `probes/README.md` | Make them **true, consistent and well organised**: fix every contradiction and every stale statement, remove repetition that says the same thing twice in different words, put the present first and history after, use headings a reader can scan, keep sections in the order a dealer or owner needs them. Rewriting and reordering are allowed; keep every fact that is still true and every anchor other pages link to (or update every link to it). |
-| **Historical** | Every other `docs/*.md`: contracts (`*-design.md`), research (`*-research.md`), edge cases (`edge-cases-*.md`), `dev-loop.md`, `composer-remote.md`, `fan-probe.md`, `speed-leds-*.md` | They record what was decided when, and are **not rewritten**. Fix only (a) statements that were never true (typos, wrong numbers, wrong names, broken references) and (b) internal contradictions within one document. Where a later release changed a decision, add **one short note** at the top of the document or beside the statement: "Since 1.N (#NNN), …; see `x-design.md`." (with a real link) Do not delete superseded text. |
+| **Historical** | Every other `docs/*.md`: contracts (`*-design.md`), research (`*-research.md`), edge cases (`edge-cases-*.md`), `dev-loop.md`, `composer-remote.md`, `fan-probe.md`, `speed-leds-*.md` | They record what was decided when, and are **not rewritten**. Fix only (a) statements that were never true (typos, wrong numbers, wrong names, broken references) and (b) internal contradictions within one document. Where a later release changed a decision, add **one short note** at the top of the document or beside the statement: "Since 1.N (#233), …; see `x-design.md`." (with a real link) Do not delete superseded text. |
 | **Changelog** | `CHANGELOG.md` | Release notes are history: fix only factual errors in an entry (a wrong property name, a wrong number), never reword. `tools/changelog.py check` must pass. |
 
 ## 3. Style

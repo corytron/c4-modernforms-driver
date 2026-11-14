@@ -28,6 +28,11 @@ does not decide anything; section 8 gives recommendations.
 > dark ([`ambient-pause-design.md`](ambient-pause-design.md), #207). The
 > numbers below are this note's, for its 2N + 2 scheme.
 
+> **Since 1.11 (#233).** The pause by the keypad's ambient reading is
+> withdrawn; the chase now pauses while every light in the fan's room is
+> off after sunset
+> ([`room-dark-pause-design.md`](room-dark-pause-design.md)).
+
 **Sources and status key.** SDK files are cited by path under
 `~/c4-tools/reference/`; the Snap One text is paraphrased, never copied.
 
