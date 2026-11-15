@@ -8,7 +8,7 @@
 # (release: v1.0, build: the build number its packages carry, which Composer
 # shows as Driver Version); drivers: names the release's packages without .c4z.
 environment: house
-release: v1.11              # 1.11 "Hunter-Seeker": the LED pause from sunset to 30 min after sunrise while every room light is off; Pause Ignores Lights (#240)
-build: 251
+release: v1.12              # 1.12 "Gom Jabbar": the LED pause leaves out by itself the lights Control4 programming keeps on (#247)
+build: 265
 drivers: modernforms_fan modernforms_breeze_fan
 debug_mode: Off

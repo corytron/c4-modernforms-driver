@@ -11,6 +11,8 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+## 1.12 "Gom Jabbar", build 265 (2026-11-15)
+
 ### Added
 
 - `Pause Leaves Out`, a read-only row after `Pause Ignores Lights`: the lights the night pause does not count, each with its reason (#247).
