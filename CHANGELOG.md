@@ -11,6 +11,14 @@ next release's entry carries what they changed.
 
 ## Unreleased
 
+### Added
+
+- `Pause Leaves Out`, a read-only row after `Pause Ignores Lights`: the lights the night pause does not count, each with its reason (#247).
+
+### Changed
+
+- The night pause works out by itself which room lights not to count: a light that Control4 programming keeps on (its own Turned Off event turns it back on, as for a relay that powers smart bulbs or an outlet) is left out, with no list to fill. A light whose programming can't be read still counts. `Pause Ignores Lights` stays, for an always-on light that has no such programming (#247).
+
 ## 1.11 "Hunter-Seeker", build 251 (2026-11-14)
 
 ### Added

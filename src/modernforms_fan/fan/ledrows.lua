@@ -82,6 +82,7 @@ ledrows.ROWS = {
 	"Speed LED Rest (s)",
 	"Pause LED Animations", -- RD-D2 (#233): both animations, so not a Breeze-only row
 	"Pause Ignores Lights", -- RD-D13 (#240): the lights the pause leaves out; with the row above
+	"Pause Leaves Out", -- IL-D7 (#247): read only, what the pause left out and why; with the rows above
 }
 
 -- KL-D3: the rows only Breeze uses (`Breeze LED Bottom` also orders the chase, and the two `Pause` rows also
