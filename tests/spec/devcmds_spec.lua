@@ -339,7 +339,8 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Bindings", "Dev_Code", "Dev_Fan_State", "Dev_Items", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan",
+				assert.same({ "Dev_Bindings", "Dev_Code", "Dev_Fan_State", "Dev_Items", "Dev_Light_Steps", "Dev_Link",
+					"Dev_Names_Plan",
 					"Dev_Press", "Dev_Proxy", "Dev_Request", "Dev_Search", "Dev_Vars" }, names)
 				assert.is_function(env.stop)
 			end)
