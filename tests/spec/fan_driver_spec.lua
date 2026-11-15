@@ -215,7 +215,8 @@ describe("Modern Forms Fan driver", function()
 					"Speed LED Colors", "Speed 1 LED Color", "Speed 2 LED Color", "Speed 3 LED Color",
 					"Speed 4 LED Color", "Speed 5 LED Color", "Speed 6 LED Color", "Speed LED Off Color",
 					"Breeze LED Animation", "Breeze LED Bottom", "Breeze LED Step (ms)", "Breeze LED Night Brightness (%)",
-					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations", "Pause Ignores Lights", "Debug Mode",
+					"Speed LED Animation", "Speed LED Rest (s)", "Pause LED Animations", "Pause Ignores Lights",
+					"Pause Leaves Out", "Debug Mode",
 					"Dev Server",
 					"Dev State" }, names)
 				local block = xml:match("<!%-%- DEV%-ONLY BEGIN.-<!%-%- DEV%-ONLY END %-%->")
@@ -1612,6 +1613,71 @@ describe("Modern Forms Fan driver", function()
 							assert.truthy(note(env):find(SHOWN, 1, true), "counted again, it is on: " .. note(env))
 						end)
 					end)
+
+				-- ignored-lights-design IL-D1 to IL-D8 (#247): the keep-on programming as measured on the house.
+				local function keep_on(proxy, enabled)
+					return { codeitems = { { enabled = true, type = 1, device = 0, cmdcond = { xml = "" },
+						subitems = { { enabled = true, type = 2, device = 100001,
+							cmdcond = { xml = "<deviceconditional/>" },
+							subitems = { { enabled = enabled ~= false, type = 1, device = proxy,
+								cmdcond = { xml = "<devicecommand owneridtype=\"\" owneriditem=\"-1\">"
+									.. "<command>ON</command><params/></devicecommand>" } } } } } } } }
+				end
+
+				it("leaves out by itself a light Control4 programming keeps on, and says so in Pause Leaves Out"
+					.. " (#247, IL-D1, IL-D7)", function()
+						at_clock(NIGHT_AT, function()
+							local relay
+							local env, c4 = dark_room(nil, function()
+								relay = fake.add_light("Example Relay Switch")
+								fake.set_variable(relay, 1000, "1")
+								fake.set_code_items(relay, 5101, keep_on(relay))
+							end)
+							local watched = {}
+							for _, args in ipairs(c4.calls_to("RegisterVariableListener")) do
+								watched[args[1]] = true
+							end
+							assert.is_nil(watched[relay], "the kept-on light is not watched")
+							assert.truthy(note(env):find(PAUSED, 1, true), "the kept-on relay does not count: " .. note(env))
+							assert.equal(string.format("Example Relay Switch (%d): kept on by Control4 programming", relay),
+								env.Properties["Pause Leaves Out"])
+						end)
+					end)
+
+				it("counts a light whose keep-on command is disabled, aimed elsewhere or unreadable (IL-D3, IL-D8)",
+					function()
+						at_clock(NIGHT_AT, function()
+							for _, case in ipairs({ "disabled", "elsewhere", "error" }) do
+								local relay
+								local env = dark_room(nil, function(_, c4)
+									relay = fake.add_light("Example Relay Switch")
+									fake.set_variable(relay, 1000, "1")
+									if case == "disabled" then
+										fake.set_code_items(relay, 5101, keep_on(relay, false))
+									elseif case == "elsewhere" then
+										fake.set_code_items(relay, 5101, keep_on(relay + 1000))
+									else
+										c4.GetCodeItems = function() error("no code items") end
+									end
+								end)
+								assert.truthy(note(env):find(SHOWN, 1, true), case .. ": counted, it is on: " .. note(env))
+								assert.equal("None", env.Properties["Pause Leaves Out"], case)
+							end
+						end)
+					end)
+
+				it("names the lights of Pause Ignores Lights in Pause Leaves Out too (IL-D6, IL-D7)", function()
+					at_clock(NIGHT_AT, function()
+						local relay
+						local env = dark_room(nil, function(env)
+							relay = fake.add_light("Example Relay Switch")
+							fake.set_variable(relay, 1000, "1")
+							env.Properties["Pause Ignores Lights"] = tostring(relay)
+						end)
+						assert.equal(string.format("Example Relay Switch (%d): in Pause Ignores Lights", relay),
+							env.Properties["Pause Leaves Out"])
+					end)
+				end)
 
 				it("pauses nothing at night when Pause LED Animations is Never (RD-D2)", function()
 					at_clock(NIGHT_AT, function()

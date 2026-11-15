@@ -47,6 +47,7 @@ local ledrows_mod = require("fan.ledrows")
 local fanmode = require("fan.mode")
 local sun_mod = require("fan.sun")
 local roomdark_mod = require("fan.roomdark")
+local keepon = require("fan.keepon")
 
 -- Prefix of every line this driver logs.
 local LOG_PREFIX = "Modern Forms Fan"
@@ -532,20 +533,44 @@ roomdark = roomdark_mod.new({
 		end
 		local devices = C4:GetDevices({ C4iNames = "light_v2.c4i" }, tostring(room))
 		local ignored = ignored_lights()
-		local out = {}
+		local out, left = {}, {}
 		for id, info in pairs(type(devices) == "table" and devices or {}) do
 			local n = tonumber(id)
-			local skip = n == nil or ignored[n]
-			if not skip and type(info) == "table" and type(info.protocol) == "table" then
-				for protocol_id in pairs(info.protocol) do
-					skip = skip or ignored[tonumber(protocol_id)] == true
+			if n ~= nil then
+				local name = type(info) == "table" and type(info.deviceName) == "string" and info.deviceName
+					or ("device " .. n)
+				local skip = ignored[n] == true
+				if not skip and type(info) == "table" and type(info.protocol) == "table" then
+					for protocol_id in pairs(info.protocol) do
+						skip = skip or ignored[tonumber(protocol_id)] == true
+					end
+				end
+				-- IL-D1 to IL-D3 (#247): a light Control4 programming keeps on is left out; unreadable counts.
+				local why = skip and "in Pause Ignores Lights" or nil
+				if not skip then
+					local kept, reason = keepon.check(n, function(proxy, event)
+						return C4:GetCodeItems(proxy, event)
+					end)
+					if kept then
+						why = reason
+					end
+				end
+				if why then
+					left[#left + 1] = { id = n, text = string.format("%s (%d): %s", name, n, why) }
+				else
+					out[n] = name
 				end
 			end
-			if not skip then
-				out[n] = type(info) == "table" and type(info.deviceName) == "string" and info.deviceName
-					or ("device " .. n)
-			end
 		end
+		-- IL-D7: what was left out and why, in Composer and the log.
+		table.sort(left, function(a, b) return a.id < b.id end)
+		local lines = {}
+		for i, item in ipairs(left) do
+			lines[i] = item.text
+		end
+		local shown = #lines > 0 and table.concat(lines, "; ") or "None"
+		prop("Pause Leaves Out", shown)
+		log.info("Room lights: left out: %s", shown)
 		return out
 	end,
 	listen = function(id)

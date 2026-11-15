@@ -372,6 +372,13 @@
 				<default></default>
 				<readonly>false</readonly>
 			</property>
+			<!-- ignored-lights-design IL-D7 (#247): the lights the pause leaves out, and why. -->
+			<property>
+				<name>Pause Leaves Out</name>
+				<default>None</default>
+				<type>STRING</type>
+				<readonly>true</readonly>
+			</property>
 			<property>
 				<name>Debug Mode</name>
 				<type>LIST</type>

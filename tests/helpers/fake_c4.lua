@@ -772,6 +772,19 @@ local function new_c4(env)
 	-- documents "a table of device ids"; Snap One's common lib reads it as
 	-- id -> name and lists rooms with "roomdevice.c4i", as the hardware does].
 	-- Empty table when none [assumed].
+	-- C4:GetCodeItems(device, event) [verified: API 9_helper/_5.9; hardware,
+	-- 2026-11-15, #247]: the programming of that device's event as nested
+	-- codeitems; what fake.set_code_items gave, else no items.
+	function c4:GetCodeItems(device, event)
+		record("GetCodeItems", device, event)
+		local rec = fake.project.devices[device]
+		local items = rec and rec.code_items and rec.code_items[event]
+		if items == nil then
+			return { codeitems = {} }
+		end
+		return items
+	end
+
 	function c4:GetDevicesByC4iName(c4i)
 		record("GetDevicesByC4iName", c4i)
 		local out = {}
@@ -1380,6 +1393,13 @@ function fake.add_light(name, room_id)
 	fake.project.devices[id] = { name = name, room_id = room_id or DEFAULT_ROOM_ID, c4i = "light_v2.c4i",
 		driver_name = name, variables = { [1000] = "0" } }
 	return id
+end
+
+-- The programming of a device's event, as C4:GetCodeItems returns it (#247).
+function fake.set_code_items(id, event, items)
+	local rec = assert(fake.project.devices[id], "fake.set_code_items: no device " .. tostring(id))
+	rec.code_items = rec.code_items or {}
+	rec.code_items[event] = items
 end
 
 -- A device variable's value as Director would report it: what

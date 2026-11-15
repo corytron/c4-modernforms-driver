@@ -179,7 +179,7 @@ describe("fan.ledrows", function()
 			return names
 		end
 
-		it("are the 22 rows after Keypad Links, in driver.xml's order", function()
+		it("are the 23 rows after Keypad Links, in driver.xml's order", function()
 			local names = xml_rows()
 			local first
 			for i, name in ipairs(names) do
@@ -190,7 +190,7 @@ describe("fan.ledrows", function()
 			end
 			assert.is_not_nil(first)
 			assert.equal("Keypad Links", names[first - 1])
-			assert.equal(22, #ROWS)
+			assert.equal(23, #ROWS)
 			for i, name in ipairs(ROWS) do
 				assert.equal(names[first + i - 1], name)
 			end
@@ -224,11 +224,13 @@ describe("fan.ledrows", function()
 			assert.is_nil(ledrows.BREEZE["Breeze LED Bottom"])
 		end)
 
-		it("end with Pause LED Animations and Pause Ignores Lights, after Speed LED Rest (s), neither Breeze-only"
-			.. " (RD-D2, RD-D13)", function()
-				assert.equal(IGNORES, ROWS[#ROWS])
-				assert.equal(PAUSE, ROWS[#ROWS - 1])
-				assert.equal("Speed LED Rest (s)", ROWS[#ROWS - 2])
+		it("end with Pause LED Animations, Pause Ignores Lights and Pause Leaves Out, after Speed LED Rest (s),"
+			.. " none Breeze-only (RD-D2, RD-D13, IL-D7)", function()
+				assert.equal("Pause Leaves Out", ROWS[#ROWS])
+				assert.equal(IGNORES, ROWS[#ROWS - 1])
+				assert.equal(PAUSE, ROWS[#ROWS - 2])
+				assert.equal("Speed LED Rest (s)", ROWS[#ROWS - 3])
+				assert.is_nil(ledrows.BREEZE["Pause Leaves Out"])
 				assert.is_nil(ledrows.BREEZE[PAUSE])
 				assert.is_nil(ledrows.BREEZE[IGNORES])
 			end)
@@ -663,7 +665,7 @@ describe("fan.ledrows", function()
 			assert.equal(#ROWS, #s[1].calls)
 			assert.equal(#ROWS, #s[2].calls)
 			assert.equal(#ROWS - 1, count(r.rows))
-			assert.is_true(r.log.has("warn", "send 1: 1 of 22 rows could not be set (Speed LED Colors"))
+			assert.is_true(r.log.has("warn", "send 1: 1 of 23 rows could not be set (Speed LED Colors"))
 			assert.equal(2, r.l:debug().failures)
 		end)
 
@@ -762,7 +764,7 @@ describe("fan.ledrows", function()
 			assert.is_true(d.shown)
 			assert.is_false(d.breeze_shown)
 			assert.equal(3, d.hidden)
-			assert.equal(22, d.rows)
+			assert.equal(23, d.rows)
 			assert.same({ cause = "start", since = 1000, left = HIDE_MS - 3000 }, d.hide)
 			assert.is_nil(d.send)
 			assert.equal(1, d.applies)
@@ -771,7 +773,7 @@ describe("fan.ledrows", function()
 			advance(r, HIDE_MS)
 			d = r.l:debug()
 			assert.is_false(d.shown)
-			assert.equal(22, d.hidden)
+			assert.equal(23, d.hidden)
 			assert.is_nil(d.hide)
 			assert.equal(2, d.applies)
 		end)
