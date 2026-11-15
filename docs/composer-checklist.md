@@ -38,7 +38,7 @@ worth running on a new house or a new controller OS.
 | 1.9 (#207) | the pause in the dark: `Pause LED Animations Below` and the Ambient Light Level (Follower) input (withdrawn in 1.11) | 8, 17; section O.1, 93 to 95 (**superseded** by 1.11) |
 | 1.11 (#233) | the pause at night: `Pause LED Animations`, from the room's lights and the sun; the ambient input and `Pause LED Animations Below` are gone | 2, 8, 17; section O, 96 to 101 |
 | 1.11 (#240, after build 244) | the pause is a condition, not a latch: only from sunset to 30 minutes after sunrise, and nothing kept over a restart; `Pause Ignores Lights` leaves out lights that are always on; 22 keypad LED rows | 1, 2, 8, 18, 24; section J.3's note; section M, 88; section O, 96 to 103 |
-| next build (#247) | the pause leaves out by itself a room light that Control4 programming keeps on (an *On* in its own *Turned Off* event); `Pause Ignores Lights` stays as the manual addition; the read-only `Pause Leaves Out` names the lights left out and why; 23 keypad LED rows | 1, 2, 8, 18, 24; section M, 88; section O, 103 to 105 |
+| 1.12 (#247) | the pause leaves out by itself a room light that Control4 programming keeps on (an *On* in its own *Turned Off* event); `Pause Ignores Lights` stays as the manual addition; the read-only `Pause Leaves Out` names the lights left out and why; 23 keypad LED rows | 1, 2, 8, 18, 24; section M, 88; section O, 103 to 105 |
 
 ## Before you start
 
