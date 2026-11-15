@@ -63,6 +63,13 @@ devcmds.COUNT_DEFAULT, devcmds.COUNT_MAX = 1, 100
 devcmds.EVERY_DEFAULT_MS, devcmds.EVERY_MIN_MS, devcmds.EVERY_MAX_MS = 300, 10, 60000
 devcmds.BODY_MAX = 400
 devcmds.PROXY_COMMAND_MAX = 64
+-- Dev Bindings and Dev Items (#247): how much of an answer reaches the log.
+devcmds.DUMP_LINES = 400
+devcmds.WINDOW_DEFAULT, devcmds.WINDOW_MAX = 3000, 20000
+devcmds.CHUNK = 180
+devcmds.TERM_HITS = 8
+devcmds.ITEM_FILTERS = { ALL = true, LOCATIONS = true, PROXIES = true, DEVICES = true, AGENTS = true,
+	LIMIT_DEVICE_DATA = true, JUST_CAPABILITIES = true, NO_ROOT_TAGS = true }
 
 -- Text ----------------------------------------------------------------------------------
 
@@ -921,6 +928,141 @@ function devcmds.new(opts)
 		end
 	end
 
+	-- C4 may be userdata on a controller, so its functions are looked up under pcall.
+	local function c4_api(name)
+		local ok, fn = pcall(function() return C4[name] end)
+		return ok and type(fn) == "function" and fn or nil
+	end
+
+	-- DEVICE: a device id. Logs what C4:GetBindingsByDevice returns for it,
+	-- every nested key as a path, at most devcmds.DUMP_LINES lines (#247: can a
+	-- driver see that a switch's rockers drive another device?). Reads only.
+	local function dev_bindings(params)
+		params = type(params) == "table" and params or {}
+		local device = whole(params.DEVICE)
+		if not device then
+			return refuse("Dev Bindings", string.format("DEVICE %s is not a device id", plain(params.DEVICE, 30)))
+		end
+		local fn = c4_api("GetBindingsByDevice")
+		if not fn then
+			return refuse("Dev Bindings", "this Director has no GetBindingsByDevice")
+		end
+		local ok, data = pcall(fn, C4, device)
+		if not ok then
+			return log.always("Dev Bindings: device %d: failed: %s", device, plain(data, 120))
+		end
+		local lines = 0
+		local function dump(value, path, depth)
+			if lines >= devcmds.DUMP_LINES then
+				return
+			end
+			if type(value) ~= "table" then
+				lines = lines + 1
+				return log.always("Dev Bindings: %d %s = %s (%s)", device, path, plain(value, 160), type(value))
+			end
+			if depth >= 8 then
+				lines = lines + 1
+				return log.always("Dev Bindings: %d %s = (deeper table not shown)", device, path)
+			end
+			local keys = {}
+			for key in pairs(value) do
+				keys[#keys + 1] = key
+			end
+			table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+			if #keys == 0 then
+				lines = lines + 1
+				return log.always("Dev Bindings: %d %s = {}", device, path)
+			end
+			for _, key in ipairs(keys) do
+				dump(value[key], path .. "." .. plain(key, 40), depth + 1)
+			end
+		end
+		log.always("Dev Bindings: device %d: %s", device, type(data))
+		dump(data, "root", 0)
+		if lines >= devcmds.DUMP_LINES then
+			log.always("Dev Bindings: device %d: cut at %d lines", device, devcmds.DUMP_LINES)
+		end
+	end
+
+	-- FILTER: GetProjectItems filters, comma separated (none: the whole
+	-- project); DEVICE: show the XML from the item with that id on, WINDOW
+	-- characters (#247: does the project XML carry a switch's button settings
+	-- or its navigator visibility?); TERM: each place a word occurs, at most
+	-- devcmds.TERM_HITS. Reads only.
+	local function dev_items(params)
+		params = type(params) == "table" and params or {}
+		local filters = {}
+		for part in tostring(params.FILTER or ""):gmatch("[^,%s]+") do
+			local name = part:upper()
+			if not devcmds.ITEM_FILTERS[name] then
+				return refuse("Dev Items", string.format("FILTER %s is not a GetProjectItems filter", plain(part, 30)))
+			end
+			filters[#filters + 1] = name
+		end
+		local device = whole(params.DEVICE)
+		if params.DEVICE ~= nil and params.DEVICE ~= "" and not device then
+			return refuse("Dev Items", string.format("DEVICE %s is not a device id", plain(params.DEVICE, 30)))
+		end
+		local window, why = bounded(params.WINDOW, devcmds.WINDOW_DEFAULT, 100, devcmds.WINDOW_MAX, "WINDOW")
+		if not window then
+			return refuse("Dev Items", why)
+		end
+		local term = params.TERM
+		if term ~= nil and (type(term) ~= "string" or #term > 40) then
+			return refuse("Dev Items", "TERM must be a word of at most 40 characters")
+		end
+		if term == "" then
+			term = nil
+		end
+		local fn = c4_api("GetProjectItems")
+		if not fn then
+			return refuse("Dev Items", "this Director has no GetProjectItems")
+		end
+		local ok, xml = pcall(fn, C4, unpack(filters))
+		if not ok or type(xml) ~= "string" then
+			return log.always("Dev Items: GetProjectItems(%s) failed: %s", table.concat(filters, ","), plain(xml, 120))
+		end
+		log.always("Dev Items: GetProjectItems(%s): %d characters", table.concat(filters, ","), #xml)
+		local function show(from, to, what)
+			local chunk = devcmds.CHUNK
+			for at = from, to, chunk do
+				log.always("Dev Items: %s @%d %s", what, at, plain(xml:sub(at, math.min(to, at + chunk - 1)), chunk))
+			end
+		end
+		if device then
+			local at = xml:find("<id>" .. device .. "</id>", 1, true)
+			if not at then
+				log.always("Dev Items: no <id>%d</id> in it", device)
+			else
+				local start = at
+				local back = xml:sub(math.max(1, at - 400), at)
+				local last
+				for pos in back:gmatch("()<item[%s>]") do
+					last = pos
+				end
+				if last then
+					start = math.max(1, at - 400) + last - 1
+				end
+				show(start, math.min(#xml, start + window - 1), "item " .. device)
+			end
+		end
+		if term then
+			local low, want, from, hits = xml:lower(), term:lower(), 1, 0
+			while true do
+				local at = low:find(want, from, true)
+				if not at then
+					break
+				end
+				hits = hits + 1
+				if hits <= devcmds.TERM_HITS then
+					show(math.max(1, at - 120), math.min(#xml, at + 239), "term " .. plain(term, 40))
+				end
+				from = at + #want
+			end
+			log.always("Dev Items: %s occurs %d time(s)", plain(term, 40), hits)
+		end
+	end
+
 	-- BODY: one of the two queries, or a body fan/wire.lua builds; sent through
 	-- opts.request (the model's queue, the transport behind it) and the answer
 	-- logged normalized.
@@ -1497,7 +1639,9 @@ function devcmds.new(opts)
 	end
 
 	return {
+		Dev_Bindings = dev_bindings,
 		Dev_Fan_State = dev_fan_state,
+		Dev_Items = dev_items,
 		Dev_Names_Plan = dev_names_plan,
 		Dev_Light_Steps = dev_light_steps,
 		Dev_Link = dev_link,

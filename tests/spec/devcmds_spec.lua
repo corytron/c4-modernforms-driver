@@ -339,8 +339,8 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Fan_State", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan", "Dev_Press", "Dev_Proxy",
-					"Dev_Request", "Dev_Search", "Dev_Vars" }, names)
+				assert.same({ "Dev_Bindings", "Dev_Fan_State", "Dev_Items", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan",
+					"Dev_Press", "Dev_Proxy", "Dev_Request", "Dev_Search", "Dev_Vars" }, names)
 				assert.is_function(env.stop)
 			end)
 
@@ -929,6 +929,93 @@ describe("fan.devcmds", function()
 			assert.has_no.errors(function() env.commands.Dev_Vars({ LINK = "999" }) end)
 			env.commands.Dev_Vars({ LINK = "303" })
 			assert.truthy(table.concat(env.log.texts("always"), "\n"):find("nothing is bound to link 303", 1, true))
+		end)
+	end)
+
+	-- #247: what a driver can read about another device's bindings and project item.
+	describe("Dev Bindings", function()
+		local saved
+		before_each(function() saved = _G.C4 end)
+		after_each(function() _G.C4 = saved end)
+
+		it("logs every nested key of what GetBindingsByDevice returns, as a path", function()
+			local asked
+			_G.C4 = {
+				GetBindingsByDevice = function(_, device)
+					asked = device
+					return { bindings = { [1] = { bindingid = 300, name = "Top Button Link",
+						connections = { [1] = { deviceid = 42, bindingid = 200 } } } } }
+				end,
+			}
+			local env = new_commands()
+			env.commands.Dev_Bindings({ DEVICE = "1234" })
+			assert.equal(1234, asked)
+			local text = table.concat(env.log.texts("always"), "\n")
+			assert.truthy(text:find("1234 root.bindings.1.bindingid = 300 (number)", 1, true))
+			assert.truthy(text:find("1234 root.bindings.1.connections.1.deviceid = 42 (number)", 1, true))
+			assert.truthy(text:find("1234 root.bindings.1.name = Top Button Link (string)", 1, true))
+		end)
+
+		it("refuses without a device id or the API, and cuts a long answer", function()
+			_G.C4 = {}
+			local env = new_commands()
+			assert.has_no.errors(function() env.commands.Dev_Bindings({ DEVICE = "x" }) end)
+			assert.has_no.errors(function() env.commands.Dev_Bindings({ DEVICE = "5" }) end)
+			assert.equal(0, #env.log.texts("always"))
+			local big = {}
+			for i = 1, devcmds.DUMP_LINES + 50 do
+				big[i] = i
+			end
+			_G.C4 = { GetBindingsByDevice = function() return big end }
+			env.commands.Dev_Bindings({ DEVICE = "5" })
+			local lines = env.log.texts("always")
+			assert.equal(devcmds.DUMP_LINES + 2, #lines)
+			assert.truthy(lines[#lines]:find("cut at", 1, true))
+		end)
+	end)
+
+	describe("Dev Items", function()
+		local saved
+		before_each(function() saved = _G.C4 end)
+		after_each(function() _G.C4 = saved end)
+
+		local XML = "<items><item><id>7</id><name>Other</name></item>"
+			.. "<item><id>1234</id><name>Example Switch</name><itemdata><hidden>1</hidden></itemdata></item></items>"
+
+		it("passes the filters, shows the device's item and where a word occurs", function()
+			local got
+			_G.C4 = { GetProjectItems = function(_, ...)
+				got = { ... }
+				return XML
+			end }
+			local env = new_commands()
+			env.commands.Dev_Items({ FILTER = "devices, no_root_tags", DEVICE = "1234", TERM = "HIDDEN", WINDOW = "200" })
+			assert.same({ "DEVICES", "NO_ROOT_TAGS" }, got)
+			local text = table.concat(env.log.texts("always"), "\n")
+			assert.truthy(text:find("item 1234 @", 1, true))
+			assert.truthy(text:find("<item><id>1234</id><name>Example Switch", 1, true))
+			assert.truthy(text:find("HIDDEN occurs 2 time(s)", 1, true))
+		end)
+
+		it("refuses a filter it does not know, a bad device or window, and a missing API", function()
+			_G.C4 = { GetProjectItems = function() error("not asked") end }
+			local env = new_commands()
+			assert.has_no.errors(function()
+				env.commands.Dev_Items({ FILTER = "EVERYTHING" })
+				env.commands.Dev_Items({ DEVICE = "abc" })
+				env.commands.Dev_Items({ WINDOW = "5" })
+				env.commands.Dev_Items({ TERM = string.rep("x", 41) })
+			end)
+			_G.C4 = {}
+			assert.has_no.errors(function() env.commands.Dev_Items({}) end)
+			assert.equal(0, #env.log.texts("always"))
+		end)
+
+		it("says so when the device is not in the project", function()
+			_G.C4 = { GetProjectItems = function() return XML end }
+			local env = new_commands()
+			env.commands.Dev_Items({ DEVICE = "999" })
+			assert.truthy(table.concat(env.log.texts("always"), "\n"):find("no <id>999</id> in it", 1, true))
 		end)
 	end)
 
