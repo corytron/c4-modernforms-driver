@@ -339,7 +339,7 @@ describe("fan.devcmds", function()
 					names[#names + 1] = name
 				end
 				table.sort(names)
-				assert.same({ "Dev_Bindings", "Dev_Fan_State", "Dev_Items", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan",
+				assert.same({ "Dev_Bindings", "Dev_Code", "Dev_Fan_State", "Dev_Items", "Dev_Light_Steps", "Dev_Link", "Dev_Names_Plan",
 					"Dev_Press", "Dev_Proxy", "Dev_Request", "Dev_Search", "Dev_Vars" }, names)
 				assert.is_function(env.stop)
 			end)
@@ -971,6 +971,28 @@ describe("fan.devcmds", function()
 			local lines = env.log.texts("always")
 			assert.equal(devcmds.DUMP_LINES + 2, #lines)
 			assert.truthy(lines[#lines]:find("cut at", 1, true))
+		end)
+	end)
+
+	describe("Dev Code", function()
+		local saved
+		before_each(function() saved = _G.C4 end)
+		after_each(function() _G.C4 = saved end)
+
+		it("logs what GetCodeItems returns for a device's event, and refuses without ids or the API", function()
+			_G.C4 = { GetCodeItems = function(_, device, event)
+				return { codeitems = { { device = device, display = "Turn on", type = event } } }
+			end }
+			local env = new_commands()
+			env.commands.Dev_Code({ DEVICE = "12", EVENT = "5101" })
+			local text = table.concat(env.log.texts("always"), "\n")
+			assert.truthy(text:find("root.codeitems.1.display = Turn on", 1, true))
+			assert.truthy(text:find("root.codeitems.1.device = 12", 1, true))
+			local before = #env.log.texts("always")
+			env.commands.Dev_Code({ DEVICE = "12" })
+			_G.C4 = {}
+			env.commands.Dev_Code({ DEVICE = "12", EVENT = "1" })
+			assert.equal(before, #env.log.texts("always"))
 		end)
 	end)
 

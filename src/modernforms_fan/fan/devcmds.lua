@@ -984,6 +984,49 @@ function devcmds.new(opts)
 		end
 	end
 
+	-- DEVICE and EVENT: logs what C4:GetCodeItems returns for that device's
+	-- event, every nested key as a path (#247: can a driver see the Composer
+	-- programming that keeps a relay on?). Reads only.
+	local function dev_code(params)
+		params = type(params) == "table" and params or {}
+		local device, event = whole(params.DEVICE), whole(params.EVENT)
+		if not (device and event) then
+			return refuse("Dev Code", "DEVICE and EVENT must be ids")
+		end
+		local fn = c4_api("GetCodeItems")
+		if not fn then
+			return refuse("Dev Code", "this Director has no GetCodeItems")
+		end
+		local ok, data = pcall(fn, C4, device, event)
+		if not ok then
+			return log.always("Dev Code: %d/%d: failed: %s", device, event, plain(data, 120))
+		end
+		log.always("Dev Code: %d/%d: %s", device, event, type(data))
+		local lines = 0
+		local function dump(value, path, depth)
+			if lines >= devcmds.DUMP_LINES then
+				return
+			end
+			lines = lines + 1
+			if type(value) ~= "table" then
+				return log.always("Dev Code: %s = %s", path, plain(value, 160))
+			end
+			if depth >= 10 then
+				return log.always("Dev Code: %s = (deeper)", path)
+			end
+			local keys = {}
+			for key in pairs(value) do
+				keys[#keys + 1] = key
+			end
+			table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+			lines = lines - 1
+			for _, key in ipairs(keys) do
+				dump(value[key], path .. "." .. plain(key, 40), depth + 1)
+			end
+		end
+		dump(data, "root", 0)
+	end
+
 	-- FILTER: GetProjectItems filters, comma separated (none: the whole
 	-- project); DEVICE: show the XML from the item with that id on, WINDOW
 	-- characters (#247: does the project XML carry a switch's button settings
@@ -1640,6 +1683,7 @@ function devcmds.new(opts)
 
 	return {
 		Dev_Bindings = dev_bindings,
+		Dev_Code = dev_code,
 		Dev_Fan_State = dev_fan_state,
 		Dev_Items = dev_items,
 		Dev_Names_Plan = dev_names_plan,
