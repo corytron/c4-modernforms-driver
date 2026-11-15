@@ -11,9 +11,9 @@ first, and the [decisions that stand](#decided-not-open).
 
 ### The release
 
-**1.12 "Gom Jabbar", build 265** is the desired state (2026-11-15, #247): the LED pause leaves out by itself the lights that Control4 programming keeps on, read with C4:GetCodeItems; `Pause Leaves Out` shows them. The house's keep-on programming for its two always-on relays is Composer programming (#248, `docs/keep-on-design.md`). Until it is installed, a dev build of the fan (256-dev, then the #247 code through the dev loop) runs on the house.
+**1.12 "Gom Jabbar", build 265** is installed in place (2026-11-15; deployment 7807356720, success, "Driver Version 265 on 2 devices"; no controller reboot) (#247): the LED pause leaves out by itself the lights that Control4 programming keeps on, read with C4:GetCodeItems; `Pause Leaves Out` shows them. The house's keep-on programming for its two always-on relays is Composer programming (#248, `docs/keep-on-design.md`). `Pause Ignores Lights` is empty on the house; `Pause Leaves Out` names both relays as kept on by Control4 programming. Not yet seen: the pause starting at night with the 6 counted lights off.
 
-Before it: **1.11 "Hunter-Seeker", build 251** is installed in place (2026-11-14; deployment 7793489079, success, "Driver Version 251 on 2 devices"; the round in Discussion #245; no controller reboot) (#240: the pause only from sunset to 30 minutes after sunrise while every room light is off, nothing saved; the new row `Pause Ignores Lights` set to the two always-on switches beside the keypad dimmer). Before it, **build 244**, installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
+Before it: **1.11 "Hunter-Seeker", build 251** was installed in place (2026-11-14; deployment 7793489079, success, "Driver Version 251 on 2 devices"; the round in Discussion #245; no controller reboot) (#240: the pause only from sunset to 30 minutes after sunrise while every room light is off, nothing saved; the new row `Pause Ignores Lights` set to the two always-on switches beside the keypad dimmer). Before it, **build 244**, installed in place (2026-11-14; deploy issue #237, deployment 7792908618, success, "Driver Version 244 on 2 devices"; the round in Discussion #238; no controller reboot) (#233: the ambient pause of 1.9 and 1.10 withdrawn whole, at the owner's word after the chase stayed stopped in a sunny bedroom; the LED animations now pause while every light in the fan's room is off after sunset, until a light comes on; [`room-dark-pause-design.md`](room-dark-pause-design.md)). Before it, **1.10 "Shield Wall", build 236**, installed in place (2026-11-13; deploy issue #226; verified: the rebind 31 s after the restart and readings flowing when the owner covered the sensor, Discussion #229) (#223: the root cause of the stuck dark pause, measured on 2026-11-13: after the driver starts, the keypad sends it no readings until its binding is made again, so the driver now makes it again 30 s after every start; every keypad reading logged; a 12 h safety net; the last reading in `Keypad Links`). Before it, **build 226**, both packages (`modernforms_fan.c4z`
 and `modernforms_breeze_fan.c4z`), installed in place on 2026-11-13 (the
 hardening from the security review, #214; deploy issue #219, closed;
 deployment 7758179904, success, "Driver Version 226 on 2 devices"; the
@@ -70,7 +70,8 @@ brings is the first entry of the
 | | `Speed LED Animation` | Speeds 2 to 5 |
 | | `Speed LED Rest (s)` | 5 (the owner's choice, and the default since 1.7) |
 | | `Pause LED Animations` | Room lights off after sunset (the default, 1.11; `Pause LED Animations Below` 10 until 1.10) |
-| | `Pause Ignores Lights` | the two switches beside the keypad dimmer (relays that stay on to power Hue bulbs and an outlet; their Light State reads on day and night, #240) |
+| | `Pause Ignores Lights` | empty since 1.12 (#247): the two always-on relays are left out by themselves, because Composer programming keeps them on (#248) |
+| | `Pause Leaves Out` | both relays, "kept on by Control4 programming" |
 | | `Debug Mode` | Off on both devices (`deploy/house.yaml`) |
 | | Preset Level (the fan's settings page) | Level 3 |
 | Light item | Default On Brightness | 100 |
@@ -137,8 +138,9 @@ result goes as a comment:
   driver finds 8 lights in the fan's room (the keypad dimmer's load, the two
   switches, four lights of the Hue driver and the fan's own light), each
   reporting its Light State. The two switches are always-on relays (Light
-  State 1 day and night), so since build 251 `Pause Ignores Lights` leaves
-  them out: 6 lights count, all off at the install. On the house the
+  State 1 day and night), so since build 251 `Pause Ignores Lights` left
+  them out, and since 1.12 (#247) the driver leaves them out by itself
+  because Composer programming keeps them on (#248): 6 lights count. On the house the
   window opened at 17:01 on 2026-11-14 (the driver's `Night:` line). With
   every one of them off after sunset the chase and the gusts should stop
   (`Keypad Links` reads `; LED animations paused: room dark at night`, and
