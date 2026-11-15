@@ -38,6 +38,7 @@ worth running on a new house or a new controller OS.
 | 1.9 (#207) | the pause in the dark: `Pause LED Animations Below` and the Ambient Light Level (Follower) input (withdrawn in 1.11) | 8, 17; section O.1, 93 to 95 (**superseded** by 1.11) |
 | 1.11 (#233) | the pause at night: `Pause LED Animations`, from the room's lights and the sun; the ambient input and `Pause LED Animations Below` are gone | 2, 8, 17; section O, 96 to 101 |
 | 1.11 (#240, after build 244) | the pause is a condition, not a latch: only from sunset to 30 minutes after sunrise, and nothing kept over a restart; `Pause Ignores Lights` leaves out lights that are always on; 22 keypad LED rows | 1, 2, 8, 18, 24; section J.3's note; section M, 88; section O, 96 to 103 |
+| next build (#247) | the pause leaves out by itself a room light that Control4 programming keeps on (an *On* in its own *Turned Off* event); `Pause Ignores Lights` stays as the manual addition; the read-only `Pause Leaves Out` names the lights left out and why; 23 keypad LED rows | 1, 2, 8, 18, 24; section M, 88; section O, 103 to 105 |
 
 ## Before you start
 
@@ -60,7 +61,8 @@ worth running on a new house or a new controller OS.
   Breeze switch (step 59), the Breeze fan that Add Breeze Fan adds (step
   60), the Sets on the Click Rates and the Default Brightness Rate (steps 72
   and 73), the throw-away programming line of step 79, the Sets of sections
-  L to O and the same-build update of step 101.
+  L to O, the same-build update of step 101 and the keep-on line that
+  step 105 disables and enables again.
 - **The test buttons.** Since the cutover (2026-11-04) the house keypad's
   fan and light buttons are bound to this driver's links
   ([`status.md`](status.md)), so the steps press those buttons themselves:
@@ -150,7 +152,7 @@ installed, the keypad moved to its links and the stock device was deleted
      Fans` reads `1 fan found: pick it and click Set to use it` and lists
      `MF_Fan_005301 at 10.0.2.151` (`2 fans found: pick one and click Set to
      use it` if another fan is awake); `Last Action` stays empty. With
-     nothing bound, the 22 keypad LED rows hide by themselves within about
+     nothing bound, the 23 keypad LED rows hide by themselves within about
      20 seconds and `Keypad Links` reads `0 of 13 links bound; LED settings
      hidden: bind a button to a Fan Speed link` (section M). File » Refresh
      Navigators.
@@ -164,7 +166,9 @@ installed, the keypad moved to its links and the stock device was deleted
      the LED colour and animation rows, `Pause LED Animations`, `Pause
      Ignores Lights`, `Follow Address Changes`, `Fan ID`, `Debug Mode`, the preset speed and
      the light's settings read as before (an update from a build without a
-     row shows the new row at its default); `Status` reads `Online: …`
+     row shows the new row at its default); the read-only `Pause Leaves
+     Out` (#247) is written again at the start and names the same lights
+     as before, unless the room or its programming changed; `Status` reads `Online: …`
      again within a minute; `Keypad Links` still lists every binding, every
      connection (the Breeze fan's included) is still there, and the
      Navigators still show every tile. After an update from 1.9 or 1.10
@@ -278,9 +282,9 @@ installed, the keypad moved to its links and the stock device was deleted
 ## C. Properties, the Documentation tab and the Navigators
 
 8. **The rows.** Read the fan item's whole **Properties** tab, in order,
-   once with a button bound to a Fan Speed link (38 rows on a release build)
-   and once on a device with none (16 rows: the 22 keypad LED rows hidden,
-   section M).
+   once with a button bound to a Fan Speed link (39 rows on a release build;
+   38 before #247) and once on a device with none (16 rows: the 23 keypad
+   LED rows hidden, section M).
    - **Expect:** `Driver Version` the build, `Status` `Online: …`, `Last
      Action`, `Fan Address` the address, `Found Fans` (its first item a
      summary such as `This device's fan answered; no other fan found`,
@@ -295,7 +299,7 @@ installed, the keypad moved to its links and the stock device was deleted
      15, `Light Min On (%)` 0 (0 to 99; 1.8, #195), `Keypad Links` (`0 of 13
      links bound; LED settings hidden: bind a button to a Fan Speed link`
      with nothing bound, `<n> of 13 links bound; LED settings shown` with a
-     speed link bound; `of 12` before #111). Then the 22 keypad LED rows, in
+     speed link bound; `of 12` before #111). Then the 23 keypad LED rows, in
      this order and with these defaults: `Speed 1 Link Also Lit At` to
      `Speed 6 Link Also Lit At` all `No other speed`; `Speed LED Colors`
      `Keypad's own`; `Speed 1 LED Color` to `Speed 6 LED Color` `0,0,255` and
@@ -306,7 +310,10 @@ installed, the keypad moved to its links and the stock device was deleted
      LED Rest (s)` 5 (5 to 60) (#159, #177); `Pause LED Animations` `Room
      lights off after sunset` (`Room lights off after sunset`, `Never`;
      #233); `Pause Ignores Lights` empty (a picker of the project's lights,
-     several at once; #240). Last `Debug Mode` Off. A release build has no `Dev
+     several at once; #240); `Pause Leaves Out`, read-only: `None`, or each
+     room light the pause leaves out with its reason, for example
+     `Example Switch (123): kept on by Control4 programming` (#247). Last
+     `Debug Mode` Off. A release build has no `Dev
      Server` or `Dev State` row; there is no `Migration` or `Stock Device`
      row (gone since #45). On a fan without Breeze, `Breeze LED Animation`,
      `Breeze LED Step (ms)` and `Breeze LED Night Brightness (%)` stay hidden
@@ -316,7 +323,8 @@ installed, the keypad moved to its links and the stock device was deleted
      nothing bound (the 20 LED rows of 1.7 hidden). 1.8 added `Light Min
      On (%)`, 1.9 `Pause LED Animations Below`, 1.11 `Pause LED
      Animations` in its place and, after build 244 (#240), `Pause Ignores
-     Lights`; the whole list has not been read in order since.
+     Lights`, and #247 `Pause Leaves Out`; the whole list has not been read
+     in order since.
 9. **The Actions tab.**
    - **Expect:** six actions in this order: `Use Selected Fan`, `Name Items
      After Fan`, `Reboot Fan`, `Turn Off Away Mode`, `Turn Off Adaptive
@@ -412,7 +420,7 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** both lists show the binding; the button's LED Behavior
       reads Follow Connection (the binding sets it, seen with the probe on
       2026-10-27); `Keypad Links` reads `1 of 13 links bound; LED settings
-      shown` and `Fan Speed 3: <keypad> (<id>)`, and the 22 keypad LED rows
+      shown` and `Fan Speed 3: <keypad> (<id>)`, and the 23 keypad LED rows
       show (section M); the LED is already right for the fan's state. On the
       house, whose keypad is bound already, the count reads `7 of 13 links
       bound; LED settings shown` and the binding step is skipped.
@@ -452,7 +460,7 @@ installed, the keypad moved to its links and the stock device was deleted
     - **Expect:** the prompt names the two devices; both lists show the link
       unbound; `Keypad Links` reads `0 of 13 links bound; LED settings
       hidden: bind a button to a Fan Speed link` once no speed link is left
-      bound, and the 22 keypad LED rows hide about 8 seconds later (section
+      bound, and the 23 keypad LED rows hide about 8 seconds later (section
       M); set the button's LED
       Behavior back to Programmed (a Disconnect does not restore it) when the
       button is borrowed (R-K).
@@ -1362,10 +1370,11 @@ Rest (s)`.
 
 Written 2026-11-13 from the checks of
 [`keypad-leds-visibility-design.md`](keypad-leds-visibility-design.md#4-hardware-checks-windows-session-no-owner-needed)
-(section 4). The 22 keypad LED rows (`Speed 1` to `Speed 6 Link Also Lit
+(section 4). The 23 keypad LED rows (`Speed 1` to `Speed 6 Link Also Lit
 At`, `Speed LED Colors`, `Speed 1` to `Speed 6 LED Color`, `Speed LED Off
 Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED Rest
-(s)`, `Pause LED Animations` and `Pause Ignores Lights`; 21 in build 244
+(s)`, `Pause LED Animations`, `Pause Ignores Lights` and the read-only
+`Pause Leaves Out`; 22 before #247, without `Pause Leaves Out`; 21 in build 244
 of 1.11, with `Pause LED Animations` alone, and in 1.9 and 1.10, with
 `Pause LED Animations Below`; 20 before 1.9) show only while at
 least one device is bound to a Fan Speed link (301 to 306). They show at
@@ -1378,7 +1387,7 @@ scratch device; the brief names the device it adds and deletes.
     Properties page now and 20 seconds later (re-select if needed; note
     whether the open page redrew by itself). Read the house fan's page too.
     - **Expect:** at first every row, and `Keypad Links` `0 of 13 links
-      bound; LED settings shown`; within about 20 seconds the 22 rows are
+      bound; LED settings shown`; within about 20 seconds the 23 rows are
       gone, 16 rows are left, and `Keypad Links` reads `0 of 13 links bound;
       LED settings hidden: bind a button to a Fan Speed link`. The house
       fan's rows are all still there.
@@ -1440,12 +1449,12 @@ build is enough; no controller reboot. The brief names the Sets on the row.
       driver does not change the fan's level.
     - **Done:** open.
 
-## O. The pause at night (#233, #240)
+## O. The pause at night (#233, #240, #247)
 
 Written 2026-11-14 from
 [`room-dark-pause-design.md`](room-dark-pause-design.md) (the decisions
-RD-D1 to RD-D11 and the cases RE1 to RE14), and revised the same day for
-#240. With `Pause LED Animations` at `Room lights off after sunset` (the
+RD-D1 to RD-D11 and the cases RE1 to RE14), revised the same day for
+#240, and on 2026-11-15 for #247 (steps 103 to 105). With `Pause LED Animations` at `Room lights off after sunset` (the
 default), the speed chase and the Breeze gusts are paused exactly while it
 is between sunset and 30 minutes after sunrise at the project's location
 and every light in the fan item's room is off. Any light in the room coming
@@ -1453,7 +1462,13 @@ on brings them back at once, the last light going off inside that window
 pauses them again, and 30 minutes after sunrise they come back by
 themselves, even with every light still off. The room's lights are every
 Control4 light (`light_v2`) in that room, the fan's own light too when it
-is there, less the lights picked in `Pause Ignores Lights` (#240). Nothing
+is there, less the lights picked in `Pause Ignores Lights` (#240) and,
+since #247, less each light that Control4 programming keeps on: an enabled
+*On* to that same light in the script of its own *Turned Off* event
+([`ignored-lights-design.md`](ignored-lights-design.md), IL-D1 to IL-D8;
+on the house, the relays of [`keep-on-design.md`](keep-on-design.md)).
+The read-only `Pause Leaves Out`, right after `Pause Ignores Lights`,
+names each light left out and why. Nothing
 is kept over a driver update or a restart: the driver decides again as the
 lights report. (Build 244 of 1.11 latched instead: sunrise did not end a
 pause, and a pause was kept over a restart.) While paused, the steady LEDs
@@ -1462,8 +1477,10 @@ dark at night`; the pause and its end are written to the Lua tab whatever
 `Debug Mode` says. It replaces the pause in the dark of 1.9 and 1.10
 (section O.1). A release build is enough; no controller reboot. The brief
 names the Sets on `Pause LED Animations` and `Pause Ignores Lights` and the
-update of step 101. Steps 98 to 101 and 103 run after sunset with the chase
-running (section L), and step 102 on the following morning; the room's
+update of step 101, and step 105's disabling and re-enabling of one keep-on
+line. Steps 98 to 101, 103 and 104 run after sunset with the chase
+running (section L), step 102 on the following morning and step 105 at
+any time; the room's
 lights are switched from a Navigator or by hand, and left as they were
 found.
 
@@ -1545,11 +1562,13 @@ found.
 103. **`Pause Ignores Lights` leaves out a light that stays on (#240).** At
      night, with every light in the fan's room off except one that stays on
      (on the house, the switches that power smart bulbs or an outlet;
-     elsewhere any lamp left on), pick it in `Pause Ignores Lights` if it is
-     not picked yet (Set; the picker lists the project's Control4 lights,
-     several at once), then read `Keypad Links` and the Lua tab. Clear
-     `Pause Ignores Lights` (Set) and read again; then pick the same lights
-     again (Set).
+     elsewhere any lamp left on; since #247, a light with no keep-on
+     programming, because a light that programming keeps on is left out
+     whatever this row says: on the house a lamp left on), pick it in
+     `Pause Ignores Lights` if it is not picked yet (Set; the picker lists
+     the project's Control4 lights, several at once), then read `Keypad
+     Links` and the Lua tab. Clear `Pause Ignores Lights` (Set) and read
+     again; then pick the same lights again (Set).
      - **Expect:** with the lights picked, the chase is paused and `Keypad
        Links` ends `; LED animations paused: room dark at night`. Cleared,
        the room's lights are read again at once, the light that stays on
@@ -1557,6 +1576,46 @@ found.
        chase about 2.5 seconds later). Picked again, the pause starts again
        at once, as in step 98. With `Debug Mode` On, each Set writes the
        `Room lights: …` line, and the picked lights are not among them.
+       Since #247, `Pause Leaves Out` names the picked light with `in Pause
+       Ignores Lights` while it is picked, and not once cleared.
+     - **Done:** open.
+104. **`Pause Leaves Out` names the kept-on relays (#247: IL-D1, IL-D7).**
+     After the update that brings #247, with `Debug Mode` On, read `Pause
+     Ignores Lights` and `Pause Leaves Out`. Then, at night, note the value
+     of `Pause Ignores Lights`, empty it (Set), turn off every other light
+     in the fan's room, and read `Pause Leaves Out`, `Keypad Links` and the
+     Lua tab. Afterwards put `Pause Ignores Lights` back as the "Settings"
+     of [`status.md`](status.md#settings) list it (the owner may decide to
+     keep it empty once this step passes, IL-D6).
+     - **Expect:** `Pause Leaves Out` names every relay that the keep-on
+       programming covers (on the house, both relays of
+       [`keep-on-design.md`](keep-on-design.md)), each as `<name> (<id>):
+       kept on by Control4 programming` (or `in Pause Ignores Lights` while
+       still picked there), joined by `; `, and nothing else. With `Pause
+       Ignores Lights` empty, the relays are still named, with `kept on by
+       Control4 programming`; the Lua tab shows `Room lights: <n> in this
+       room (…)` without them (on the house 6 lights) and `Room lights: left
+       out: …` with the same text as the property; and with every counted
+       light off the pause starts, as in step 98, although the relays are on.
+     - **Done:** open.
+105. **A keep-on line disabled counts again (#247: IL-D3, IL-D8).** At any
+     time, in Composer's Programming, disable the *On* line in one relay's
+     *Turned Off* script (touch nothing else, and not the relay), then set
+     `Pause LED Animations` to `Never` and back to `Room lights off after
+     sunset` (Set, Set) to read the room at once, and read `Pause Leaves
+     Out` and the Lua tab. Enable the line again, set `Pause LED
+     Animations` to `Never` and back again, and read again. The brief names
+     the disable and the enable as programming changes covered by the
+     standing approval; the 1-minute check still keeps the relay on
+     meanwhile.
+     - **Expect:** with the line disabled, that relay is no longer in `Pause
+       Leaves Out` (unless it is picked in `Pause Ignores Lights`, which
+       then gives the reason), and the Lua tab's `Room lights: …` line
+       counts it; being on, it keeps the pause from starting (at night with
+       every other light off, the pause that `Never` ended does not start
+       again). Enabled again, it is named again with `kept on by Control4
+       programming` and drops out of the count (at night, the pause starts
+       again).
      - **Done:** open.
 
 ### O.1 The pause in the dark of 1.9 and 1.10 (#207, #223): the record

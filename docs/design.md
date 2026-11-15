@@ -169,6 +169,7 @@ entry points, properties, actions and events; the layout is
 | `speedleds.lua`, `ledhub.lua` | the speed chase, and the one owner of the speed links between the two engines | 1.6 (#159) |
 | `ledrows.lua` | showing the keypad LED rows only while a speed link is bound | 1.7 (#178) |
 | `roomdark.lua` | whether every light in the fan's room is off from sunset to 30 minutes after sunrise, which pauses the LED animations | 1.11 (#233, #240) |
+| `keepon.lua` | whether Control4 programming keeps a room light on (an *On* in its own *Turned Off* event), which leaves it out of the pause | #247 |
 | `devcmds.lua` | the signed development commands, in `--dev` builds only | 1.0 |
 
 `src/common/` is the owner's own Apache-2.0 code shared with the Hue
@@ -379,12 +380,13 @@ animate.
   they show at once and hide when nothing has been bound for 8 s; the three
   Breeze-only rows also hide on a fan without Breeze. Display only: hidden
   values are kept and still apply. 20 rows then, **21 since 1.9 (#207)**,
-  **22 since 1.11 (#240)**: `Speed 1` to `Speed 6 Link Also Lit At`,
-  `Speed LED Colors`, `Speed 1` to `Speed 6 LED Color`, `Speed LED Off
-  Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED
+  **22 since 1.11 (#240)**, **23 since #247**: `Speed 1` to `Speed 6
+  Link Also Lit At`, `Speed LED Colors`, `Speed 1` to `Speed 6 LED
+  Color`, `Speed LED Off Color`, the four `Breeze LED` rows, `Speed LED Animation`, `Speed LED
   Rest (s)` and, since 1.11 (#233), `Pause LED Animations` (`Pause LED
-  Animations Below` before) and (#240) `Pause Ignores Lights`. The pause
-  rows hide with the others but are not Breeze-only.
+  Animations Below` before), (#240) `Pause Ignores Lights` and (#247) the
+  read-only `Pause Leaves Out`. The pause rows hide with the others but
+  are not Breeze-only.
 - **Since 1.11 (#233):** the animations pause at night in a dark room
   (`fan/roomdark.lua`, [`room-dark-pause-design.md`](room-dark-pause-design.md)).
   The room's lights are every `light_v2` proxy in the fan item's room
@@ -393,7 +395,20 @@ animate.
   and each one's Light State (variable 1000) is watched with
   `C4:RegisterVariableListener`; the lights picked in `Pause Ignores
   Lights` (a multi-select `DEVICE_SELECTOR` of lights, empty by default,
-  #240) do not count, and a change to it reads the room again. Since #240
+  #240) do not count, and a change to it reads the room again. **Since
+  #247** a scan also leaves out, by itself, each room light that Control4
+  programming keeps on: an enabled *On* to that same light in the script
+  of its own *Turned Off* event (5101), read with `C4:GetCodeItems(proxy,
+  5101)` (OS 3.3.0) and judged by the pure `fan/keepon.lua`; a failed or
+  odd read means the light counts
+  ([`ignored-lights-design.md`](ignored-lights-design.md) IL-D1 to IL-D8).
+  `Pause Ignores Lights` stays as the dealer's manual addition, and the
+  read-only `Pause Leaves Out`, right after it, lists each light left out
+  and why (`Name (id): kept on by Control4 programming`, `Name (id): in
+  Pause Ignores Lights`, joined by `; `, or `None`), as does the info line
+  `Room lights: left out: ...`. The keep-on programming itself is the
+  house's Composer programming, in no driver
+  ([`keep-on-design.md`](keep-on-design.md), #248). Since #240
   the pause is a condition, not a latch: with `Pause LED Animations` at
   `Room lights off after sunset` (the default), the animations are paused
   exactly while it is inside the window from sunset to 30 minutes after

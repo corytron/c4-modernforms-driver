@@ -130,8 +130,9 @@ Read:
    still existed, kept build 115, the last that made its package.)
 2. The Properties page: no development-only rows (those between the
    `DEV-ONLY` markers of `driver.xml`: `Dev Server`, `Dev State`). On the
-   fan item 38 rows while a button is bound to a Fan Speed link, 16 without
-   one (the 22 keypad LED rows hidden); on the Breeze fan 3 rows
+   fan item 39 rows while a button is bound to a Fan Speed link (38 before
+   #247), 16 without one (the 23 keypad LED rows hidden); on the Breeze fan
+   3 rows
    ([`composer-checklist.md`](composer-checklist.md), steps 8 and 88). A
    row new in the release reads its default, except where the brief sets it.
 3. The Actions tab: the six actions section 0 counts; none on the Breeze
@@ -191,8 +192,14 @@ Read:
    brief and reads it back (1.6 set `Speed LED Animation`, 1.8 `Light Min
    On (%)`; 1.11 reads `Pause LED Animations` back at its default, `Room
    lights off after sunset`, and sets `Pause Ignores Lights` to the
-   room's lights that stay on); the values the house keeps are under
-   "Settings" in [`status.md`](status.md#settings).
+   room's lights that stay on; the release of #247 reads back the new
+   read-only `Pause Leaves Out`, which must name the room's relays that
+   Composer programming keeps on, each as `<name> (<id>): kept on by
+   Control4 programming`, since such a light is left out by itself
+   whatever `Pause Ignores Lights` says ([`ignored-lights-design.md`](ignored-lights-design.md),
+   IL-D1, IL-D7; [`composer-checklist.md`](composer-checklist.md), step
+   104)); the values the house keeps are under "Settings" in
+   [`status.md`](status.md#settings).
 
 ## 3. The owner, on the phone, the keypads and the fan
 

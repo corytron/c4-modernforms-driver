@@ -128,6 +128,12 @@ specification, and `status.md` says what of them is live. In release order:
   their Light State, the window at the project's location, the properties
   `Pause LED Animations` and `Pause Ignores Lights`, the edge cases and who
   owns which file.
+- [`ignored-lights-design.md`](ignored-lights-design.md): which room
+  lights the pause leaves out (#247): by itself, each light that Control4
+  programming keeps on (an *On* in its own *Turned Off* event, read with
+  `C4:GetCodeItems`), and anything unreadable counts; `Pause Ignores Lights`
+  stays as the dealer's manual addition, and the read-only `Pause Leaves
+  Out` names every light left out and why; the `fan/keepon.lua` interface.
 
 ## Research and edge cases
 
