@@ -153,6 +153,16 @@ or forbidden without a click. By feature:
 - [`edge-cases-modernforms.md`](edge-cases-modernforms.md): the fan's life
   seen from Modern Forms: addresses and identity, power cuts at the wall,
   replacements, resets, firmware, the app's schedules and automations.
+- [`keep-on-design.md`](keep-on-design.md): the house's Composer
+  programming that keeps always-on relay switches on (#248, no driver): the
+  project-load event, the Turned Off events, a 1-minute check, a maintenance
+  switch and a cap on re-ons, case by case.
+- [`keep-on-research.md`](keep-on-research.md): the research behind it:
+  what Composer's events, Timer and Scheduler agents offer, and what is
+  documented about startup, reboots and power-up.
+- [`edge-cases-ignored-lights.md`](edge-cases-ignored-lights.md): the
+  lifecycle cases of the always-on relays on both sides: which room lights
+  the pause counts (#247) and keeping the relays on (#248).
 - [`edge-cases-control4.md`](edge-cases-control4.md): the Control4 side:
   replacing the stock WAC driver step by step with a way back, updates,
   backups and restores, connections, programming events and the report
@@ -239,6 +249,9 @@ or forbidden without a click. By feature:
 - [`edge-cases-light-fades.md`](edge-cases-light-fades.md): the same fades
   from the fan's side: what one level step costs (measured), the step rate a
   fade can have, the corner cases on both sides and a hardware probe plan.
+- [`ignored-lights-sdk-research.md`](ignored-lights-sdk-research.md): what
+  a driver can read about another light (bindings, variables, project items,
+  programming) to tell an always-on relay from a lamp (#247).
 - [`min-on-sdk-research.md`](min-on-sdk-research.md): a Min On for the
   fan's light from Control4's side: light_v2's deprecated Range Levels
   against a driver property, what Control4 expects a Min On to do, and the
